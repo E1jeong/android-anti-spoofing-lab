@@ -1,0 +1,33 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+def ubioMavenUrl = providers.gradleProperty('UBIO_MAVEN_URL')
+        .orElse(localProperties.getProperty('UBIO_MAVEN_URL', ''))
+        .get()
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        if (!ubioMavenUrl.isEmpty()) {
+            maven {
+                url = uri(ubioMavenUrl)
+                allowInsecureProtocol = ubioMavenUrl.startsWith('http://')
+            }
+        }
+    }
+}
+
+rootProject.name = "ubio-anti-spoofing"
+include ':app'

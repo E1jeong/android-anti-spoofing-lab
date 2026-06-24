@@ -1,0 +1,11 @@
+{
+  "rgbInputIndex": 0,
+  "irInputIndex": 1,
+  "channelOrder": "RGB",
+  "rgbMean": 0.0,
+  "rgbStd": 255.0,
+  "irMean": 0.0,
+  "irStd": 255.0,
+  "outputIsLogits": true,
+  "cropMarginRatio": 0.15
+}

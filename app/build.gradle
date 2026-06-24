@@ -1,0 +1,75 @@
+plugins {
+    id 'com.android.application'
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+def localOrGradleProperty = { String name ->
+    providers.gradleProperty(name).orElse(localProperties.getProperty(name, '')).get()
+}
+def faceMeLicense = localOrGradleProperty('FACEME_LICENSE_KEY')
+def signingStore = localOrGradleProperty('UBIO_KEYSTORE_PATH')
+def signingAlias = localOrGradleProperty('UBIO_KEY_ALIAS')
+def signingKeyPassword = localOrGradleProperty('UBIO_KEY_PASSWORD')
+def signingStorePassword = localOrGradleProperty('UBIO_STORE_PASSWORD')
+
+android {
+    namespace 'com.virditech.ac7000'
+    compileSdk 34
+    buildToolsVersion '35.0.1'
+
+    defaultConfig {
+        applicationId 'com.virditech.ac7000'
+        minSdk 30
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+        buildConfigField 'String', 'FACEME_LICENSE_KEY', '"' + faceMeLicense.replace('"', '\\"') + '"'
+    }
+
+    signingConfigs {
+        if (!signingStore.isEmpty() && !signingAlias.isEmpty() && !signingKeyPassword.isEmpty() && !signingStorePassword.isEmpty()) {
+            ubioPlatform {
+                storeFile file(signingStore)
+                keyAlias signingAlias
+                keyPassword signingKeyPassword
+                storePassword signingStorePassword
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            if (signingConfigs.findByName('ubioPlatform') != null) {
+                signingConfig signingConfigs.ubioPlatform
+            }
+        }
+        release {
+            minifyEnabled false
+            if (signingConfigs.findByName('ubioPlatform') != null) {
+                signingConfig signingConfigs.ubioPlatform
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    androidResources {
+        noCompress 'tflite'
+    }
+}
+
+dependencies {
+    implementation 'com.cyberlink.faceme:faceme:6.17.11@aar'
+    implementation 'org.tensorflow:tensorflow-lite:2.16.1'
+}

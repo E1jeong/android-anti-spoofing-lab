@@ -1,0 +1,33 @@
+# Gradle and Android build output
+.gradle/
+**/build/
+local.properties
+
+# IDE and OS metadata
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Local environment and credentials
+.env*
+credentials.*
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.crt
+
+# Private model artifacts
+*.tflite
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
