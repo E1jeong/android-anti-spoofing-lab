@@ -69,7 +69,12 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         int height = shape[1];
         int width = shape[2];
         int channels = shape[3];
-        Bitmap crop = Bitmap.createBitmap(source, box.left, box.top, box.width(), box.height());
+        int bL = Math.max(0, box.left);
+        int bT = Math.max(0, box.top);
+        int bW = Math.min(source.getWidth() - bL, box.width());
+        int bH = Math.min(source.getHeight() - bT, box.height());
+        if (bW <= 0 || bH <= 0) return ByteBuffer.allocateDirect(width * height * channels * (tensor.dataType() == DataType.FLOAT32 ? 4 : 1)).order(ByteOrder.nativeOrder());
+        Bitmap crop = Bitmap.createBitmap(source, bL, bT, bW, bH);
         Bitmap scaled = Bitmap.createScaledBitmap(crop, width, height, true);
         if (scaled != crop) crop.recycle();
         int bytesPerValue = tensor.dataType() == DataType.FLOAT32 ? 4 : 1;

@@ -105,7 +105,7 @@ final class CameraStream {
                     if (image == null) return;
                     if (!frameDeliveryEnabled) return;
                     long start = SystemClock.elapsedRealtimeNanos();
-                    listener.onFrame(new FrameData(converter.toPortraitBitmap(image, !color, !color), image.getTimestamp(),
+                    listener.onFrame(new FrameData(converter.toPortraitBitmap(image, !color, false), image.getTimestamp(),
                             (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L));
                 } catch (Exception e) {
                     listener.onError("Frame conversion failed: " + e.getMessage());
