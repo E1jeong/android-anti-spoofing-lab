@@ -63,6 +63,7 @@ public final class MainActivity extends Activity {
     private TextureView irView;
     private OverlayView overlay;
     private ProgressBar loadingSpinner;
+    private ProgressBar irLoadingSpinner;
     private TextView performance;
     private TextView status;
     private ImageView irCropView;
@@ -163,6 +164,10 @@ public final class MainActivity extends Activity {
         irCropView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         irCropView.setBackgroundColor(Color.parseColor("#44000000"));
         irCropContainer.addView(irCropView, match());
+
+        irLoadingSpinner = new ProgressBar(this);
+        irLoadingSpinner.setIndeterminate(true);
+        irCropContainer.addView(irLoadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
         controlsLayout = new LinearLayout(this);
         controlsLayout.setOrientation(LinearLayout.VERTICAL);
@@ -654,6 +659,7 @@ public final class MainActivity extends Activity {
     private String formatPerformance() {
         if (loadingSpinner.getVisibility() == View.VISIBLE) {
             loadingSpinner.setVisibility(View.GONE);
+            irLoadingSpinner.setVisibility(View.GONE);
             if (!isCollecting) {
                 startCollectionButton.setEnabled(true);
                 switchButton.setEnabled(true);
