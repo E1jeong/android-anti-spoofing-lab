@@ -36,7 +36,7 @@ final class YuvConverter implements AutoCloseable {
         grayscalePaint.setColorFilter(new ColorMatrixColorFilter(grayscale));
     }
 
-    Bitmap toPortraitBitmap(Image image, boolean grayscale) {
+    Bitmap toPortraitBitmap(Image image, boolean grayscale, boolean flipHorizontal) {
         ensureBuffers(image.getWidth(), image.getHeight());
         copyToNv21(image, nv21);
         inputAllocation.copyFromUnchecked(nv21);
@@ -48,6 +48,9 @@ final class YuvConverter implements AutoCloseable {
         Matrix rotation = new Matrix();
         rotation.setRotate(-90f);
         rotation.postTranslate(0f, width);
+        if (flipHorizontal) {
+            rotation.postScale(-1f, 1f, height / 2f, width / 2f);
+        }
         new Canvas(portrait).drawBitmap(landscape, rotation, grayscale ? grayscalePaint : colorPaint);
         return portrait;
     }
