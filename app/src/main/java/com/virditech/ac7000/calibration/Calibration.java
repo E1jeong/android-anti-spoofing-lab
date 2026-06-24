@@ -13,6 +13,10 @@ public final class Calibration {
     private final float horizontal;
     private final float referenceFaceWidth;
 
+    public float getVertical() { return vertical; }
+    public float getHorizontal() { return horizontal; }
+    public float getReferenceFaceWidth() { return referenceFaceWidth; }
+
     private Calibration(float vertical, float horizontal, float referenceFaceWidth) {
         this.vertical = vertical;
         this.horizontal = horizontal;
@@ -23,9 +27,9 @@ public final class Calibration {
         return new Calibration(0f, 0f, 1f);
     }
 
-    public static Calibration fromFaces(Rect rgb, Rect ir) {
+    public static Calibration fromFaces(Rect rgb, Rect ir, int width) {
         float vertical = rgb.centerY() - ir.centerY();
-        float horizontal = ir.centerX() - rgb.centerX();
+        float horizontal = width - ir.centerX() - rgb.centerX();
         float faceWidth = rgb.width();
         if (Math.abs(vertical) > 200f || Math.abs(horizontal) > 200f || faceWidth <= 0f || faceWidth > 500f) {
             throw new IllegalArgumentException("Measured calibration values are invalid");
@@ -57,9 +61,9 @@ public final class Calibration {
         float xOffset = rgb.width() * horizontal / referenceFaceWidth;
         float yOffset = rgb.width() * vertical / referenceFaceWidth;
         return new Rect(
-                clamp(Math.round(rgb.left + xOffset), 0, width),
+                clamp(Math.round(width - rgb.right - xOffset), 0, width),
                 clamp(Math.round(rgb.top - yOffset), 0, height),
-                clamp(Math.round(rgb.right + xOffset), 0, width),
+                clamp(Math.round(width - rgb.left - xOffset), 0, width),
                 clamp(Math.round(rgb.bottom - yOffset), 0, height));
     }
 
@@ -79,19 +83,19 @@ public final class Calibration {
     }
 
     private static float readFloat(byte[] bytes, int offset) {
-        int bits = bytes[offset] << 24
-                | (bytes[offset + 1] & 0xff) << 16
-                | (bytes[offset + 2] & 0xff) << 8
-                | (bytes[offset + 3] & 0xff);
+        int bits = (bytes[offset + 3] & 0xff) << 24
+                | (bytes[offset + 2] & 0xff) << 16
+                | (bytes[offset + 1] & 0xff) << 8
+                | (bytes[offset] & 0xff);
         return Float.intBitsToFloat(bits);
     }
 
     private static void writeFloat(byte[] bytes, int offset, float value) {
         int bits = Float.floatToIntBits(value);
-        bytes[offset] = (byte) (bits >>> 24);
-        bytes[offset + 1] = (byte) (bits >>> 16);
-        bytes[offset + 2] = (byte) (bits >>> 8);
-        bytes[offset + 3] = (byte) bits;
+        bytes[offset + 3] = (byte) (bits >>> 24);
+        bytes[offset + 2] = (byte) (bits >>> 16);
+        bytes[offset + 1] = (byte) (bits >>> 8);
+        bytes[offset] = (byte) bits;
     }
 
     private static int clamp(int value, int min, int max) {

@@ -159,17 +159,21 @@ public final class MainActivity extends Activity {
         collectionProgress.setVisibility(View.GONE);
         controlsLayout.addView(collectionProgress);
 
+        int buttonWidth = getResources().getDisplayMetrics().widthPixels / 3;
+
         startCollectionButton = new Button(this);
         startCollectionButton.setText("START CAPTURE");
+        startCollectionButton.setEnabled(false);
         startCollectionButton.setOnClickListener(v -> startDataCollection());
-        controlsLayout.addView(startCollectionButton);
+        controlsLayout.addView(startCollectionButton, new LinearLayout.LayoutParams(buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         switchButton = new Button(this);
         switchButton.setText("SHOW IR");
+        switchButton.setEnabled(false);
         switchButton.setOnClickListener(v -> {
             setIrVisible(!showIr);
         });
-        controlsLayout.addView(switchButton);
+        controlsLayout.addView(switchButton, new LinearLayout.LayoutParams(buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         root.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
 
@@ -186,13 +190,17 @@ public final class MainActivity extends Activity {
             calibrationRequested.set(true);
             calibrationInstruction.setText("Hold still while RGB and IR faces are measured...");
         });
-        root.addView(calibrationConfirm, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
+        FrameLayout.LayoutParams confirmParams = wrap(Gravity.BOTTOM | Gravity.END, 16, 16);
+        confirmParams.width = buttonWidth;
+        root.addView(calibrationConfirm, confirmParams);
 
         calibrationCancel = new Button(this);
         calibrationCancel.setText("CANCEL");
         calibrationCancel.setVisibility(View.GONE);
         calibrationCancel.setOnClickListener(v -> exitCalibrationMode());
-        root.addView(calibrationCancel, wrap(Gravity.BOTTOM | Gravity.START, 16, 16));
+        FrameLayout.LayoutParams cancelParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
+        cancelParams.width = buttonWidth;
+        root.addView(calibrationCancel, cancelParams);
 
         calibrationHotspot = new View(this);
         calibrationHotspot.setOnClickListener(v -> recordCalibrationTap());
@@ -205,6 +213,8 @@ public final class MainActivity extends Activity {
         rgbView.setAlpha(showIr ? 0f : 1f);
         irView.setAlpha(showIr ? 1f : 0f);
         overlay.setShowIr(showIr);
+        overlay.setTranslationX(showIr ? irView.getTranslationX() : 0f);
+        overlay.setTranslationY(showIr ? irView.getTranslationY() : 0f);
         switchButton.setText(showIr ? "SHOW RGB" : "SHOW IR");
     }
 
@@ -398,7 +408,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             if (!calibrationMode) return;
-            Calibration measured = Calibration.fromFaces(detected, detectedIr);
+            Calibration measured = Calibration.fromFaces(detected, detectedIr, irWidth);
             try {
                 measured.save();
                 calibration = measured;
@@ -418,6 +428,22 @@ public final class MainActivity extends Activity {
             if (!resumed) return;
             overlay.showFace(detected, irDetected);
             performance.setText(formatPerformance());
+            if (calibration != null && detected != null) {
+                float sx = irView.getWidth() / 432f;
+                float sy = irView.getHeight() / 768f;
+                float scale = detected.width() / calibration.getReferenceFaceWidth();
+                float tx = calibration.getHorizontal() * scale * sx;
+                float ty = calibration.getVertical() * scale * sy;
+                irView.setTranslationX(tx);
+                irView.setTranslationY(ty);
+                overlay.setTranslationX(showIr ? tx : 0f);
+                overlay.setTranslationY(showIr ? ty : 0f);
+            } else {
+                irView.setTranslationX(0f);
+                irView.setTranslationY(0f);
+                overlay.setTranslationX(0f);
+                overlay.setTranslationY(0f);
+            }
         });
         if (calibrationMode) return;
 
@@ -451,6 +477,7 @@ public final class MainActivity extends Activity {
                         if (currentCount == 100) {
                             isCollecting = false;
                             startCollectionButton.setEnabled(true);
+                            switchButton.setEnabled(true);
                             startCollectionButton.setText("START CAPTURE");
                             collectionProgress.setVisibility(View.GONE);
                         }
@@ -461,7 +488,7 @@ public final class MainActivity extends Activity {
             }
         }
 
-        if (classifier == null || frame.ir == null) return;
+        if (isCollecting || classifier == null || frame.ir == null) return;
         Rect rgbCrop = FaceCrop.expand(detected, classifier.cropMarginRatio(), frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
         Rect irCrop = FaceCrop.expand(irDetected, classifier.cropMarginRatio(), frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
         submitInference(new InferenceTask(frame.detachPair(), rgbCrop, irCrop));
@@ -519,6 +546,7 @@ public final class MainActivity extends Activity {
         }
         if (isCollecting) return;
         startCollectionButton.setEnabled(false);
+        switchButton.setEnabled(false);
         startCollectionButton.setText("COLLECTING...");
         collectionProgress.setVisibility(View.VISIBLE);
         collectionProgress.setText("Captured: 0/100");
@@ -529,6 +557,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     status.setText("Failed to create base directory");
                     startCollectionButton.setEnabled(true);
+                    switchButton.setEnabled(true);
                     startCollectionButton.setText("START CAPTURE");
                 });
                 return;
@@ -542,6 +571,7 @@ public final class MainActivity extends Activity {
                         runOnUiThread(() -> {
                             status.setText("Failed to create target directory");
                             startCollectionButton.setEnabled(true);
+                            switchButton.setEnabled(true);
                             startCollectionButton.setText("START CAPTURE");
                         });
                         return;
@@ -592,6 +622,10 @@ public final class MainActivity extends Activity {
     private String formatPerformance() {
         if (loadingSpinner.getVisibility() == View.VISIBLE) {
             loadingSpinner.setVisibility(View.GONE);
+            if (!isCollecting) {
+                startCollectionButton.setEnabled(true);
+                switchButton.setEnabled(true);
+            }
         }
         return String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS",
                 rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps);
