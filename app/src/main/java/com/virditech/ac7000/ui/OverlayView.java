@@ -20,6 +20,7 @@ public final class OverlayView extends View {
     private ClassificationResult result;
     private boolean showIr;
     private boolean calibrationMode;
+    private boolean isCollecting;
 
     public OverlayView(Context context) {
         super(context);
@@ -40,6 +41,11 @@ public final class OverlayView extends View {
 
     public void setCalibrationMode(boolean calibrationMode) {
         this.calibrationMode = calibrationMode;
+        invalidate();
+    }
+
+    public void setCollecting(boolean collecting) {
+        this.isCollecting = collecting;
         invalidate();
     }
 
@@ -67,10 +73,18 @@ public final class OverlayView extends View {
         Rect source = showIr ? irBox : rgbBox;
         if (source == null) return;
         Rect box = map(source, 432, 768, getWidth(), getHeight(), !showIr);
-        int color = result == null ? Color.YELLOW
-                : result.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+        int color;
+        if (isCollecting) {
+            color = Color.WHITE;
+        } else {
+            color = result == null ? Color.YELLOW
+                    : result.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+        }
         boxPaint.setColor(color);
         canvas.drawRect(box, boxPaint);
+
+        if (isCollecting) return;
+
         float titleY = Math.max(32f, box.top - 10f);
         if (result == null) {
             canvas.drawText("FACE", box.left, titleY, textPaint);

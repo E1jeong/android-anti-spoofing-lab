@@ -476,6 +476,7 @@ public final class MainActivity extends Activity {
                         collectionProgress.setText("Captured: " + currentCount + "/100");
                         if (currentCount == 100) {
                             isCollecting = false;
+                            overlay.setCollecting(false);
                             startCollectionButton.setEnabled(true);
                             switchButton.setEnabled(true);
                             startCollectionButton.setText("START CAPTURE");
@@ -485,6 +486,7 @@ public final class MainActivity extends Activity {
                 });
             } else {
                 isCollecting = false;
+                runOnUiThread(() -> overlay.setCollecting(false));
             }
         }
 
@@ -583,6 +585,7 @@ public final class MainActivity extends Activity {
             currentCollectionDir = targetDir;
             collectionCount = 0;
             isCollecting = true;
+            runOnUiThread(() -> overlay.setCollecting(true));
         });
     }
 
