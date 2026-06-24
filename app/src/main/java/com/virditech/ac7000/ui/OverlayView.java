@@ -14,10 +14,12 @@ import java.util.Locale;
 public final class OverlayView extends View {
     private final Paint boxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint guidePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Rect rgbBox;
     private Rect irBox;
     private ClassificationResult result;
     private boolean showIr;
+    private boolean calibrationMode;
 
     public OverlayView(Context context) {
         super(context);
@@ -26,10 +28,18 @@ public final class OverlayView extends View {
         textPaint.setColor(Color.WHITE);
         textPaint.setTextSize(28f);
         textPaint.setShadowLayer(5f, 1f, 1f, Color.BLACK);
+        guidePaint.setColor(Color.WHITE);
+        guidePaint.setStyle(Paint.Style.STROKE);
+        guidePaint.setStrokeWidth(6f);
     }
 
     public void setShowIr(boolean showIr) {
         this.showIr = showIr;
+        invalidate();
+    }
+
+    public void setCalibrationMode(boolean calibrationMode) {
+        this.calibrationMode = calibrationMode;
         invalidate();
     }
 
@@ -53,9 +63,10 @@ public final class OverlayView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        if (calibrationMode) drawCalibrationGuide(canvas);
         Rect source = showIr ? irBox : rgbBox;
         if (source == null) return;
-        Rect box = map(source, 432, 768, getWidth(), getHeight(), !showIr);
+        Rect box = map(source, 432, 768, getWidth(), getHeight(), true);
         int color = result == null ? Color.YELLOW
                 : result.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         boxPaint.setColor(color);
@@ -73,6 +84,13 @@ public final class OverlayView extends View {
                     box.left, y, textPaint);
             y += 30f;
         }
+    }
+
+    private void drawCalibrationGuide(Canvas canvas) {
+        float size = getWidth() * 0.5f;
+        float left = (getWidth() - size) / 2f;
+        float top = getHeight() * 0.3125f;
+        canvas.drawRect(left, top, left + size, top + size, guidePaint);
     }
 
     private static Rect map(Rect source, int imageWidth, int imageHeight, int viewWidth, int viewHeight, boolean mirror) {
