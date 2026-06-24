@@ -19,6 +19,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import java.io.File;
@@ -60,6 +61,7 @@ public final class MainActivity extends Activity {
     private TextureView rgbView;
     private TextureView irView;
     private OverlayView overlay;
+    private ProgressBar loadingSpinner;
     private TextView performance;
     private TextView status;
     private TextView resultsLabel;
@@ -124,6 +126,10 @@ public final class MainActivity extends Activity {
         root.addView(rgbView, match());
         root.addView(irView, match());
         root.addView(overlay, match());
+
+        loadingSpinner = new ProgressBar(this);
+        loadingSpinner.setIndeterminate(true);
+        root.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
         performance = label(22f);
         FrameLayout.LayoutParams perfParams = wrap(Gravity.TOP | Gravity.END, 16, 16);
@@ -575,6 +581,9 @@ public final class MainActivity extends Activity {
     }
 
     private String formatPerformance() {
+        if (loadingSpinner.getVisibility() == View.VISIBLE) {
+            loadingSpinner.setVisibility(View.GONE);
+        }
         return String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS",
                 rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps);
     }
