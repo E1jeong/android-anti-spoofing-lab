@@ -33,6 +33,12 @@ public final class OverlayView extends View {
         invalidate();
     }
 
+    public void showFace(Rect rgbBox, Rect irBox) {
+        this.rgbBox = new Rect(rgbBox);
+        this.irBox = new Rect(irBox);
+        invalidate();
+    }
+
     public void show(Rect rgbBox, Rect irBox, ClassificationResult result) {
         this.rgbBox = new Rect(rgbBox);
         this.irBox = new Rect(irBox);
@@ -50,12 +56,17 @@ public final class OverlayView extends View {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         Rect source = showIr ? irBox : rgbBox;
-        if (source == null || result == null) return;
+        if (source == null) return;
         Rect box = map(source, 432, 768, getWidth(), getHeight(), !showIr);
-        int color = result.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+        int color = result == null ? Color.YELLOW
+                : result.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         boxPaint.setColor(color);
         canvas.drawRect(box, boxPaint);
         float titleY = Math.max(32f, box.top - 10f);
+        if (result == null) {
+            canvas.drawText("FACE", box.left, titleY, textPaint);
+            return;
+        }
         canvas.drawText(String.format(Locale.US, "%s %.1f%%",
                 ClassificationResult.LABELS[result.topIndex], result.probabilities[result.topIndex] * 100f), box.left, titleY, textPaint);
         float y = box.bottom + 34f;

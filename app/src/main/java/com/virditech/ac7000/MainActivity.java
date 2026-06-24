@@ -173,13 +173,15 @@ public final class MainActivity extends Activity {
     }
 
     private void process(FramePair pair) {
-        if (faceDetector == null || classifier == null || calibration == null) return;
+        if (faceDetector == null || calibration == null) return;
         Rect detected = faceDetector.detectLargest(pair.rgb.bitmap);
         if (detected == null) {
             runOnUiThread(overlay::clearResult);
             return;
         }
         Rect irDetected = calibration.rgbToIr(detected, pair.ir.bitmap.getWidth(), pair.ir.bitmap.getHeight());
+        runOnUiThread(() -> overlay.showFace(detected, irDetected));
+        if (classifier == null) return;
         Rect rgbCrop = FaceCrop.expand(detected, classifier.cropMarginRatio(), pair.rgb.bitmap.getWidth(), pair.rgb.bitmap.getHeight());
         Rect irCrop = FaceCrop.expand(irDetected, classifier.cropMarginRatio(), pair.ir.bitmap.getWidth(), pair.ir.bitmap.getHeight());
         ClassificationResult result = classifier.classify(pair.rgb.bitmap, rgbCrop, pair.ir.bitmap, irCrop);
