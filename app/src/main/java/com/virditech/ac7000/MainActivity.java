@@ -7,7 +7,6 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -19,6 +18,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -65,6 +65,7 @@ public final class MainActivity extends Activity {
     private ProgressBar loadingSpinner;
     private TextView performance;
     private TextView status;
+    private ImageView irCropView;
     private TextView resultsLabel;
     private TextView calibrationInstruction;
     private Button switchButton;
@@ -145,10 +146,23 @@ public final class MainActivity extends Activity {
         root.addView(resultsLabel, resultsParams);
         resetResultsLabelToZero();
 
-        status = label(20f);
+        status = label(14f);
         status.setText("Initializing...");
-        FrameLayout.LayoutParams statusParams = wrap(Gravity.TOP | Gravity.END, 16, 16);
+        FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 100);
         root.addView(status, statusParams);
+
+        int buttonWidth = getResources().getDisplayMetrics().widthPixels / 3;
+
+        FrameLayout irCropContainer = new FrameLayout(this);
+        FrameLayout.LayoutParams irCropParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
+        irCropParams.width = buttonWidth;
+        irCropParams.height = buttonWidth;
+        root.addView(irCropContainer, irCropParams);
+
+        irCropView = new ImageView(this);
+        irCropView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        irCropView.setBackgroundColor(Color.parseColor("#44000000"));
+        irCropContainer.addView(irCropView, match());
 
         controlsLayout = new LinearLayout(this);
         controlsLayout.setOrientation(LinearLayout.VERTICAL);
@@ -158,8 +172,6 @@ public final class MainActivity extends Activity {
         collectionProgress.setText("");
         collectionProgress.setVisibility(View.GONE);
         controlsLayout.addView(collectionProgress);
-
-        int buttonWidth = getResources().getDisplayMetrics().widthPixels / 3;
 
         startCollectionButton = new Button(this);
         startCollectionButton.setText("START CAPTURE");
@@ -424,10 +436,27 @@ public final class MainActivity extends Activity {
             return;
         }
 
+        Bitmap previewIrFace = null;
+        if (frame.ir != null && irDetected != null && classifier != null) {
+            float margin = classifier.cropMarginRatio();
+            Rect irR = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
+            int iL = Math.max(0, irR.left);
+            int iT = Math.max(0, irR.top);
+            int iW = Math.min(frame.ir.bitmap.getWidth() - iL, irR.width());
+            int iH = Math.min(frame.ir.bitmap.getHeight() - iT, irR.height());
+            if (iW > 0 && iH > 0) {
+                previewIrFace = Bitmap.createBitmap(frame.ir.bitmap, iL, iT, iW, iH);
+            }
+        }
+        final Bitmap finalPreviewIrFace = previewIrFace;
+
         runOnUiThread(() -> {
             if (!resumed) return;
             overlay.showFace(detected, irDetected);
             performance.setText(formatPerformance());
+            if (finalPreviewIrFace != null) {
+                irCropView.setImageBitmap(finalPreviewIrFace);
+            }
             if (calibration != null && detected != null) {
                 float sx = irView.getWidth() / 432f;
                 float sy = irView.getHeight() / 768f;
