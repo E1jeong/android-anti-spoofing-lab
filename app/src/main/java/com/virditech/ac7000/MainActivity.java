@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -87,6 +88,7 @@ public final class MainActivity extends Activity {
     private boolean resumed;
     private int calibrationTapCount;
     private long lastCalibrationTapMs;
+    private long lastFaceDetectedMs;
     private String normalStatusMessage = "Initializing...";
     private int trackingFrames;
     private int inferenceFrames;
@@ -132,7 +134,8 @@ public final class MainActivity extends Activity {
         root.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
         performance = label(22f);
-        FrameLayout.LayoutParams perfParams = wrap(Gravity.TOP | Gravity.END, 16, 16);
+        performance.setText(String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS", 0, 0, 0, 0.0f, 0, 0.0f));
+        FrameLayout.LayoutParams perfParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
         root.addView(performance, perfParams);
 
         resultsLabel = label(24f);
@@ -140,10 +143,11 @@ public final class MainActivity extends Activity {
         resultsLabel.setShadowLayer(5f, 1f, 1f, Color.BLACK);
         FrameLayout.LayoutParams resultsParams = wrap(Gravity.TOP | Gravity.START, 16, 16);
         root.addView(resultsLabel, resultsParams);
+        resetResultsLabelToZero();
 
         status = label(20f);
         status.setText("Initializing...");
-        FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
+        FrameLayout.LayoutParams statusParams = wrap(Gravity.TOP | Gravity.END, 16, 16);
         root.addView(status, statusParams);
 
         controlsLayout = new LinearLayout(this);
@@ -247,7 +251,7 @@ public final class MainActivity extends Activity {
         performance.setVisibility(View.VISIBLE);
         status.setText(normalStatusMessage);
         status.setVisibility(View.VISIBLE);
-        resultsLabel.setText("");
+        resetResultsLabelToZero();
         resultsLabel.setVisibility(View.VISIBLE);
         controlsLayout.setVisibility(View.VISIBLE);
         calibrationHotspot.setVisibility(View.VISIBLE);
@@ -369,9 +373,14 @@ public final class MainActivity extends Activity {
                     calibrationInstruction.setText("Exactly one RGB face is required. Try again.");
                 } else {
                     performance.setText(formatPerformance());
+                    if (SystemClock.elapsedRealtime() - lastFaceDetectedMs > 10_000L) {
+                        resetResultsLabelToZero();
+                    }
                 }
             });
             return;
+        } else {
+            lastFaceDetectedMs = SystemClock.elapsedRealtime();
         }
         int irWidth = frame.ir == null ? frame.rgb.bitmap.getWidth() : frame.ir.bitmap.getWidth();
         int irHeight = frame.ir == null ? frame.rgb.bitmap.getHeight() : frame.ir.bitmap.getHeight();
@@ -586,6 +595,15 @@ public final class MainActivity extends Activity {
         }
         return String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS",
                 rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps);
+    }
+
+    private void resetResultsLabelToZero() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
+            if (i > 0) sb.append("\n");
+            sb.append(String.format(Locale.US, "%s 0.0%%", ClassificationResult.LABELS[i]));
+        }
+        resultsLabel.setText(sb.toString());
     }
 
     private void clearPendingWork() {
