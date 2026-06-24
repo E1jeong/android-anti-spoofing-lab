@@ -51,7 +51,7 @@ public final class OverlayView extends View {
         super.onDraw(canvas);
         Rect source = showIr ? irBox : rgbBox;
         if (source == null || result == null) return;
-        Rect box = map(source, 432, 768, getWidth(), getHeight());
+        Rect box = map(source, 432, 768, getWidth(), getHeight(), !showIr);
         int color = result.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         boxPaint.setColor(color);
         canvas.drawRect(box, boxPaint);
@@ -66,11 +66,13 @@ public final class OverlayView extends View {
         }
     }
 
-    private static Rect map(Rect source, int imageWidth, int imageHeight, int viewWidth, int viewHeight) {
-        Rect mirrored = new Rect(imageWidth - source.right, source.top, imageWidth - source.left, source.bottom);
+    private static Rect map(Rect source, int imageWidth, int imageHeight, int viewWidth, int viewHeight, boolean mirror) {
+        Rect displayed = mirror
+                ? new Rect(imageWidth - source.right, source.top, imageWidth - source.left, source.bottom)
+                : source;
         float sx = viewWidth / (float) imageWidth;
         float sy = viewHeight / (float) imageHeight;
-        return new Rect(Math.round(mirrored.left * sx), Math.round(mirrored.top * sy),
-                Math.round(mirrored.right * sx), Math.round(mirrored.bottom * sy));
+        return new Rect(Math.round(displayed.left * sx), Math.round(displayed.top * sy),
+                Math.round(displayed.right * sx), Math.round(displayed.bottom * sy));
     }
 }

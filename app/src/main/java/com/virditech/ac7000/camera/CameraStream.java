@@ -132,6 +132,7 @@ final class CameraStream {
         matrix.postRotate(degrees, width / 2f, height / 2f);
         matrix.postScale(width / height, height / width, width / 2f, height / 2f);
         textureView.setTransform(matrix);
+        textureView.setScaleX(color ? 1f : -1f);
     }
 
     void stop() {
