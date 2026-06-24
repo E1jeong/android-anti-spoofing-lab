@@ -82,6 +82,13 @@ public final class FaceDetector implements AutoCloseable {
         return largest;
     }
 
+    public Rect detectSingle(Bitmap image) {
+        List<Integer> counts = recognizer.extractFaceEx(extractConfig, Collections.singletonList(image));
+        if (counts.isEmpty() || counts.get(0) != 1) return null;
+        FaceInfo info = recognizer.getFaceInfo(0, 0);
+        return info == null || info.boundingBox == null ? null : new Rect(info.boundingBox);
+    }
+
     @Override public void close() {
         if (recognizer != null) {
             recognizer.release();

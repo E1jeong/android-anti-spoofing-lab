@@ -2,18 +2,28 @@ package com.virditech.ac7000;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 
 import com.virditech.ac7000.calibration.Calibration;
 import com.virditech.ac7000.camera.DualCameraController;
@@ -39,10 +49,12 @@ public final class MainActivity extends Activity {
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final AtomicReference<TrackingFrame> pendingTracking = new AtomicReference<>();
     private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
     private final AtomicBoolean inferenceWorkerRunning = new AtomicBoolean();
+    private final AtomicBoolean calibrationRequested = new AtomicBoolean();
     private final Object irLock = new Object();
     private FrameData latestIr;
     private TextureView rgbView;
@@ -50,13 +62,29 @@ public final class MainActivity extends Activity {
     private OverlayView overlay;
     private TextView performance;
     private TextView status;
+    private TextView calibrationInstruction;
+    private Button switchButton;
+    private Button startCollectionButton;
+    private TextView collectionProgress;
+    private LinearLayout controlsLayout;
+    private Button calibrationConfirm;
+    private Button calibrationCancel;
+    private View calibrationHotspot;
     private DualCameraController cameras;
     private FaceDetector faceDetector;
     private AntiSpoofingClassifier classifier;
     private Calibration calibration;
     private final AppWatchdog appWatchdog = new AppWatchdog();
+    private volatile boolean isCollecting;
+    private volatile int collectionCount;
+    private File currentCollectionDir;
     private boolean showIr;
+    private boolean showIrBeforeCalibration;
+    private volatile boolean calibrationMode;
     private boolean resumed;
+    private int calibrationTapCount;
+    private long lastCalibrationTapMs;
+    private String normalStatusMessage = "Initializing...";
     private int trackingFrames;
     private int inferenceFrames;
     private long trackingWindowStartNs;
@@ -79,8 +107,9 @@ public final class MainActivity extends Activity {
         appWatchdog.start();
         buildUi();
         initializeEngines();
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE}, CAMERA_PERMISSION_REQUEST);
         }
     }
 
@@ -104,31 +133,127 @@ public final class MainActivity extends Activity {
         FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
         root.addView(status, statusParams);
 
-        Button switchButton = new Button(this);
+        controlsLayout = new LinearLayout(this);
+        controlsLayout.setOrientation(LinearLayout.VERTICAL);
+        controlsLayout.setGravity(Gravity.END | Gravity.BOTTOM);
+
+        collectionProgress = label(18f);
+        collectionProgress.setText("");
+        collectionProgress.setVisibility(View.GONE);
+        controlsLayout.addView(collectionProgress);
+
+        startCollectionButton = new Button(this);
+        startCollectionButton.setText("START CAPTURE");
+        startCollectionButton.setOnClickListener(v -> startDataCollection());
+        controlsLayout.addView(startCollectionButton);
+
+        switchButton = new Button(this);
         switchButton.setText("SHOW IR");
         switchButton.setOnClickListener(v -> {
-            showIr = !showIr;
-            rgbView.setAlpha(showIr ? 0f : 1f);
-            irView.setAlpha(showIr ? 1f : 0f);
-            overlay.setShowIr(showIr);
-            switchButton.setText(showIr ? "SHOW RGB" : "SHOW IR");
+            setIrVisible(!showIr);
         });
-        root.addView(switchButton, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
+        controlsLayout.addView(switchButton);
+
+        root.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
+
+        calibrationInstruction = label(24f);
+        calibrationInstruction.setText("Fit one face inside the guide, then press CONFIRM");
+        calibrationInstruction.setGravity(Gravity.CENTER);
+        calibrationInstruction.setVisibility(View.GONE);
+        root.addView(calibrationInstruction, wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 24));
+
+        calibrationConfirm = new Button(this);
+        calibrationConfirm.setText("CONFIRM");
+        calibrationConfirm.setVisibility(View.GONE);
+        calibrationConfirm.setOnClickListener(v -> {
+            calibrationRequested.set(true);
+            calibrationInstruction.setText("Hold still while RGB and IR faces are measured...");
+        });
+        root.addView(calibrationConfirm, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
+
+        calibrationCancel = new Button(this);
+        calibrationCancel.setText("CANCEL");
+        calibrationCancel.setVisibility(View.GONE);
+        calibrationCancel.setOnClickListener(v -> exitCalibrationMode());
+        root.addView(calibrationCancel, wrap(Gravity.BOTTOM | Gravity.START, 16, 16));
+
+        calibrationHotspot = new View(this);
+        calibrationHotspot.setOnClickListener(v -> recordCalibrationTap());
+        root.addView(calibrationHotspot, new FrameLayout.LayoutParams(dp(180), dp(180), Gravity.TOP | Gravity.START));
         setContentView(root);
+    }
+
+    private void setIrVisible(boolean visible) {
+        showIr = visible;
+        rgbView.setAlpha(showIr ? 0f : 1f);
+        irView.setAlpha(showIr ? 1f : 0f);
+        overlay.setShowIr(showIr);
+        switchButton.setText(showIr ? "SHOW RGB" : "SHOW IR");
+    }
+
+    private void recordCalibrationTap() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastCalibrationTapMs > 2_000L) calibrationTapCount = 0;
+        lastCalibrationTapMs = now;
+        if (++calibrationTapCount >= 5) {
+            calibrationTapCount = 0;
+            enterCalibrationMode();
+        }
+    }
+
+    private void enterCalibrationMode() {
+        if (calibrationMode) return;
+        calibrationMode = true;
+        calibrationRequested.set(false);
+        showIrBeforeCalibration = showIr;
+        setIrVisible(true);
+        overlay.clearResult();
+        overlay.setCalibrationMode(true);
+        performance.setVisibility(View.GONE);
+        status.setVisibility(View.GONE);
+        controlsLayout.setVisibility(View.GONE);
+        calibrationHotspot.setVisibility(View.GONE);
+        calibrationInstruction.setText("Fit one face inside the guide, then press CONFIRM");
+        calibrationInstruction.setVisibility(View.VISIBLE);
+        calibrationConfirm.setVisibility(View.VISIBLE);
+        calibrationCancel.setVisibility(View.VISIBLE);
+        if (cameras != null) cameras.setIrFramesEnabled(true);
+    }
+
+    private void exitCalibrationMode() {
+        if (!calibrationMode) return;
+        calibrationMode = false;
+        calibrationRequested.set(false);
+        overlay.setCalibrationMode(false);
+        overlay.clearResult();
+        setIrVisible(showIrBeforeCalibration);
+        calibrationInstruction.setVisibility(View.GONE);
+        calibrationConfirm.setVisibility(View.GONE);
+        calibrationCancel.setVisibility(View.GONE);
+        performance.setVisibility(View.VISIBLE);
+        status.setText(normalStatusMessage);
+        status.setVisibility(View.VISIBLE);
+        controlsLayout.setVisibility(View.VISIBLE);
+        calibrationHotspot.setVisibility(View.VISIBLE);
+        if (cameras != null) cameras.setIrFramesEnabled(true);
     }
 
     private void initializeEngines() {
         trackingExecutor.execute(() -> {
             StringBuilder messages = new StringBuilder();
             try { calibration = Calibration.load(); }
-            catch (Exception e) { messages.append("CALIBRATION REQUIRED: ").append(e.getMessage()); }
+            catch (Exception e) {
+                calibration = Calibration.identity();
+                messages.append("CALIBRATION NOT SET");
+            }
             try { faceDetector = new FaceDetector(getApplicationContext()); }
             catch (Exception e) { append(messages, e.getMessage()); }
             try { classifier = new AntiSpoofingClassifier(getApplicationContext()); }
             catch (Exception e) { append(messages, "MODEL REQUIRED: " + e.getMessage()); }
             String message = messages.length() == 0 ? "Ready" : messages.toString();
+            normalStatusMessage = message;
             runOnUiThread(() -> {
-                if (cameras != null) cameras.setIrFramesEnabled(classifier != null);
+                if (cameras != null) cameras.setIrFramesEnabled(true);
                 status.setText(message);
             });
         });
@@ -143,7 +268,7 @@ public final class MainActivity extends Activity {
             @Override public void onIr(FrameData frame) { offerIr(frame); }
             @Override public void onError(String message) { runOnUiThread(() -> status.setText(message)); }
         });
-        cameras.setIrFramesEnabled(classifier != null);
+        cameras.setIrFramesEnabled(true);
         cameras.start();
     }
 
@@ -155,6 +280,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        if (calibrationMode) exitCalibrationMode();
         resumed = false;
         if (cameras != null) {
             cameras.stop();
@@ -210,8 +336,11 @@ public final class MainActivity extends Activity {
 
     private void processTracking(TrackingFrame frame) {
         if (faceDetector == null || calibration == null) return;
+        boolean captureCalibration = calibrationMode && calibrationRequested.getAndSet(false);
         long start = SystemClock.elapsedRealtimeNanos();
-        Rect detected = faceDetector.detectLargest(frame.rgb.bitmap);
+        Rect detected = captureCalibration
+                ? faceDetector.detectSingle(frame.rgb.bitmap)
+                : faceDetector.detectLargest(frame.rgb.bitmap);
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         rgbConversionMs = frame.rgb.conversionMs;
         if (frame.ir != null) irConversionMs = frame.ir.conversionMs;
@@ -220,18 +349,93 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (!resumed) return;
                 overlay.clearResult();
-                performance.setText(formatPerformance());
+                if (captureCalibration) {
+                    calibrationInstruction.setText("Exactly one RGB face is required. Try again.");
+                } else {
+                    performance.setText(formatPerformance());
+                }
             });
             return;
         }
         int irWidth = frame.ir == null ? frame.rgb.bitmap.getWidth() : frame.ir.bitmap.getWidth();
         int irHeight = frame.ir == null ? frame.rgb.bitmap.getHeight() : frame.ir.bitmap.getHeight();
         Rect irDetected = calibration.rgbToIr(detected, irWidth, irHeight);
+
+        if (captureCalibration) {
+            if (frame.ir == null) {
+                calibrationRequested.set(true);
+                runOnUiThread(() -> calibrationInstruction.setText("Waiting for a synchronized IR frame. Hold still..."));
+                return;
+            }
+            Rect detectedIr = faceDetector.detectSingle(frame.ir.bitmap);
+            if (detectedIr == null) {
+                runOnUiThread(() -> calibrationInstruction.setText("Exactly one IR face is required. Try again."));
+                return;
+            }
+            if (!calibrationMode) return;
+            Calibration measured = Calibration.fromFaces(detected, detectedIr);
+            try {
+                measured.save();
+                calibration = measured;
+                normalStatusMessage = "Calibration saved";
+                runOnUiThread(() -> {
+                    if (!resumed) return;
+                    exitCalibrationMode();
+                    status.setText("Calibration saved");
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> calibrationInstruction.setText("Unable to save calibration. Try again."));
+            }
+            return;
+        }
+
         runOnUiThread(() -> {
             if (!resumed) return;
             overlay.showFace(detected, irDetected);
             performance.setText(formatPerformance());
         });
+        if (calibrationMode) return;
+
+        if (isCollecting && frame.ir != null) {
+            final int currentCount = collectionCount + 1;
+            if (currentCount <= 100) {
+                collectionCount = currentCount;
+                float margin = classifier != null ? classifier.cropMarginRatio() : 0.15f;
+                Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
+                int rL = Math.max(0, rgbR.left);
+                int rT = Math.max(0, rgbR.top);
+                int rW = Math.min(frame.rgb.bitmap.getWidth() - rL, rgbR.width());
+                int rH = Math.min(frame.rgb.bitmap.getHeight() - rT, rgbR.height());
+                final Bitmap rgbFace = rW > 0 && rH > 0 ? Bitmap.createBitmap(frame.rgb.bitmap, rL, rT, rW, rH) : null;
+                
+                Rect irR = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
+                int iL = Math.max(0, irR.left);
+                int iT = Math.max(0, irR.top);
+                int iW = Math.min(frame.ir.bitmap.getWidth() - iL, irR.width());
+                int iH = Math.min(frame.ir.bitmap.getHeight() - iT, irR.height());
+                final Bitmap irFace = iW > 0 && iH > 0 ? Bitmap.createBitmap(frame.ir.bitmap, iL, iT, iW, iH) : null;
+                
+                final File dir = currentCollectionDir;
+                ioExecutor.execute(() -> {
+                    if (rgbFace != null) saveBitmap(rgbFace, new File(dir, String.format(Locale.US, "rgb_%03d.jpg", currentCount)));
+                    if (irFace != null) saveBitmap(irFace, new File(dir, String.format(Locale.US, "ir_%03d.jpg", currentCount)));
+                    if (rgbFace != null) rgbFace.recycle();
+                    if (irFace != null) irFace.recycle();
+                    runOnUiThread(() -> {
+                        collectionProgress.setText("Captured: " + currentCount + "/100");
+                        if (currentCount == 100) {
+                            isCollecting = false;
+                            startCollectionButton.setEnabled(true);
+                            startCollectionButton.setText("START CAPTURE");
+                            collectionProgress.setVisibility(View.GONE);
+                        }
+                    });
+                });
+            } else {
+                isCollecting = false;
+            }
+        }
+
         if (classifier == null || frame.ir == null) return;
         Rect rgbCrop = FaceCrop.expand(detected, classifier.cropMarginRatio(), frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
         Rect irCrop = FaceCrop.expand(irDetected, classifier.cropMarginRatio(), frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
@@ -265,11 +469,68 @@ public final class MainActivity extends Activity {
                 task.pair.ir.bitmap, task.irCrop);
         inferenceMs = result.inferenceMs;
         updateInferenceFps();
+
         runOnUiThread(() -> {
             if (!resumed) return;
             overlay.showResult(result);
             performance.setText(formatPerformance());
         });
+    }
+
+    private void startDataCollection() {
+        if (!Environment.isExternalStorageManager()) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+            status.setText("Please grant All Files Access and try again.");
+            return;
+        }
+        if (isCollecting) return;
+        startCollectionButton.setEnabled(false);
+        startCollectionButton.setText("COLLECTING...");
+        collectionProgress.setVisibility(View.VISIBLE);
+        collectionProgress.setText("Captured: 0/100");
+        
+        ioExecutor.execute(() -> {
+            File baseDir = new File("/sdcard/Pictures");
+            if (!baseDir.exists() && !baseDir.mkdirs()) {
+                runOnUiThread(() -> {
+                    status.setText("Failed to create base directory");
+                    startCollectionButton.setEnabled(true);
+                    startCollectionButton.setText("START CAPTURE");
+                });
+                return;
+            }
+            int n = 1;
+            File targetDir;
+            while (true) {
+                targetDir = new File(baseDir, "train_" + n);
+                if (!targetDir.exists()) {
+                    if (!targetDir.mkdirs()) {
+                        runOnUiThread(() -> {
+                            status.setText("Failed to create target directory");
+                            startCollectionButton.setEnabled(true);
+                            startCollectionButton.setText("START CAPTURE");
+                        });
+                        return;
+                    }
+                    break;
+                }
+                n++;
+            }
+            currentCollectionDir = targetDir;
+            collectionCount = 0;
+            isCollecting = true;
+        });
+    }
+
+    private void saveBitmap(Bitmap bitmap, File file) {
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
+        } catch (IOException e) {
+            runOnUiThread(() -> status.setText("Save failed: " + e.getMessage()));
+            e.printStackTrace();
+        }
     }
 
     private void updateTrackingFps() {
@@ -324,6 +585,7 @@ public final class MainActivity extends Activity {
         clearPendingWork();
         trackingExecutor.shutdownNow();
         inferenceExecutor.shutdownNow();
+        ioExecutor.shutdownNow();
         if (classifier != null) classifier.close();
         if (faceDetector != null) faceDetector.close();
         appWatchdog.close();
@@ -386,6 +648,10 @@ public final class MainActivity extends Activity {
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, gravity);
         params.setMargins(horizontalMargin, verticalMargin, horizontalMargin, verticalMargin);
         return params;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private static void append(StringBuilder builder, String message) {
