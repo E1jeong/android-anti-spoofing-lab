@@ -19,7 +19,6 @@ import com.virditech.ac7000.calibration.Calibration;
 import com.virditech.ac7000.camera.DualCameraController;
 import com.virditech.ac7000.camera.FrameData;
 import com.virditech.ac7000.camera.FramePair;
-import com.virditech.ac7000.camera.FrameSynchronizer;
 import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.device.HardwareControls;
 import com.virditech.ac7000.device.AppWatchdog;
@@ -36,26 +35,38 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class MainActivity extends Activity {
     private static final int CAMERA_PERMISSION_REQUEST = 10;
+    private static final long MAX_PAIR_DELTA_NS = 50_000_000L;
 
+    private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
-    private final AtomicReference<FramePair> pendingPair = new AtomicReference<>();
-    private final AtomicBoolean workerRunning = new AtomicBoolean();
+    private final AtomicReference<TrackingFrame> pendingTracking = new AtomicReference<>();
+    private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
+    private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
+    private final AtomicBoolean inferenceWorkerRunning = new AtomicBoolean();
+    private final Object irLock = new Object();
+    private FrameData latestIr;
     private TextureView rgbView;
     private TextureView irView;
     private OverlayView overlay;
     private TextView performance;
     private TextView status;
     private DualCameraController cameras;
-    private FrameSynchronizer synchronizer;
     private FaceDetector faceDetector;
     private AntiSpoofingClassifier classifier;
     private Calibration calibration;
     private final AppWatchdog appWatchdog = new AppWatchdog();
     private boolean showIr;
     private boolean resumed;
-    private int completedFrames;
-    private long fpsWindowStartNs;
-    private float processingFps;
+    private int trackingFrames;
+    private int inferenceFrames;
+    private long trackingWindowStartNs;
+    private long inferenceWindowStartNs;
+    private volatile long rgbConversionMs;
+    private volatile long irConversionMs;
+    private volatile long detectionMs;
+    private volatile long inferenceMs;
+    private volatile float trackingFps;
+    private volatile float inferenceFps;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -67,7 +78,6 @@ public final class MainActivity extends Activity {
         getWindow().setAttributes(windowAttributes);
         appWatchdog.start();
         buildUi();
-        synchronizer = new FrameSynchronizer(this::submitLatest);
         initializeEngines();
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
@@ -108,7 +118,7 @@ public final class MainActivity extends Activity {
     }
 
     private void initializeEngines() {
-        inferenceExecutor.execute(() -> {
+        trackingExecutor.execute(() -> {
             StringBuilder messages = new StringBuilder();
             try { calibration = Calibration.load(); }
             catch (Exception e) { messages.append("CALIBRATION REQUIRED: ").append(e.getMessage()); }
@@ -117,7 +127,10 @@ public final class MainActivity extends Activity {
             try { classifier = new AntiSpoofingClassifier(getApplicationContext()); }
             catch (Exception e) { append(messages, "MODEL REQUIRED: " + e.getMessage()); }
             String message = messages.length() == 0 ? "Ready" : messages.toString();
-            runOnUiThread(() -> status.setText(message));
+            runOnUiThread(() -> {
+                if (cameras != null) cameras.setIrFramesEnabled(classifier != null);
+                status.setText(message);
+            });
         });
     }
 
@@ -126,10 +139,11 @@ public final class MainActivity extends Activity {
         HardwareControls.setLcdBrightness(90);
         HardwareControls.setIrLed(true);
         cameras = new DualCameraController(this, rgbView, irView, new DualCameraController.Listener() {
-            @Override public void onRgb(FrameData frame) { synchronizer.offerRgb(frame); }
-            @Override public void onIr(FrameData frame) { synchronizer.offerIr(frame); }
+            @Override public void onRgb(FrameData frame) { submitTracking(frame); }
+            @Override public void onIr(FrameData frame) { offerIr(frame); }
             @Override public void onError(String message) { runOnUiThread(() -> status.setText(message)); }
         });
+        cameras.setIrFramesEnabled(classifier != null);
         cameras.start();
     }
 
@@ -147,60 +161,154 @@ public final class MainActivity extends Activity {
             cameras = null;
         }
         HardwareControls.setIrLed(false);
-        if (synchronizer != null) synchronizer.clear();
-        FramePair pair = pendingPair.getAndSet(null);
-        if (pair != null) pair.recycle();
+        clearPendingWork();
+        overlay.clearResult();
         super.onPause();
     }
 
-    private void submitLatest(FramePair pair) {
-        FramePair replaced = pendingPair.getAndSet(pair);
-        if (replaced != null) replaced.recycle();
-        if (workerRunning.compareAndSet(false, true)) inferenceExecutor.execute(this::drainPairs);
+    private void offerIr(FrameData frame) {
+        synchronized (irLock) {
+            if (latestIr != null) latestIr.recycle();
+            latestIr = frame;
+        }
     }
 
-    private void drainPairs() {
+    private void submitTracking(FrameData rgb) {
+        FrameData ir = null;
+        synchronized (irLock) {
+            if (latestIr != null) {
+                long delta = rgb.timestampNs - latestIr.timestampNs;
+                if (Math.abs(delta) <= MAX_PAIR_DELTA_NS) {
+                    ir = latestIr;
+                    latestIr = null;
+                } else if (delta > MAX_PAIR_DELTA_NS) {
+                    latestIr.recycle();
+                    latestIr = null;
+                }
+            }
+        }
+        TrackingFrame replaced = pendingTracking.getAndSet(new TrackingFrame(rgb, ir));
+        if (replaced != null) replaced.recycle();
+        if (trackingWorkerRunning.compareAndSet(false, true)) trackingExecutor.execute(this::drainTracking);
+    }
+
+    private void drainTracking() {
         try {
-            FramePair pair;
-            while ((pair = pendingPair.getAndSet(null)) != null) {
-                try { process(pair); }
-                finally { pair.recycle(); }
+            TrackingFrame frame;
+            while ((frame = pendingTracking.getAndSet(null)) != null) {
+                try { processTracking(frame); }
+                catch (Exception e) { runOnUiThread(() -> status.setText("Tracking failed")); }
+                finally { frame.recycle(); }
             }
         } finally {
-            workerRunning.set(false);
-            if (pendingPair.get() != null && workerRunning.compareAndSet(false, true)) inferenceExecutor.execute(this::drainPairs);
+            trackingWorkerRunning.set(false);
+            if (pendingTracking.get() != null && trackingWorkerRunning.compareAndSet(false, true)) {
+                trackingExecutor.execute(this::drainTracking);
+            }
         }
     }
 
-    private void process(FramePair pair) {
+    private void processTracking(TrackingFrame frame) {
         if (faceDetector == null || calibration == null) return;
-        Rect detected = faceDetector.detectLargest(pair.rgb.bitmap);
+        long start = SystemClock.elapsedRealtimeNanos();
+        Rect detected = faceDetector.detectLargest(frame.rgb.bitmap);
+        detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
+        rgbConversionMs = frame.rgb.conversionMs;
+        if (frame.ir != null) irConversionMs = frame.ir.conversionMs;
+        updateTrackingFps();
         if (detected == null) {
-            runOnUiThread(overlay::clearResult);
+            runOnUiThread(() -> {
+                if (!resumed) return;
+                overlay.clearResult();
+                performance.setText(formatPerformance());
+            });
             return;
         }
-        Rect irDetected = calibration.rgbToIr(detected, pair.ir.bitmap.getWidth(), pair.ir.bitmap.getHeight());
-        runOnUiThread(() -> overlay.showFace(detected, irDetected));
-        if (classifier == null) return;
-        Rect rgbCrop = FaceCrop.expand(detected, classifier.cropMarginRatio(), pair.rgb.bitmap.getWidth(), pair.rgb.bitmap.getHeight());
-        Rect irCrop = FaceCrop.expand(irDetected, classifier.cropMarginRatio(), pair.ir.bitmap.getWidth(), pair.ir.bitmap.getHeight());
-        ClassificationResult result = classifier.classify(pair.rgb.bitmap, rgbCrop, pair.ir.bitmap, irCrop);
-        updateFps();
+        int irWidth = frame.ir == null ? frame.rgb.bitmap.getWidth() : frame.ir.bitmap.getWidth();
+        int irHeight = frame.ir == null ? frame.rgb.bitmap.getHeight() : frame.ir.bitmap.getHeight();
+        Rect irDetected = calibration.rgbToIr(detected, irWidth, irHeight);
         runOnUiThread(() -> {
-            overlay.show(detected, irDetected, result);
-            performance.setText(String.format(Locale.US, "Inference %d ms\nProcessing %.1f FPS", result.inferenceMs, processingFps));
+            if (!resumed) return;
+            overlay.showFace(detected, irDetected);
+            performance.setText(formatPerformance());
+        });
+        if (classifier == null || frame.ir == null) return;
+        Rect rgbCrop = FaceCrop.expand(detected, classifier.cropMarginRatio(), frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
+        Rect irCrop = FaceCrop.expand(irDetected, classifier.cropMarginRatio(), frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
+        submitInference(new InferenceTask(frame.detachPair(), rgbCrop, irCrop));
+    }
+
+    private void submitInference(InferenceTask task) {
+        InferenceTask replaced = pendingInference.getAndSet(task);
+        if (replaced != null) replaced.recycle();
+        if (inferenceWorkerRunning.compareAndSet(false, true)) inferenceExecutor.execute(this::drainInference);
+    }
+
+    private void drainInference() {
+        try {
+            InferenceTask task;
+            while ((task = pendingInference.getAndSet(null)) != null) {
+                try { processInference(task); }
+                catch (Exception e) { runOnUiThread(() -> status.setText("Inference failed")); }
+                finally { task.recycle(); }
+            }
+        } finally {
+            inferenceWorkerRunning.set(false);
+            if (pendingInference.get() != null && inferenceWorkerRunning.compareAndSet(false, true)) {
+                inferenceExecutor.execute(this::drainInference);
+            }
+        }
+    }
+
+    private void processInference(InferenceTask task) {
+        ClassificationResult result = classifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
+                task.pair.ir.bitmap, task.irCrop);
+        inferenceMs = result.inferenceMs;
+        updateInferenceFps();
+        runOnUiThread(() -> {
+            if (!resumed) return;
+            overlay.showResult(result);
+            performance.setText(formatPerformance());
         });
     }
 
-    private void updateFps() {
+    private void updateTrackingFps() {
         long now = SystemClock.elapsedRealtimeNanos();
-        if (fpsWindowStartNs == 0L) fpsWindowStartNs = now;
-        completedFrames++;
-        long elapsed = now - fpsWindowStartNs;
+        if (trackingWindowStartNs == 0L) trackingWindowStartNs = now;
+        trackingFrames++;
+        long elapsed = now - trackingWindowStartNs;
         if (elapsed >= 1_000_000_000L) {
-            processingFps = completedFrames * 1_000_000_000f / elapsed;
-            completedFrames = 0;
-            fpsWindowStartNs = now;
+            trackingFps = trackingFrames * 1_000_000_000f / elapsed;
+            trackingFrames = 0;
+            trackingWindowStartNs = now;
+        }
+    }
+
+    private void updateInferenceFps() {
+        long now = SystemClock.elapsedRealtimeNanos();
+        if (inferenceWindowStartNs == 0L) inferenceWindowStartNs = now;
+        inferenceFrames++;
+        long elapsed = now - inferenceWindowStartNs;
+        if (elapsed >= 1_000_000_000L) {
+            inferenceFps = inferenceFrames * 1_000_000_000f / elapsed;
+            inferenceFrames = 0;
+            inferenceWindowStartNs = now;
+        }
+    }
+
+    private String formatPerformance() {
+        return String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS",
+                rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps);
+    }
+
+    private void clearPendingWork() {
+        TrackingFrame tracking = pendingTracking.getAndSet(null);
+        if (tracking != null) tracking.recycle();
+        InferenceTask inference = pendingInference.getAndSet(null);
+        if (inference != null) inference.recycle();
+        synchronized (irLock) {
+            if (latestIr != null) latestIr.recycle();
+            latestIr = null;
         }
     }
 
@@ -213,14 +321,53 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         if (cameras != null) cameras.stop();
         HardwareControls.setIrLed(false);
-        if (synchronizer != null) synchronizer.clear();
-        FramePair pair = pendingPair.getAndSet(null);
-        if (pair != null) pair.recycle();
+        clearPendingWork();
+        trackingExecutor.shutdownNow();
         inferenceExecutor.shutdownNow();
         if (classifier != null) classifier.close();
         if (faceDetector != null) faceDetector.close();
         appWatchdog.close();
         super.onDestroy();
+    }
+
+    private static final class TrackingFrame {
+        private FrameData rgb;
+        private FrameData ir;
+
+        TrackingFrame(FrameData rgb, FrameData ir) {
+            this.rgb = rgb;
+            this.ir = ir;
+        }
+
+        FramePair detachPair() {
+            FramePair pair = new FramePair(rgb, ir);
+            rgb = null;
+            ir = null;
+            return pair;
+        }
+
+        void recycle() {
+            if (rgb != null) rgb.recycle();
+            if (ir != null) ir.recycle();
+            rgb = null;
+            ir = null;
+        }
+    }
+
+    private static final class InferenceTask {
+        final FramePair pair;
+        final Rect rgbCrop;
+        final Rect irCrop;
+
+        InferenceTask(FramePair pair, Rect rgbCrop, Rect irCrop) {
+            this.pair = pair;
+            this.rgbCrop = rgbCrop;
+            this.irCrop = irCrop;
+        }
+
+        void recycle() {
+            pair.recycle();
+        }
     }
 
     private TextView label(float size) {

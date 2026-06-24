@@ -37,6 +37,10 @@ public final class DualCameraController {
         ir.start(new Handler(irThread.getLooper()));
     }
 
+    public void setIrFramesEnabled(boolean enabled) {
+        ir.setFrameDeliveryEnabled(enabled);
+    }
+
     public void stop() {
         rgb.stop();
         ir.stop();

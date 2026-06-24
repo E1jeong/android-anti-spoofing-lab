@@ -11,11 +11,11 @@ Only the device, camera, calibration, face-detection, and lifecycle behavior req
 The application performs the following pipeline:
 
 1. Capture RGB and IR frames from the device cameras.
-2. Pair frames whose timestamps are within the synchronization tolerance.
-3. Detect the largest face in the RGB frame with FaceMe.
+2. Detect the largest face from the latest RGB frame with FaceMe and update the overlay independently of model inference.
+3. Match the latest IR frame within the timestamp tolerance for anti-spoofing inference.
 4. Map the RGB face region to IR coordinates using the device calibration file, then expand both crops according to the model specification.
-5. Run the RGB and IR crops through the TensorFlow Lite anti-spoofing model.
-6. Display the four-class probabilities, top result, inference time, and processing FPS over the RGB or IR preview.
+5. Run the matched RGB and IR crops through the TensorFlow Lite anti-spoofing model on a separate worker.
+6. Display the four-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
 
 ## Model Contract
 

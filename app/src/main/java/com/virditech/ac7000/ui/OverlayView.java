@@ -39,9 +39,7 @@ public final class OverlayView extends View {
         invalidate();
     }
 
-    public void show(Rect rgbBox, Rect irBox, ClassificationResult result) {
-        this.rgbBox = new Rect(rgbBox);
-        this.irBox = new Rect(irBox);
+    public void showResult(ClassificationResult result) {
         this.result = result;
         invalidate();
     }

@@ -16,6 +16,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
@@ -33,16 +34,19 @@ final class CameraStream {
     private final TextureView textureView;
     private final boolean color;
     private final Listener listener;
+    private final YuvConverter converter;
     private CameraDevice device;
     private CameraCaptureSession session;
     private ImageReader reader;
     private Handler handler;
+    private volatile boolean frameDeliveryEnabled = true;
 
     CameraStream(Context context, TextureView textureView, boolean color, Listener listener) {
         this.context = context;
         this.textureView = textureView;
         this.color = color;
         this.listener = listener;
+        converter = new YuvConverter(context);
     }
 
     void start(Handler handler) {
@@ -54,6 +58,10 @@ final class CameraStream {
             @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) { return true; }
             @Override public void onSurfaceTextureUpdated(SurfaceTexture surface) {}
         });
+    }
+
+    void setFrameDeliveryEnabled(boolean enabled) {
+        frameDeliveryEnabled = enabled;
     }
 
     @SuppressLint("MissingPermission")
@@ -95,7 +103,10 @@ final class CameraStream {
             reader.setOnImageAvailableListener(r -> {
                 try (Image image = r.acquireLatestImage()) {
                     if (image == null) return;
-                    listener.onFrame(new FrameData(YuvConverter.toPortraitBitmap(image, !color), image.getTimestamp()));
+                    if (!frameDeliveryEnabled) return;
+                    long start = SystemClock.elapsedRealtimeNanos();
+                    listener.onFrame(new FrameData(converter.toPortraitBitmap(image, !color), image.getTimestamp(),
+                            (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L));
                 } catch (Exception e) {
                     listener.onError("Frame conversion failed: " + e.getMessage());
                 }
@@ -144,5 +155,11 @@ final class CameraStream {
         if (reader != null) { reader.close(); reader = null; }
         if (session != null) { session.close(); session = null; }
         if (device != null) { device.close(); device = null; }
+        if (handler != null) {
+            handler.post(converter::close);
+            handler = null;
+        } else {
+            converter.close();
+        }
     }
 }
