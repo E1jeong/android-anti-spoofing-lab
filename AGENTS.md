@@ -34,6 +34,7 @@ The application performs the following pipeline:
 - Face detection requires the configured FaceMe dependency and a valid `FACEME_LICENSE_KEY` Gradle property.
 - Platform signing uses `UBIO_KEYSTORE_PATH`, `UBIO_KEY_ALIAS`, `UBIO_KEY_PASSWORD`, and `UBIO_STORE_PASSWORD` when provided.
 - RGB-to-IR mapping requires `/sdcard/devlocal/CalibConfig.dat` on the device.
+- The hidden camera-calibration flow is opened by five taps on the upper-left hotspot. It measures one RGB face and one synchronized IR face, then writes the npro-compatible 64-byte calibration file.
 - The app controls the UBio IR LED and LCD through device sysfs paths and communicates with the UBio daemon for watchdog behavior. These paths and protocols are hardware-specific.
 - The application ID and namespace are `com.virditech.ac7000`. Because this is also used by the production application, this test app cannot coexist with UBio-N Face Pro on the same device.
 
@@ -59,4 +60,5 @@ Default compile validation:
 - Run the default compile validation after code or build changes. Use a narrower check only when it fully covers the changed behavior.
 - If the model changes, verify that the model loads and that its input/output tensors match the documented contract.
 - Hardware-dependent changes require manual verification on the target device. At minimum, check RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, all four output probabilities, inference timing, and cleanup/restart across pause and resume.
+- Calibration changes must also verify hidden-mode entry, single-face validation for both cameras, cancel-without-save, persisted alignment after restart, and compatibility with the production RGB-to-IR mapping formula.
 - If hardware validation cannot be performed, state which checks remain unverified and the resulting risk.
