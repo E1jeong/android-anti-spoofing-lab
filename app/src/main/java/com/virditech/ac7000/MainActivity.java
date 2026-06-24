@@ -673,6 +673,10 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    @Override public void onBackPressed() {
+        // Prevent back button navigation
+    }
+
     private static final class TrackingFrame {
         private FrameData rgb;
         private FrameData ir;
