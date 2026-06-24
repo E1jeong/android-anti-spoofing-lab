@@ -1,7 +1,7 @@
 package com.virditech.ac7000.model;
 
 public final class ClassificationResult {
-    public static final String[] LABELS = {"LIVE", "SPOOF_MASK", "DISPLAY", "PHOTO"};
+    public static final String[] LABELS = {"LIVE", "MASK", "DISPLAY", "PHOTO"};
     public final float[] probabilities;
     public final int topIndex;
     public final long inferenceMs;
