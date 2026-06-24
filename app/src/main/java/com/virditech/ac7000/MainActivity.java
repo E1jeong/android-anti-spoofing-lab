@@ -62,6 +62,7 @@ public final class MainActivity extends Activity {
     private OverlayView overlay;
     private TextView performance;
     private TextView status;
+    private TextView resultsLabel;
     private TextView calibrationInstruction;
     private Button switchButton;
     private Button startCollectionButton;
@@ -127,6 +128,12 @@ public final class MainActivity extends Activity {
         performance = label(22f);
         FrameLayout.LayoutParams perfParams = wrap(Gravity.TOP | Gravity.END, 16, 16);
         root.addView(performance, perfParams);
+
+        resultsLabel = label(24f);
+        resultsLabel.setTextColor(Color.WHITE);
+        resultsLabel.setShadowLayer(5f, 1f, 1f, Color.BLACK);
+        FrameLayout.LayoutParams resultsParams = wrap(Gravity.TOP | Gravity.START, 16, 16);
+        root.addView(resultsLabel, resultsParams);
 
         status = label(20f);
         status.setText("Initializing...");
@@ -211,6 +218,7 @@ public final class MainActivity extends Activity {
         overlay.setCalibrationMode(true);
         performance.setVisibility(View.GONE);
         status.setVisibility(View.GONE);
+        resultsLabel.setVisibility(View.GONE);
         controlsLayout.setVisibility(View.GONE);
         calibrationHotspot.setVisibility(View.GONE);
         calibrationInstruction.setText("Fit one face inside the guide, then press CONFIRM");
@@ -233,6 +241,8 @@ public final class MainActivity extends Activity {
         performance.setVisibility(View.VISIBLE);
         status.setText(normalStatusMessage);
         status.setVisibility(View.VISIBLE);
+        resultsLabel.setText("");
+        resultsLabel.setVisibility(View.VISIBLE);
         controlsLayout.setVisibility(View.VISIBLE);
         calibrationHotspot.setVisibility(View.VISIBLE);
         if (cameras != null) cameras.setIrFramesEnabled(true);
@@ -474,6 +484,13 @@ public final class MainActivity extends Activity {
             if (!resumed) return;
             overlay.showResult(result);
             performance.setText(formatPerformance());
+            
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
+                if (i > 0) sb.append("\n");
+                sb.append(String.format(Locale.US, "%s %.1f%%", ClassificationResult.LABELS[i], result.probabilities[i] * 100f));
+            }
+            resultsLabel.setText(sb.toString());
         });
     }
 

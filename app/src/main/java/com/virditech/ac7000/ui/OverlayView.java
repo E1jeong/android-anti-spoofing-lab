@@ -78,12 +78,7 @@ public final class OverlayView extends View {
         }
         canvas.drawText(String.format(Locale.US, "%s %.1f%%",
                 ClassificationResult.LABELS[result.topIndex], result.probabilities[result.topIndex] * 100f), box.left, titleY, textPaint);
-        float y = box.bottom + 34f;
-        for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
-            canvas.drawText(String.format(Locale.US, "%s %.1f%%", ClassificationResult.LABELS[i], result.probabilities[i] * 100f),
-                    box.left, y, textPaint);
-            y += 30f;
-        }
+
     }
 
     private void drawCalibrationGuide(Canvas canvas) {
