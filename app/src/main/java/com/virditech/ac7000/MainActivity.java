@@ -189,7 +189,7 @@ public final class MainActivity extends Activity {
         controlsLayout.setOrientation(LinearLayout.VERTICAL);
         controlsLayout.setGravity(Gravity.END | Gravity.BOTTOM);
 
-        collectionProgress = label(18f);
+        collectionProgress = label(24f);
         collectionProgress.setText("");
         collectionProgress.setVisibility(View.GONE);
         controlsLayout.addView(collectionProgress);
