@@ -15,15 +15,15 @@ The application performs the following pipeline:
 3. Match the latest IR frame within the timestamp tolerance for anti-spoofing inference.
 4. Map the RGB face region to IR coordinates using the device calibration file, then expand both crops according to the model specification.
 5. Run the matched RGB and IR crops through the TensorFlow Lite anti-spoofing model on a separate worker.
-6. Display the four-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
+6. Display the five-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
 
 ## Model Contract
 
 - The model asset is `app/src/main/assets/anti_spoofing.tflite`.
 - Preprocessing settings are defined by `app/src/main/assets/model_spec.json`. They must match the training contract whenever the model changes.
 - The model must have exactly two NHWC inputs: RGB and IR. Supported input types are `FLOAT32` and `UINT8`; RGB must have three channels, while IR may have one or three channels.
-- The model must have one `FLOAT32` output with shape `[1,4]`.
-- Output indices are fixed in this order: `LIVE`, `SPOOF_MASK`, `DISPLAY`, `PHOTO`.
+- The model must have one `FLOAT32` output with shape `[1,5]`.
+- Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY` (must match `ClassificationResult.LABELS`).
 - `model_spec.json` controls the RGB/IR input indices, channel order, normalization values, whether the output contains logits, and the crop margin ratio.
 - Do not change preprocessing, output ordering, or tensor assumptions without updating the model contract and verifying them against the exported model.
 
