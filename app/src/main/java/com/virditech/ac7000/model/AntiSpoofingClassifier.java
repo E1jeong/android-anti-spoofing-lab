@@ -41,8 +41,8 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         validateInput(irTensor, "IR", -1);
         int[] outputShape = interpreter.getOutputTensor(0).shape();
         if (interpreter.getOutputTensor(0).dataType() != DataType.FLOAT32
-                || outputShape.length != 2 || outputShape[0] != 1 || outputShape[1] != 4) {
-            throw new IllegalArgumentException("Output must be FLOAT32 [1,4]");
+                || outputShape.length != 2 || outputShape[0] != 1 || outputShape[1] != 5) {
+            throw new IllegalArgumentException("Output must be FLOAT32 [1,5]");
         }
     }
 
@@ -54,13 +54,14 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         Object[] inputs = new Object[2];
         inputs[spec.rgbInputIndex] = makeInput(rgb, rgbBox, rgbTensor, false);
         inputs[spec.irInputIndex] = makeInput(ir, irBox, irTensor, true);
-        float[][] output = new float[1][4];
+        float[][] output = new float[1][5];
         Map<Integer, Object> outputs = new HashMap<>();
         outputs.put(0, output);
         long start = SystemClock.elapsedRealtimeNanos();
         interpreter.runForMultipleInputsOutputs(inputs, outputs);
         long inferenceMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         float[] probabilities = spec.outputIsLogits ? softmax(output[0]) : validateProbabilities(output[0]);
+
         return new ClassificationResult(probabilities, inferenceMs);
     }
 
@@ -92,9 +93,11 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
                 else if (spec.bgr) value = channel == 0 ? b : channel == 1 ? g : r;
                 else value = channel == 0 ? r : channel == 1 ? g : b;
                 if (tensor.dataType() == DataType.FLOAT32) {
-                    float mean = infrared ? spec.irMean : spec.rgbMean;
-                    float std = infrared ? spec.irStd : spec.rgbStd;
-                    buffer.putFloat((value - mean) / std);
+                    float[] meanArr = infrared ? spec.irMean : spec.rgbMean;
+                    float[] stdArr = infrared ? spec.irStd : spec.rgbStd;
+                    float mean = meanArr.length == 1 ? meanArr[0] : meanArr[channel];
+                    float std = stdArr.length == 1 ? stdArr[0] : stdArr[channel];
+                    buffer.putFloat(((value / 255.0f) - mean) / std);
                 } else {
                     buffer.put((byte) value);
                 }
