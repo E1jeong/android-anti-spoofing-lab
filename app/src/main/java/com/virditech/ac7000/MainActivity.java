@@ -88,6 +88,7 @@ public final class MainActivity extends Activity {
     private Calibration calibration;
     private final AppWatchdog appWatchdog = new AppWatchdog();
     private volatile boolean isCollecting;
+    private volatile boolean ioBusy;
     private volatile int collectionCount;
     private File currentCollectionDir;
     private int collectionStartSubjectId;
@@ -359,7 +360,7 @@ public final class MainActivity extends Activity {
         cameras = new DualCameraController(this, rgbView, irView, new DualCameraController.Listener() {
             @Override public void onRgb(FrameData frame) { submitTracking(frame); }
             @Override public void onIr(FrameData frame) { offerIr(frame); }
-            @Override public void onError(String message) { runOnUiThread(() -> status.setText(message)); }
+            @Override public void onError(String message) { showTransientStatus(message); }
         });
         cameras.setIrFramesEnabled(true);
         cameras.start();
@@ -416,7 +417,7 @@ public final class MainActivity extends Activity {
             TrackingFrame frame;
             while ((frame = pendingTracking.getAndSet(null)) != null) {
                 try { processTracking(frame); }
-                catch (Exception e) { runOnUiThread(() -> status.setText("Tracking failed")); }
+                catch (Exception e) { showTransientStatus("Tracking failed"); }
                 finally { frame.recycle(); }
             }
         } finally {
@@ -544,7 +545,8 @@ public final class MainActivity extends Activity {
         });
         if (calibrationMode) return;
 
-        if (isCollecting && frame.ir != null) {
+        if (isCollecting && frame.ir != null && !ioBusy) {
+            ioBusy = true;
             final int currentCount = collectionCount + 1;
             if (currentCount <= 100) {
                 collectionCount = currentCount;
@@ -570,24 +572,28 @@ public final class MainActivity extends Activity {
                 final File dir = new File("/sdcard/Pictures/raw/" + collectionClassName + "/" + subjectDirName + "/" + currentCount);
                 
                 ioExecutor.execute(() -> {
-                    if (!dir.exists()) {
-                        dir.mkdirs();
-                    }
-                    if (fullRGB != null) {
-                        saveBitmapAsBmp(fullRGB, new File(dir, "RGB.bmp"));
-                        fullRGB.recycle();
-                    }
-                    if (cropRGB != null) {
-                        saveBitmapAsBmp(cropRGB, new File(dir, "cropRGB.bmp"));
-                        cropRGB.recycle();
-                    }
-                    if (fullIR != null) {
-                        saveBitmapAsBmp(fullIR, new File(dir, "IR.bmp"));
-                        fullIR.recycle();
-                    }
-                    if (cropIR != null) {
-                        saveBitmapAsBmp(cropIR, new File(dir, "cropIR.bmp"));
-                        cropIR.recycle();
+                    try {
+                        if (!dir.exists()) {
+                            dir.mkdirs();
+                        }
+                        if (fullRGB != null) {
+                            saveBitmapAsBmp(fullRGB, new File(dir, "RGB.bmp"));
+                            fullRGB.recycle();
+                        }
+                        if (cropRGB != null) {
+                            saveBitmapAsBmp(cropRGB, new File(dir, "cropRGB.bmp"));
+                            cropRGB.recycle();
+                        }
+                        if (fullIR != null) {
+                            saveBitmapAsBmp(fullIR, new File(dir, "IR.bmp"));
+                            fullIR.recycle();
+                        }
+                        if (cropIR != null) {
+                            saveBitmapAsBmp(cropIR, new File(dir, "cropIR.bmp"));
+                            cropIR.recycle();
+                        }
+                    } finally {
+                        ioBusy = false;
                     }
                     runOnUiThread(() -> {
                         collectionProgress.setText("Captured: " + currentCount + "/100");
@@ -603,6 +609,7 @@ public final class MainActivity extends Activity {
                 });
             } else {
                 isCollecting = false;
+                ioBusy = false;
                 runOnUiThread(() -> overlay.setCollecting(false));
             }
         }
@@ -624,7 +631,7 @@ public final class MainActivity extends Activity {
             InferenceTask task;
             while ((task = pendingInference.getAndSet(null)) != null) {
                 try { processInference(task); }
-                catch (Exception e) { runOnUiThread(() -> status.setText("Inference failed")); }
+                catch (Exception e) { showTransientStatus("Inference failed"); }
                 finally { task.recycle(); }
             }
         } finally {
@@ -690,6 +697,14 @@ public final class MainActivity extends Activity {
 
     private void startDataCollection(String className, int subjectNum) {
         if (isCollecting) return;
+        if (!Environment.isExternalStorageManager()) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+            showTransientStatus("Please grant All Files Access and try again.");
+            startCollectionButton.setText("START CAPTURE");
+            return;
+        }
         startCollectionButton.setEnabled(false);
         switchButton.setEnabled(false);
         startCollectionButton.setText("COLLECTING...");
@@ -699,6 +714,7 @@ public final class MainActivity extends Activity {
         collectionClassName = className;
         collectionStartSubjectId = subjectNum;
         collectionCount = 0;
+        ioBusy = false;
         isCollecting = true;
         runOnUiThread(() -> overlay.setCollecting(true));
     }
@@ -754,7 +770,7 @@ public final class MainActivity extends Activity {
                 }
             }
         } catch (IOException e) {
-            runOnUiThread(() -> status.setText("Save failed: " + e.getMessage()));
+            showTransientStatus("Save failed: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -805,6 +821,18 @@ public final class MainActivity extends Activity {
         resultsLabel.setText(sb.toString());
     }
 
+    private final Runnable restoreStatusRunnable = () -> {
+        status.setText(normalStatusMessage);
+    };
+
+    private void showTransientStatus(String message) {
+        runOnUiThread(() -> {
+            status.setText(message);
+            status.removeCallbacks(restoreStatusRunnable);
+            status.postDelayed(restoreStatusRunnable, 3000L);
+        });
+    }
+
     private void clearPendingWork() {
         TrackingFrame tracking = pendingTracking.getAndSet(null);
         if (tracking != null) tracking.recycle();
@@ -819,7 +847,7 @@ public final class MainActivity extends Activity {
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == CAMERA_PERMISSION_REQUEST && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) startCameras();
-        else status.setText("CAMERA permission denied");
+        else showTransientStatus("CAMERA permission denied");
     }
 
     @Override protected void onDestroy() {
