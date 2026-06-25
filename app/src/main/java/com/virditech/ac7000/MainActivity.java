@@ -66,7 +66,8 @@ public final class MainActivity extends Activity {
     private ProgressBar irLoadingSpinner;
     private TextView performance;
     private TextView status;
-    private ImageView irCropView;
+    private ImageView faceCropView;
+    private TextView noFaceLabel;
     private TextView resultsLabel;
     private TextView calibrationInstruction;
     private Button switchButton;
@@ -84,7 +85,7 @@ public final class MainActivity extends Activity {
     private volatile boolean isCollecting;
     private volatile int collectionCount;
     private File currentCollectionDir;
-    private boolean showIr;
+    private volatile boolean showIr;
     private boolean showIrBeforeCalibration;
     private volatile boolean calibrationMode;
     private boolean resumed;
@@ -147,9 +148,9 @@ public final class MainActivity extends Activity {
         root.addView(resultsLabel, resultsParams);
         resetResultsLabelToZero();
 
-        status = label(14f);
+        status = label(22f);
         status.setText("Initializing...");
-        FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 100);
+        FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 120);
         root.addView(status, statusParams);
 
         int buttonWidth = getResources().getDisplayMetrics().widthPixels / 3;
@@ -160,10 +161,15 @@ public final class MainActivity extends Activity {
         irCropParams.height = buttonWidth;
         root.addView(irCropContainer, irCropParams);
 
-        irCropView = new ImageView(this);
-        irCropView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        irCropView.setBackgroundColor(Color.parseColor("#44000000"));
-        irCropContainer.addView(irCropView, match());
+        faceCropView = new ImageView(this);
+        faceCropView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        faceCropView.setBackgroundColor(Color.parseColor("#44000000"));
+        irCropContainer.addView(faceCropView, match());
+
+        noFaceLabel = label(20f);
+        noFaceLabel.setText("NO FACE");
+        noFaceLabel.setVisibility(View.GONE);
+        irCropContainer.addView(noFaceLabel, wrap(Gravity.CENTER, 0, 0));
 
         irLoadingSpinner = new ProgressBar(this);
         irLoadingSpinner.setIndeterminate(true);
@@ -396,6 +402,9 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (!resumed) return;
                 overlay.clearResult();
+                faceCropView.setImageDrawable(null);
+                faceCropView.setScaleX(1f);
+                noFaceLabel.setVisibility(View.VISIBLE);
                 if (captureCalibration) {
                     calibrationInstruction.setText("Exactly one RGB face is required. Try again.");
                 } else {
@@ -441,26 +450,32 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        Bitmap previewIrFace = null;
-        if (frame.ir != null && irDetected != null && classifier != null) {
+        Bitmap previewFace = null;
+        boolean previewRgb = showIr;
+        if (classifier != null && (previewRgb || frame.ir != null)) {
+            Bitmap source = previewRgb ? frame.rgb.bitmap : frame.ir.bitmap;
+            Rect face = previewRgb ? detected : irDetected;
             float margin = classifier.cropMarginRatio();
-            Rect irR = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
-            int iL = Math.max(0, irR.left);
-            int iT = Math.max(0, irR.top);
-            int iW = Math.min(frame.ir.bitmap.getWidth() - iL, irR.width());
-            int iH = Math.min(frame.ir.bitmap.getHeight() - iT, irR.height());
-            if (iW > 0 && iH > 0) {
-                previewIrFace = Bitmap.createBitmap(frame.ir.bitmap, iL, iT, iW, iH);
+            Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
+            int left = Math.max(0, crop.left);
+            int top = Math.max(0, crop.top);
+            int width = Math.min(source.getWidth() - left, crop.width());
+            int height = Math.min(source.getHeight() - top, crop.height());
+            if (width > 0 && height > 0) {
+                previewFace = Bitmap.createBitmap(source, left, top, width, height);
             }
         }
-        final Bitmap finalPreviewIrFace = previewIrFace;
+        final Bitmap finalPreviewFace = previewFace;
+        final boolean finalPreviewRgb = previewRgb;
 
         runOnUiThread(() -> {
             if (!resumed) return;
             overlay.showFace(detected, irDetected);
             performance.setText(formatPerformance());
-            if (finalPreviewIrFace != null) {
-                irCropView.setImageBitmap(finalPreviewIrFace);
+            noFaceLabel.setVisibility(View.GONE);
+            if (finalPreviewFace != null) {
+                faceCropView.setScaleX(finalPreviewRgb ? -1f : 1f);
+                faceCropView.setImageBitmap(finalPreviewFace);
             }
             if (calibration != null && detected != null) {
                 float sx = irView.getWidth() / 432f;
