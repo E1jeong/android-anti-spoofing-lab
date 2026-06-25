@@ -72,6 +72,7 @@ public final class MainActivity extends Activity {
     private TextView performance;
     private TextView status;
     private ImageView faceCropView;
+    private Bitmap currentPreviewFace;
     private TextView noFaceLabel;
     private TextView resultsLabel;
     private TextView calibrationInstruction;
@@ -113,6 +114,7 @@ public final class MainActivity extends Activity {
     private volatile float trackingFps;
     private volatile float inferenceFps;
     private long lastUiUpdateTimeMs;
+    private long lastPreviewUpdateTimeMs;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -443,7 +445,7 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (!resumed) return;
                 overlay.clearResult();
-                faceCropView.setImageDrawable(null);
+                clearPreviewFace();
                 faceCropView.setScaleX(1f);
                 noFaceLabel.setVisibility(View.VISIBLE);
                 if (captureCalibration) {
@@ -497,7 +499,9 @@ public final class MainActivity extends Activity {
 
         Bitmap previewFace = null;
         boolean previewRgb = showIr;
-        if (classifier != null && (previewRgb || frame.ir != null)) {
+        long previewNow = SystemClock.elapsedRealtime();
+        if (previewNow - lastPreviewUpdateTimeMs >= 150L && classifier != null && (previewRgb || frame.ir != null)) {
+            lastPreviewUpdateTimeMs = previewNow;
             Bitmap source = previewRgb ? frame.rgb.bitmap : frame.ir.bitmap;
             Rect face = previewRgb ? detected : irDetected;
             float margin = classifier.cropMarginRatio();
@@ -514,7 +518,10 @@ public final class MainActivity extends Activity {
         final boolean finalPreviewRgb = previewRgb;
 
         runOnUiThread(() -> {
-            if (!resumed) return;
+            if (!resumed) {
+                if (finalPreviewFace != null) finalPreviewFace.recycle();
+                return;
+            }
             overlay.showFace(detected, irDetected);
             long now = SystemClock.elapsedRealtime();
             if (now - lastUiUpdateTimeMs >= 150L) {
@@ -523,8 +530,7 @@ public final class MainActivity extends Activity {
             }
             noFaceLabel.setVisibility(View.GONE);
             if (finalPreviewFace != null) {
-                faceCropView.setScaleX(finalPreviewRgb ? -1f : 1f);
-                faceCropView.setImageBitmap(finalPreviewFace);
+                setPreviewFace(finalPreviewFace, finalPreviewRgb);
             }
             if (calibration != null && detected != null) {
                 float sx = irView.getWidth() / 432f;
@@ -859,6 +865,7 @@ public final class MainActivity extends Activity {
         ioExecutor.shutdownNow();
         if (classifier != null) classifier.close();
         if (faceDetector != null) faceDetector.close();
+        clearPreviewFace();
         appWatchdog.close();
         super.onDestroy();
     }
@@ -913,6 +920,20 @@ public final class MainActivity extends Activity {
         view.setTextSize(size);
         view.setShadowLayer(5f, 1f, 1f, Color.BLACK);
         return view;
+    }
+
+    private void setPreviewFace(Bitmap bitmap, boolean rgb) {
+        Bitmap previous = currentPreviewFace;
+        currentPreviewFace = bitmap;
+        faceCropView.setScaleX(rgb ? -1f : 1f);
+        faceCropView.setImageBitmap(bitmap);
+        if (previous != null && previous != bitmap && !previous.isRecycled()) previous.recycle();
+    }
+
+    private void clearPreviewFace() {
+        faceCropView.setImageDrawable(null);
+        if (currentPreviewFace != null && !currentPreviewFace.isRecycled()) currentPreviewFace.recycle();
+        currentPreviewFace = null;
     }
 
     private static FrameLayout.LayoutParams match() {

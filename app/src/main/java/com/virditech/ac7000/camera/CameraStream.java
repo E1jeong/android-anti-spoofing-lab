@@ -16,7 +16,6 @@ import android.hardware.camera2.CaptureRequest;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
-import android.os.SystemClock;
 import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
@@ -104,9 +103,7 @@ final class CameraStream {
                 try (Image image = r.acquireLatestImage()) {
                     if (image == null) return;
                     if (!frameDeliveryEnabled) return;
-                    long start = SystemClock.elapsedRealtimeNanos();
-                    listener.onFrame(new FrameData(converter.toPortraitBitmap(image, !color, false), image.getTimestamp(),
-                            (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L));
+                    listener.onFrame(converter.toPortraitFrame(image, !color, false));
                 } catch (Exception e) {
                     listener.onError("Frame conversion failed: " + e.getMessage());
                 }
