@@ -22,6 +22,11 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.app.AlertDialog;
+import android.widget.RadioGroup;
+import android.widget.RadioButton;
+import android.widget.EditText;
+import android.text.InputType;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -85,6 +90,9 @@ public final class MainActivity extends Activity {
     private volatile boolean isCollecting;
     private volatile int collectionCount;
     private File currentCollectionDir;
+    private int collectionStartSubjectId;
+    private String collectionClassName = "live";
+    private LinearLayout expandableLayout;
     private volatile boolean showIr;
     private boolean showIrBeforeCalibration;
     private volatile boolean calibrationMode;
@@ -184,10 +192,38 @@ public final class MainActivity extends Activity {
         collectionProgress.setVisibility(View.GONE);
         controlsLayout.addView(collectionProgress);
 
+        expandableLayout = new LinearLayout(this);
+        expandableLayout.setOrientation(LinearLayout.VERTICAL);
+        expandableLayout.setGravity(Gravity.END);
+        expandableLayout.setVisibility(View.GONE);
+
+        String[] classes = {"live", "display", "picture", "print", "mask"};
+        for (String c : classes) {
+            Button btn = new Button(this);
+            btn.setText(c);
+            btn.setOnClickListener(v -> {
+                int nextNum = getNextSubjectNumber(c);
+                startDataCollection(c, nextNum);
+                expandableLayout.setVisibility(View.GONE);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(4);
+            expandableLayout.addView(btn, lp);
+        }
+        controlsLayout.addView(expandableLayout);
+
         startCollectionButton = new Button(this);
         startCollectionButton.setText("START CAPTURE");
         startCollectionButton.setEnabled(false);
-        startCollectionButton.setOnClickListener(v -> startDataCollection());
+        startCollectionButton.setOnClickListener(v -> {
+            if (expandableLayout.getVisibility() == View.GONE) {
+                expandableLayout.setVisibility(View.VISIBLE);
+                startCollectionButton.setText("CANCEL");
+            } else {
+                expandableLayout.setVisibility(View.GONE);
+                startCollectionButton.setText("START CAPTURE");
+            }
+        });
         controlsLayout.addView(startCollectionButton, new LinearLayout.LayoutParams(buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         switchButton = new Button(this);
@@ -506,21 +542,41 @@ public final class MainActivity extends Activity {
                 int rT = Math.max(0, rgbR.top);
                 int rW = Math.min(frame.rgb.bitmap.getWidth() - rL, rgbR.width());
                 int rH = Math.min(frame.rgb.bitmap.getHeight() - rT, rgbR.height());
-                final Bitmap rgbFace = rW > 0 && rH > 0 ? Bitmap.createBitmap(frame.rgb.bitmap, rL, rT, rW, rH) : null;
+                final Bitmap cropRGB = rW > 0 && rH > 0 ? Bitmap.createBitmap(frame.rgb.bitmap, rL, rT, rW, rH) : null;
                 
                 Rect irR = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
                 int iL = Math.max(0, irR.left);
                 int iT = Math.max(0, irR.top);
                 int iW = Math.min(frame.ir.bitmap.getWidth() - iL, irR.width());
                 int iH = Math.min(frame.ir.bitmap.getHeight() - iT, irR.height());
-                final Bitmap irFace = iW > 0 && iH > 0 ? Bitmap.createBitmap(frame.ir.bitmap, iL, iT, iW, iH) : null;
+                final Bitmap cropIR = iW > 0 && iH > 0 ? Bitmap.createBitmap(frame.ir.bitmap, iL, iT, iW, iH) : null;
                 
-                final File dir = currentCollectionDir;
+                final Bitmap fullRGB = frame.rgb.bitmap.copy(frame.rgb.bitmap.getConfig(), false);
+                final Bitmap fullIR = frame.ir.bitmap.copy(frame.ir.bitmap.getConfig(), false);
+
+                final String subjectDirName = collectionClassName + "_" + collectionStartSubjectId;
+                final File dir = new File("/sdcard/Pictures/raw/" + collectionClassName + "/" + subjectDirName + "/" + currentCount);
+                
                 ioExecutor.execute(() -> {
-                    if (rgbFace != null) saveBitmap(rgbFace, new File(dir, String.format(Locale.US, "rgb_%03d.jpg", currentCount)));
-                    if (irFace != null) saveBitmap(irFace, new File(dir, String.format(Locale.US, "ir_%03d.jpg", currentCount)));
-                    if (rgbFace != null) rgbFace.recycle();
-                    if (irFace != null) irFace.recycle();
+                    if (!dir.exists()) {
+                        dir.mkdirs();
+                    }
+                    if (fullRGB != null) {
+                        saveBitmapAsBmp(fullRGB, new File(dir, "RGB.bmp"));
+                        fullRGB.recycle();
+                    }
+                    if (cropRGB != null) {
+                        saveBitmapAsBmp(cropRGB, new File(dir, "cropRGB.bmp"));
+                        cropRGB.recycle();
+                    }
+                    if (fullIR != null) {
+                        saveBitmapAsBmp(fullIR, new File(dir, "IR.bmp"));
+                        fullIR.recycle();
+                    }
+                    if (cropIR != null) {
+                        saveBitmapAsBmp(cropIR, new File(dir, "cropIR.bmp"));
+                        cropIR.recycle();
+                    }
                     runOnUiThread(() -> {
                         collectionProgress.setText("Captured: " + currentCount + "/100");
                         if (currentCount == 100) {
@@ -587,60 +643,99 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void startDataCollection() {
-        if (!Environment.isExternalStorageManager()) {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-            intent.setData(Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-            status.setText("Please grant All Files Access and try again.");
-            return;
+    private int getNextSubjectNumber(String className) {
+        File baseDir = new File("/sdcard/Pictures/raw/" + className);
+        if (!baseDir.exists()) {
+            return 1;
         }
+        int maxNum = 0;
+        File[] files = baseDir.listFiles();
+        if (files != null) {
+            String prefix = className + "_";
+            for (File file : files) {
+                if (file.isDirectory()) {
+                    String name = file.getName();
+                    if (name.startsWith(prefix)) {
+                        try {
+                            int num = Integer.parseInt(name.substring(prefix.length()));
+                            if (num > maxNum) {
+                                maxNum = num;
+                            }
+                        } catch (NumberFormatException e) {
+                            // ignore
+                        }
+                    }
+                }
+            }
+        }
+        return maxNum + 1;
+    }
+
+    private void startDataCollection(String className, int subjectNum) {
         if (isCollecting) return;
         startCollectionButton.setEnabled(false);
         switchButton.setEnabled(false);
         startCollectionButton.setText("COLLECTING...");
         collectionProgress.setVisibility(View.VISIBLE);
         collectionProgress.setText("Captured: 0/100");
-        
-        ioExecutor.execute(() -> {
-            File baseDir = new File("/sdcard/Pictures");
-            if (!baseDir.exists() && !baseDir.mkdirs()) {
-                runOnUiThread(() -> {
-                    status.setText("Failed to create base directory");
-                    startCollectionButton.setEnabled(true);
-                    switchButton.setEnabled(true);
-                    startCollectionButton.setText("START CAPTURE");
-                });
-                return;
-            }
-            int n = 1;
-            File targetDir;
-            while (true) {
-                targetDir = new File(baseDir, "train_" + n);
-                if (!targetDir.exists()) {
-                    if (!targetDir.mkdirs()) {
-                        runOnUiThread(() -> {
-                            status.setText("Failed to create target directory");
-                            startCollectionButton.setEnabled(true);
-                            switchButton.setEnabled(true);
-                            startCollectionButton.setText("START CAPTURE");
-                        });
-                        return;
-                    }
-                    break;
-                }
-                n++;
-            }
-            currentCollectionDir = targetDir;
-            collectionCount = 0;
-            isCollecting = true;
-            runOnUiThread(() -> overlay.setCollecting(true));
-        });
+
+        collectionClassName = className;
+        collectionStartSubjectId = subjectNum;
+        collectionCount = 0;
+        isCollecting = true;
+        runOnUiThread(() -> overlay.setCollecting(true));
     }
 
-    private void saveBitmap(Bitmap bitmap, File file) {
-        try (FileOutputStream out = new FileOutputStream(file)) {
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
+    private void saveBitmapAsBmp(Bitmap bitmap, File file) {
+        try {
+            int width = bitmap.getWidth();
+            int height = bitmap.getHeight();
+            int rowSize = ((width * 24 + 31) / 32) * 4;
+            int pixelDataSize = rowSize * height;
+            int fileSize = 54 + pixelDataSize;
+
+            byte[] header = new byte[54];
+            header[0] = 'B';
+            header[1] = 'M';
+            header[2] = (byte) (fileSize & 0xFF);
+            header[3] = (byte) ((fileSize >> 8) & 0xFF);
+            header[4] = (byte) ((fileSize >> 16) & 0xFF);
+            header[5] = (byte) ((fileSize >> 24) & 0xFF);
+            header[10] = 54;
+
+            header[14] = 40;
+            header[18] = (byte) (width & 0xFF);
+            header[19] = (byte) ((width >> 8) & 0xFF);
+            header[20] = (byte) ((width >> 16) & 0xFF);
+            header[21] = (byte) ((width >> 24) & 0xFF);
+            header[22] = (byte) (height & 0xFF);
+            header[23] = (byte) ((height >> 8) & 0xFF);
+            header[24] = (byte) ((height >> 16) & 0xFF);
+            header[25] = (byte) ((height >> 24) & 0xFF);
+            header[26] = 1;
+            header[28] = 24;
+            header[34] = (byte) (pixelDataSize & 0xFF);
+            header[35] = (byte) ((pixelDataSize >> 8) & 0xFF);
+            header[36] = (byte) ((pixelDataSize >> 16) & 0xFF);
+            header[37] = (byte) ((pixelDataSize >> 24) & 0xFF);
+
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                out.write(header);
+                int[] pixels = new int[width * height];
+                bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+                byte[] rowBytes = new byte[rowSize];
+                for (int y = height - 1; y >= 0; y--) {
+                    int offset = y * width;
+                    int rowOffset = 0;
+                    for (int x = 0; x < width; x++) {
+                        int color = pixels[offset + x];
+                        rowBytes[rowOffset++] = (byte) (color & 0xFF);
+                        rowBytes[rowOffset++] = (byte) ((color >> 8) & 0xFF);
+                        rowBytes[rowOffset++] = (byte) ((color >> 16) & 0xFF);
+                    }
+                    out.write(rowBytes);
+                }
+            }
         } catch (IOException e) {
             runOnUiThread(() -> status.setText("Save failed: " + e.getMessage()));
             e.printStackTrace();
