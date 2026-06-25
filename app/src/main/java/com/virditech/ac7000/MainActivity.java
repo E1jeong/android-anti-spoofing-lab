@@ -111,6 +111,7 @@ public final class MainActivity extends Activity {
     private volatile long inferenceMs;
     private volatile float trackingFps;
     private volatile float inferenceFps;
+    private long lastUiUpdateTimeMs;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -149,10 +150,13 @@ public final class MainActivity extends Activity {
         FrameLayout.LayoutParams perfParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
         root.addView(performance, perfParams);
 
-        resultsLabel = label(24f);
+        int buttonWidth = getResources().getDisplayMetrics().widthPixels / 3;
+
+        resultsLabel = label(32f);
         resultsLabel.setTextColor(Color.WHITE);
         resultsLabel.setShadowLayer(5f, 1f, 1f, Color.BLACK);
-        FrameLayout.LayoutParams resultsParams = wrap(Gravity.TOP | Gravity.START, 16, 16);
+        FrameLayout.LayoutParams resultsParams = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
+        resultsParams.setMargins(dp(16), dp(16), buttonWidth + dp(16), dp(16));
         root.addView(resultsLabel, resultsParams);
         resetResultsLabelToZero();
 
@@ -160,8 +164,6 @@ public final class MainActivity extends Activity {
         status.setText("Initializing...");
         FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 120);
         root.addView(status, statusParams);
-
-        int buttonWidth = getResources().getDisplayMetrics().widthPixels / 3;
 
         FrameLayout irCropContainer = new FrameLayout(this);
         FrameLayout.LayoutParams irCropParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
@@ -201,6 +203,8 @@ public final class MainActivity extends Activity {
         for (String c : classes) {
             Button btn = new Button(this);
             btn.setText(c);
+            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#37474F")));
+            btn.setTextColor(Color.WHITE);
             btn.setOnClickListener(v -> {
                 int nextNum = getNextSubjectNumber(c);
                 startDataCollection(c, nextNum);
@@ -444,7 +448,11 @@ public final class MainActivity extends Activity {
                 if (captureCalibration) {
                     calibrationInstruction.setText("Exactly one RGB face is required. Try again.");
                 } else {
-                    performance.setText(formatPerformance());
+                    long now = SystemClock.elapsedRealtime();
+                    if (now - lastUiUpdateTimeMs >= 150L) {
+                        performance.setText(formatPerformance());
+                        lastUiUpdateTimeMs = now;
+                    }
                     if (SystemClock.elapsedRealtime() - lastFaceDetectedMs > 10_000L) {
                         resetResultsLabelToZero();
                     }
@@ -507,7 +515,11 @@ public final class MainActivity extends Activity {
         runOnUiThread(() -> {
             if (!resumed) return;
             overlay.showFace(detected, irDetected);
-            performance.setText(formatPerformance());
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastUiUpdateTimeMs >= 150L) {
+                performance.setText(formatPerformance());
+                lastUiUpdateTimeMs = now;
+            }
             noFaceLabel.setVisibility(View.GONE);
             if (finalPreviewFace != null) {
                 faceCropView.setScaleX(finalPreviewRgb ? -1f : 1f);
@@ -632,7 +644,6 @@ public final class MainActivity extends Activity {
         runOnUiThread(() -> {
             if (!resumed) return;
             overlay.showResult(result);
-            performance.setText(formatPerformance());
             
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
@@ -640,6 +651,12 @@ public final class MainActivity extends Activity {
                 sb.append(String.format(Locale.US, "%s %.1f%%", ClassificationResult.LABELS[i], result.probabilities[i] * 100f));
             }
             resultsLabel.setText(sb.toString());
+            
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastUiUpdateTimeMs >= 150L) {
+                performance.setText(formatPerformance());
+                lastUiUpdateTimeMs = now;
+            }
         });
     }
 
