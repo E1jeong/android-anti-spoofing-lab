@@ -26,6 +26,7 @@ The application performs the following pipeline:
 - Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY` (must match `ClassificationResult.LABELS`).
 - `model_spec.json` controls the RGB/IR input indices, channel order, normalization values, whether the output contains logits, and the crop margin ratio.
 - Do not change preprocessing, output ordering, or tensor assumptions without updating the model contract and verifying them against the exported model.
+- **Current deployment is the float model on CPU.** INT8 quantization + an NNAPI delegate for the i.MX 8M Plus NPU were attempted and reverted (the int8 tflite could not be produced cleanly). `AntiSpoofingClassifier` therefore expects a `FLOAT32` model. Full history/decision: the `access-liveness-model` repo `docs/project_status.md` §3. Do not re-add INT8/NNAPI without a working int8 tflite from that effort.
 
 ## Device and Build Requirements
 
