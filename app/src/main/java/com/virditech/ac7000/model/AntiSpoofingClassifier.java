@@ -30,12 +30,7 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     private final InputBuffer rgbInput;
     private final InputBuffer irInput;
     private final Object[] inputs = new Object[2];
-    private final boolean outputQuantized;
-    private final boolean outputUnsigned;
-    private final float outputScale;
-    private final int outputZeroPoint;
-    private final float[][] outputFloat;
-    private final byte[][] outputInt8;
+    private final float[][] output = new float[1][5];
     private final Map<Integer, Object> outputs = new HashMap<>();
 
     public AntiSpoofingClassifier(Context context) throws Exception {
@@ -53,27 +48,11 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         validateInput(irTensor, "IR", -1);
         rgbInput = new InputBuffer(rgbTensor);
         irInput = new InputBuffer(irTensor);
-        Tensor outputTensor = interpreter.getOutputTensor(0);
-        int[] outputShape = outputTensor.shape();
-        DataType outType = outputTensor.dataType();
-        boolean shapeOk = outputShape.length == 2 && outputShape[0] == 1 && outputShape[1] == 5;
-        if (!shapeOk || (outType != DataType.FLOAT32 && outType != DataType.INT8 && outType != DataType.UINT8)) {
-            throw new IllegalArgumentException("Output must be [1,5] FLOAT32/INT8/UINT8");
-        }
-        outputQuantized = outType != DataType.FLOAT32;
-        outputUnsigned = outType == DataType.UINT8;
-        if (outputQuantized) {
-            outputScale = outputTensor.quantizationParams().getScale();
-            outputZeroPoint = outputTensor.quantizationParams().getZeroPoint();
-            outputInt8 = new byte[1][5];
-            outputFloat = null;
-            outputs.put(0, outputInt8);
-        } else {
-            outputScale = 0f;
-            outputZeroPoint = 0;
-            outputFloat = new float[1][5];
-            outputInt8 = null;
-            outputs.put(0, outputFloat);
+        outputs.put(0, output);
+        int[] outputShape = interpreter.getOutputTensor(0).shape();
+        if (interpreter.getOutputTensor(0).dataType() != DataType.FLOAT32
+                || outputShape.length != 2 || outputShape[0] != 1 || outputShape[1] != 5) {
+            throw new IllegalArgumentException("Output must be FLOAT32 [1,5]");
         }
     }
 
@@ -87,22 +66,9 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         long start = SystemClock.elapsedRealtimeNanos();
         interpreter.runForMultipleInputsOutputs(inputs, outputs);
         long inferenceMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
-        float[] logits = readLogits();
-        float[] probabilities = spec.outputIsLogits ? softmax(logits) : validateProbabilities(logits);
+        float[] probabilities = spec.outputIsLogits ? softmax(output[0]) : validateProbabilities(output[0]);
 
         return new ClassificationResult(probabilities, inferenceMs);
-    }
-
-    private float[] readLogits() {
-        if (!outputQuantized) {
-            return outputFloat[0];
-        }
-        float[] logits = new float[5];
-        for (int i = 0; i < 5; i++) {
-            int q = outputUnsigned ? (outputInt8[0][i] & 0xFF) : outputInt8[0][i];
-            logits[i] = (q - outputZeroPoint) * outputScale;
-        }
-        return logits;
     }
 
     private static void validateInput(Tensor tensor, String name, int requiredChannels) {
@@ -110,10 +76,8 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         if (shape.length != 4 || shape[0] != 1 || shape[1] <= 0 || shape[2] <= 0
                 || (requiredChannels > 0 && shape[3] != requiredChannels)
                 || (requiredChannels < 0 && shape[3] != 1 && shape[3] != 3)
-                || (tensor.dataType() != DataType.FLOAT32
-                    && tensor.dataType() != DataType.UINT8
-                    && tensor.dataType() != DataType.INT8)) {
-            throw new IllegalArgumentException(name + " input must be NHWC FLOAT32/UINT8/INT8 with a supported channel count");
+                || (tensor.dataType() != DataType.FLOAT32 && tensor.dataType() != DataType.UINT8)) {
+            throw new IllegalArgumentException(name + " input must be NHWC FLOAT32/UINT8 with a supported channel count");
         }
     }
 
@@ -160,10 +124,6 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         final int height;
         final int channels;
         final DataType dataType;
-        final boolean quantized;
-        final boolean unsigned;
-        final float quantScale;
-        final int quantZeroPoint;
         final Bitmap scaled;
         final Canvas canvas;
         final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -178,15 +138,6 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             width = shape[2];
             channels = shape[3];
             dataType = tensor.dataType();
-            quantized = dataType != DataType.FLOAT32;
-            unsigned = dataType == DataType.UINT8;
-            if (quantized) {
-                quantScale = tensor.quantizationParams().getScale();
-                quantZeroPoint = tensor.quantizationParams().getZeroPoint();
-            } else {
-                quantScale = 0f;
-                quantZeroPoint = 0;
-            }
             int bytesPerValue = dataType == DataType.FLOAT32 ? 4 : 1;
             scaled = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
             canvas = new Canvas(scaled);
@@ -210,8 +161,6 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             sourceRect.set(left, top, right, bottom);
             canvas.drawBitmap(source, sourceRect, targetRect, paint);
             scaled.getPixels(pixels, 0, width, 0, 0, width, height);
-            float[] meanArr = infrared ? spec.irMean : spec.rgbMean;
-            float[] stdArr = infrared ? spec.irStd : spec.rgbStd;
             for (int pixel : pixels) {
                 int r = Color.red(pixel);
                 int g = Color.green(pixel);
@@ -221,20 +170,14 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
                     if (infrared || channels == 1) value = r;
                     else if (spec.bgr) value = channel == 0 ? b : channel == 1 ? g : r;
                     else value = channel == 0 ? r : channel == 1 ? g : b;
-                    float mean = meanArr.length == 1 ? meanArr[0] : meanArr[channel];
-                    float std = stdArr.length == 1 ? stdArr[0] : stdArr[channel];
-                    // 학습과 동일한 정규화를 먼저 적용한다.
-                    float normalized = ((value / 255.0f) - mean) / std;
-                    if (!quantized) {
-                        buffer.putFloat(normalized);
+                    if (dataType == DataType.FLOAT32) {
+                        float[] meanArr = infrared ? spec.irMean : spec.rgbMean;
+                        float[] stdArr = infrared ? spec.irStd : spec.rgbStd;
+                        float mean = meanArr.length == 1 ? meanArr[0] : meanArr[channel];
+                        float std = stdArr.length == 1 ? stdArr[0] : stdArr[channel];
+                        buffer.putFloat(((value / 255.0f) - mean) / std);
                     } else {
-                        // 정규화 값을 모델의 양자화 파라미터로 int8/uint8 변환한다.
-                        int q = Math.round(normalized / quantScale) + quantZeroPoint;
-                        if (unsigned) {
-                            buffer.put((byte) Math.max(0, Math.min(255, q)));
-                        } else {
-                            buffer.put((byte) Math.max(-128, Math.min(127, q)));
-                        }
+                        buffer.put((byte) value);
                     }
                 }
             }
