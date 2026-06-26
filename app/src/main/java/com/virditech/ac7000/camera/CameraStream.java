@@ -103,7 +103,7 @@ final class CameraStream {
                 try (Image image = r.acquireLatestImage()) {
                     if (image == null) return;
                     if (!frameDeliveryEnabled) return;
-                    listener.onFrame(converter.toPortraitFrame(image, !color, false));
+                    listener.onFrame(converter.toPortraitFrame(image, !color, mirrorHorizontally()));
                 } catch (Exception e) {
                     listener.onError("Frame conversion failed: " + e.getMessage());
                 }
@@ -140,7 +140,11 @@ final class CameraStream {
         matrix.postRotate(degrees, width / 2f, height / 2f);
         matrix.postScale(width / height, height / width, width / 2f, height / 2f);
         textureView.setTransform(matrix);
-        textureView.setScaleX(color ? 1f : -1f);
+        textureView.setScaleX(mirrorHorizontally() ? -1f : 1f);
+    }
+
+    private boolean mirrorHorizontally() {
+        return !color;
     }
 
     void stop() {
