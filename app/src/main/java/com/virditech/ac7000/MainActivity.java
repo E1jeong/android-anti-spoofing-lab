@@ -87,7 +87,7 @@ public final class MainActivity extends Activity {
     private FaceDetector faceDetector;
     private AntiSpoofingClassifier classifier;
     private Calibration calibration;
-    private final AppWatchdog appWatchdog = new AppWatchdog();
+    private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private volatile boolean isCollecting;
     private volatile boolean ioBusy;
     private volatile int collectionCount;

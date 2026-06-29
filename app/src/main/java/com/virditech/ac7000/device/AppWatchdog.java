@@ -10,11 +10,19 @@ import java.util.concurrent.TimeUnit;
 public final class AppWatchdog implements AutoCloseable {
     private static final String TAG = "AppWatchdog";
     private static final int TIMEOUT_SECONDS = 60;
+    private static final AppWatchdog INSTANCE = new AppWatchdog();
     private final int pid = Process.myPid();
     private final UbimDaemonClient daemon = new UbimDaemonClient();
     private ScheduledExecutorService scheduler;
 
-    public void start() {
+    private AppWatchdog() {
+    }
+
+    public static AppWatchdog getInstance() {
+        return INSTANCE;
+    }
+
+    public synchronized void start() {
         if (scheduler != null) return;
         scheduler = Executors.newSingleThreadScheduledExecutor();
         scheduler.scheduleAtFixedRate(() -> {
@@ -23,7 +31,7 @@ public final class AppWatchdog implements AutoCloseable {
         }, 0, 5, TimeUnit.SECONDS);
     }
 
-    @Override public void close() {
+    @Override public synchronized void close() {
         if (scheduler != null) {
             scheduler.shutdownNow();
             scheduler = null;
