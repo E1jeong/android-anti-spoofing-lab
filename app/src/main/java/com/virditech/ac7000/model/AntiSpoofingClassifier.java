@@ -8,6 +8,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.SystemClock;
+import android.util.Log;
 
 import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
@@ -18,24 +19,35 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
 public final class AntiSpoofingClassifier implements AutoCloseable {
+    private static final String TAG = "AntiSpoofingClassifier";
     private static final String MODEL_NAME = "anti_spoofing.tflite";
+    private static final int THREAD_COUNT = 2;
     private final Interpreter interpreter;
+    private final String inferenceBackend;
+    private final String backendStatus;
     private final ModelSpec spec;
     private final Tensor rgbTensor;
     private final Tensor irTensor;
     private final InputBuffer rgbInput;
     private final InputBuffer irInput;
     private final Object[] inputs = new Object[2];
-    private final float[][] output = new float[1][5];
+    private final DataType outputDataType;
+    private final Tensor.QuantizationParams outputQuantization;
+    private final float[][] outputFloat = new float[1][5];
+    private final byte[][] outputInt8 = new byte[1][5];
     private final Map<Integer, Object> outputs = new HashMap<>();
 
     public AntiSpoofingClassifier(Context context) throws Exception {
         spec = ModelSpec.load(context);
-        interpreter = new Interpreter(loadModel(context), new Interpreter.Options().setNumThreads(2));
+        InterpreterBundle bundle = createInterpreter(loadModel(context));
+        interpreter = bundle.interpreter;
+        inferenceBackend = bundle.backend;
+        backendStatus = bundle.status;
         if (interpreter.getInputTensorCount() != 2 || interpreter.getOutputTensorCount() != 1) {
             throw new IllegalArgumentException("Model must have exactly two inputs and one output");
         }
@@ -48,16 +60,31 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         validateInput(irTensor, "IR", -1);
         rgbInput = new InputBuffer(rgbTensor);
         irInput = new InputBuffer(irTensor);
-        outputs.put(0, output);
-        int[] outputShape = interpreter.getOutputTensor(0).shape();
-        if (interpreter.getOutputTensor(0).dataType() != DataType.FLOAT32
+        Tensor outputTensor = interpreter.getOutputTensor(0);
+        outputDataType = outputTensor.dataType();
+        outputQuantization = outputTensor.quantizationParams();
+        int[] outputShape = outputTensor.shape();
+        if ((outputDataType != DataType.FLOAT32 && outputDataType != DataType.INT8)
                 || outputShape.length != 2 || outputShape[0] != 1 || outputShape[1] != 5) {
-            throw new IllegalArgumentException("Output must be FLOAT32 [1,5]");
+            throw new IllegalArgumentException("Output must be FLOAT32/INT8 [1,5], actual="
+                    + outputDataType + " " + Arrays.toString(outputShape));
         }
+        if (outputDataType == DataType.INT8 && outputQuantization.getScale() <= 0f) {
+            throw new IllegalArgumentException("INT8 output must have a positive quantization scale");
+        }
+        outputs.put(0, outputDataType == DataType.FLOAT32 ? outputFloat : outputInt8);
     }
 
     public float cropMarginRatio() {
         return spec.cropMarginRatio;
+    }
+
+    public String inferenceBackend() {
+        return inferenceBackend;
+    }
+
+    public String backendStatus() {
+        return backendStatus;
     }
 
     public ClassificationResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
@@ -66,7 +93,8 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         long start = SystemClock.elapsedRealtimeNanos();
         interpreter.runForMultipleInputsOutputs(inputs, outputs);
         long inferenceMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
-        float[] probabilities = spec.outputIsLogits ? softmax(output[0]) : validateProbabilities(output[0]);
+        float[] modelOutput = readModelOutput();
+        float[] probabilities = spec.outputIsLogits ? softmax(modelOutput) : validateProbabilities(modelOutput);
 
         return new ClassificationResult(probabilities, inferenceMs);
     }
@@ -76,9 +104,25 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         if (shape.length != 4 || shape[0] != 1 || shape[1] <= 0 || shape[2] <= 0
                 || (requiredChannels > 0 && shape[3] != requiredChannels)
                 || (requiredChannels < 0 && shape[3] != 1 && shape[3] != 3)
-                || (tensor.dataType() != DataType.FLOAT32 && tensor.dataType() != DataType.UINT8)) {
-            throw new IllegalArgumentException(name + " input must be NHWC FLOAT32/UINT8 with a supported channel count");
+                || (tensor.dataType() != DataType.FLOAT32 && tensor.dataType() != DataType.UINT8
+                && tensor.dataType() != DataType.INT8)) {
+            throw new IllegalArgumentException(name + " input must be NHWC FLOAT32/UINT8/INT8 with a supported channel count, actual="
+                    + tensor.dataType() + " " + Arrays.toString(shape));
         }
+        if (tensor.dataType() == DataType.INT8 && tensor.quantizationParams().getScale() <= 0f) {
+            throw new IllegalArgumentException(name + " INT8 input must have a positive quantization scale");
+        }
+    }
+
+    private float[] readModelOutput() {
+        if (outputDataType == DataType.FLOAT32) return outputFloat[0].clone();
+        float scale = outputQuantization.getScale();
+        int zeroPoint = outputQuantization.getZeroPoint();
+        float[] dequantized = new float[outputInt8[0].length];
+        for (int i = 0; i < outputInt8[0].length; i++) {
+            dequantized[i] = (outputInt8[0][i] - zeroPoint) * scale;
+        }
+        return dequantized;
     }
 
     private static float[] softmax(float[] logits) {
@@ -113,10 +157,41 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         }
     }
 
+    private static InterpreterBundle createInterpreter(MappedByteBuffer model) {
+        try {
+            Interpreter.Options nnapiOptions = new Interpreter.Options()
+                    .setNumThreads(THREAD_COUNT)
+                    .setUseNNAPI(true);
+            Interpreter nnapiInterpreter = new Interpreter(model, nnapiOptions);
+            nnapiInterpreter.allocateTensors();
+            return new InterpreterBundle(nnapiInterpreter, "NNAPI", "Ready");
+        } catch (RuntimeException nnapiError) {
+            Log.w(TAG, "NNAPI delegate failed. Falling back to CPU/XNNPACK.", nnapiError);
+            Interpreter.Options cpuOptions = new Interpreter.Options()
+                    .setNumThreads(THREAD_COUNT)
+                    .setUseXNNPACK(true);
+            Interpreter cpuInterpreter = new Interpreter(model, cpuOptions);
+            cpuInterpreter.allocateTensors();
+            return new InterpreterBundle(cpuInterpreter, "CPU", "Ready - CPU fallback");
+        }
+    }
+
     @Override public void close() {
         rgbInput.close();
         irInput.close();
         interpreter.close();
+    }
+
+    private static final class InterpreterBundle {
+        final Interpreter interpreter;
+        final String backend;
+        final String status;
+
+        InterpreterBundle(Interpreter interpreter, String backend, String status) {
+            this.interpreter = interpreter;
+            this.backend = backend;
+            this.status = status;
+        }
     }
 
     private final class InputBuffer {
@@ -124,6 +199,7 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         final int height;
         final int channels;
         final DataType dataType;
+        final Tensor.QuantizationParams quantization;
         final Bitmap scaled;
         final Canvas canvas;
         final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -138,6 +214,7 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             width = shape[2];
             channels = shape[3];
             dataType = tensor.dataType();
+            quantization = tensor.quantizationParams();
             int bytesPerValue = dataType == DataType.FLOAT32 ? 4 : 1;
             scaled = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
             canvas = new Canvas(scaled);
@@ -153,7 +230,12 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             int bottom = Math.min(source.getHeight(), box.bottom);
             buffer.clear();
             if (right <= left || bottom <= top) {
-                while (buffer.hasRemaining()) buffer.put((byte) 0);
+                if (dataType == DataType.FLOAT32) {
+                    while (buffer.hasRemaining()) buffer.putFloat(0f);
+                } else {
+                    byte zero = dataType == DataType.INT8 ? quantize(0f) : 0;
+                    while (buffer.hasRemaining()) buffer.put(zero);
+                }
                 buffer.rewind();
                 return buffer;
             }
@@ -171,11 +253,9 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
                     else if (spec.bgr) value = channel == 0 ? b : channel == 1 ? g : r;
                     else value = channel == 0 ? r : channel == 1 ? g : b;
                     if (dataType == DataType.FLOAT32) {
-                        float[] meanArr = infrared ? spec.irMean : spec.rgbMean;
-                        float[] stdArr = infrared ? spec.irStd : spec.rgbStd;
-                        float mean = meanArr.length == 1 ? meanArr[0] : meanArr[channel];
-                        float std = stdArr.length == 1 ? stdArr[0] : stdArr[channel];
-                        buffer.putFloat(((value / 255.0f) - mean) / std);
+                        buffer.putFloat(normalize(value, channel, infrared));
+                    } else if (dataType == DataType.INT8) {
+                        buffer.put(quantize(normalize(value, channel, infrared)));
                     } else {
                         buffer.put((byte) value);
                     }
@@ -183,6 +263,19 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             }
             buffer.rewind();
             return buffer;
+        }
+
+        private float normalize(int value, int channel, boolean infrared) {
+            float[] meanArr = infrared ? spec.irMean : spec.rgbMean;
+            float[] stdArr = infrared ? spec.irStd : spec.rgbStd;
+            float mean = meanArr.length == 1 ? meanArr[0] : meanArr[channel];
+            float std = stdArr.length == 1 ? stdArr[0] : stdArr[channel];
+            return ((value / 255.0f) - mean) / std;
+        }
+
+        private byte quantize(float value) {
+            int quantized = Math.round(value / quantization.getScale()) + quantization.getZeroPoint();
+            return (byte) Math.max(Byte.MIN_VALUE, Math.min(Byte.MAX_VALUE, quantized));
         }
 
         void close() {

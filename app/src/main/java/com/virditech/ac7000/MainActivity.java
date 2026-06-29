@@ -152,8 +152,8 @@ public final class MainActivity extends Activity {
         root.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
         performance = label(22f);
-        performance.setText(String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS", 0, 0, 0, 0.0f, 0, 0.0f));
-        FrameLayout.LayoutParams perfParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
+        performance.setText(String.format(Locale.US, "Backend MODEL  Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS", 0, 0, 0, 0.0f, 0, 0.0f));
+        FrameLayout.LayoutParams perfParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 56);
         root.addView(performance, perfParams);
 
         int buttonWidth = getResources().getDisplayMetrics().widthPixels / 3;
@@ -168,7 +168,7 @@ public final class MainActivity extends Activity {
 
         status = label(22f);
         status.setText("Initializing...");
-        FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 120);
+        FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
         root.addView(status, statusParams);
 
         FrameLayout irCropContainer = new FrameLayout(this);
@@ -352,7 +352,7 @@ public final class MainActivity extends Activity {
             catch (Exception e) { append(messages, e.getMessage()); }
             try { classifier = new AntiSpoofingClassifier(getApplicationContext()); }
             catch (Exception e) { append(messages, "MODEL REQUIRED: " + e.getMessage()); }
-            String message = messages.length() == 0 ? "Ready" : messages.toString();
+            String message = messages.length() == 0 ? classifier.backendStatus() : messages.toString();
             normalStatusMessage = message;
             runOnUiThread(() -> {
                 if (cameras != null) cameras.setIrFramesEnabled(true);
@@ -847,8 +847,9 @@ public final class MainActivity extends Activity {
                 switchButton.setEnabled(true);
             }
         }
-        return String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS",
-                rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps);
+        String backend = classifier != null ? classifier.inferenceBackend() : "MODEL";
+        return String.format(Locale.US, "Backend %s  Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS",
+                backend, rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps);
     }
 
     private void resetResultsLabelToZero() {

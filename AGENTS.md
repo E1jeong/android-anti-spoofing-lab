@@ -21,12 +21,13 @@ The application performs the following pipeline:
 
 - The model asset is `app/src/main/assets/anti_spoofing.tflite`.
 - Preprocessing settings are defined by `app/src/main/assets/model_spec.json`. They must match the training contract whenever the model changes.
-- The model must have exactly two NHWC inputs: RGB and IR. Supported input types are `FLOAT32` and `UINT8`; RGB must have three channels, while IR may have one or three channels.
-- The model must have one `FLOAT32` output with shape `[1,5]`.
+- The model must have exactly two NHWC inputs: RGB and IR. Supported input types are `FLOAT32`, `UINT8`, and `INT8`; RGB must have three channels, while IR may have one or three channels.
+- The model must have one `FLOAT32` or `INT8` output with shape `[1,5]`.
 - Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY` (must match `ClassificationResult.LABELS`).
 - `model_spec.json` controls the RGB/IR input indices, channel order, normalization values, whether the output contains logits, and the crop margin ratio.
 - Do not change preprocessing, output ordering, or tensor assumptions without updating the model contract and verifying them against the exported model.
-- **Current deployment is the float model on CPU.** INT8 quantization + an NNAPI delegate for the i.MX 8M Plus NPU were attempted and reverted (the int8 tflite could not be produced cleanly). `AntiSpoofingClassifier` therefore expects a `FLOAT32` model. Full history/decision: the `access-liveness-model` repo `docs/project_status.md` §3. Do not re-add INT8/NNAPI without a working int8 tflite from that effort.
+- **Current deployment supports float and full INT8 models.** The app tries Android NNAPI first for NPU evaluation and falls back to CPU/XNNPACK if NNAPI model preparation fails. Current target-board result: even the NPU-friendly Keras INT8 export still falls back to CPU with `ANEURALNETWORKS_BAD_DATA ... while adding operation`; do not report NPU acceleration as working until the on-device UI shows `Backend NNAPI` and latency is measured. Full history/decision: `\\wsl.localhost\Ubuntu-24.04\home\union\access-liveness-model\docs\project_status.md` section 3.
+- The current checked-in INT8 asset is an NPU-friendly export (`best_model_fold4_npu_int8.tflite`) whose RGB and IR inputs both expect `[-1,1]` style normalization (`mean=[0.5]`, `std=[0.5]`). Do not restore ImageNet RGB normalization for this asset unless replacing it with a model exported for that contract.
 
 ## Device and Build Requirements
 
@@ -60,6 +61,7 @@ Default compile validation:
 
 - Run the default compile validation after code or build changes. Use a narrower check only when it fully covers the changed behavior.
 - If the model changes, verify that the model loads and that its input/output tensors match the documented contract.
-- Hardware-dependent changes require manual verification on the target device. At minimum, check RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, all four output probabilities, inference timing, and cleanup/restart across pause and resume.
+- For NNAPI/NPU changes, verify the on-device backend label. `Backend CPU` means NNAPI preparation failed and measurements are CPU/XNNPACK, not NPU.
+- Hardware-dependent changes require manual verification on the target device. At minimum, check RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, all five output probabilities, inference timing, and cleanup/restart across pause and resume.
 - Calibration changes must also verify hidden-mode entry, single-face validation for both cameras, cancel-without-save, persisted alignment after restart, and compatibility with the production RGB-to-IR mapping formula.
 - If hardware validation cannot be performed, state which checks remain unverified and the resulting risk.
