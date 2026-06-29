@@ -7,5 +7,5 @@
   "irMean": [0.5],
   "irStd": [0.5],
   "outputIsLogits": true,
-  "cropMarginRatio": 0.15
+  "cropMarginRatio": 0.10
 }

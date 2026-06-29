@@ -564,7 +564,7 @@ public final class MainActivity extends Activity {
             final int currentCount = collectionCount + 1;
             if (currentCount <= 100) {
                 collectionCount = currentCount;
-                float margin = classifier != null ? classifier.cropMarginRatio() : 0.15f;
+                float margin = classifier != null ? classifier.cropMarginRatio() : 0.10f;
                 Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
                 int rL = Math.max(0, rgbR.left);
                 int rT = Math.max(0, rgbR.top);
