@@ -9,6 +9,7 @@ import java.io.IOException;
 
 public final class Calibration {
     private static final File FILE = new File("/sdcard/devlocal/CalibConfig.dat");
+    private static volatile File appFile;
     private final float vertical;
     private final float horizontal;
     private final float referenceFaceWidth;
@@ -23,13 +24,23 @@ public final class Calibration {
         this.referenceFaceWidth = referenceFaceWidth;
     }
 
+    /**
+     * Registers an app-private fallback location for the calibration file. The production
+     * path ({@link #FILE}) stays the primary so device firmware can still read it; on
+     * hardware where the app cannot write external storage (e.g. running as the system
+     * UID under FUSE) the calibration transparently falls back to this app-owned file.
+     */
+    public static void setAppStorageDir(File dir) {
+        appFile = new File(dir, "CalibConfig.dat");
+    }
+
     public static Calibration identity() {
         return new Calibration(0f, 0f, 1f);
     }
 
     public static Calibration fromFaces(Rect rgb, Rect ir, int width) {
         float vertical = rgb.centerY() - ir.centerY();
-        float horizontal = width - ir.centerX() - rgb.centerX();
+        float horizontal = ir.centerX() - rgb.centerX();
         float faceWidth = rgb.width();
         if (Math.abs(vertical) > 200f || Math.abs(horizontal) > 200f || faceWidth <= 0f || faceWidth > 500f) {
             throw new IllegalArgumentException("Measured calibration values are invalid");
@@ -38,8 +49,17 @@ public final class Calibration {
     }
 
     public static Calibration load() throws IOException {
+        try {
+            return readFrom(FILE);
+        } catch (IOException primary) {
+            if (appFile != null) return readFrom(appFile);
+            throw primary;
+        }
+    }
+
+    private static Calibration readFrom(File file) throws IOException {
         byte[] bytes = new byte[12];
-        try (FileInputStream input = new FileInputStream(FILE)) {
+        try (FileInputStream input = new FileInputStream(file)) {
             int offset = 0;
             while (offset < bytes.length) {
                 int count = input.read(bytes, offset, bytes.length - offset);
@@ -61,22 +81,31 @@ public final class Calibration {
         float xOffset = rgb.width() * horizontal / referenceFaceWidth;
         float yOffset = rgb.width() * vertical / referenceFaceWidth;
         return new Rect(
-                clamp(Math.round(width - rgb.right - xOffset), 0, width),
+                clamp(Math.round(rgb.left + xOffset), 0, width),
                 clamp(Math.round(rgb.top - yOffset), 0, height),
-                clamp(Math.round(width - rgb.left - xOffset), 0, width),
+                clamp(Math.round(rgb.right + xOffset), 0, width),
                 clamp(Math.round(rgb.bottom - yOffset), 0, height));
     }
 
     public void save() throws IOException {
+        try {
+            writeTo(FILE);
+        } catch (IOException primary) {
+            if (appFile == null) throw primary;
+            writeTo(appFile);
+        }
+    }
+
+    private void writeTo(File file) throws IOException {
         byte[] bytes = new byte[64];
         writeFloat(bytes, 0, vertical);
         writeFloat(bytes, 4, horizontal);
         writeFloat(bytes, 8, referenceFaceWidth);
-        File parent = FILE.getParentFile();
+        File parent = file.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Unable to create calibration directory");
         }
-        try (FileOutputStream output = new FileOutputStream(FILE)) {
+        try (FileOutputStream output = new FileOutputStream(file)) {
             output.write(bytes);
             output.flush();
         }

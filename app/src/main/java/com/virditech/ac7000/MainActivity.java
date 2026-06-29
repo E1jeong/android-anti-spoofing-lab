@@ -22,11 +22,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.app.AlertDialog;
-import android.widget.RadioGroup;
-import android.widget.RadioButton;
-import android.widget.EditText;
-import android.text.InputType;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -66,6 +61,7 @@ public final class MainActivity extends Activity {
     private FrameData latestIr;
     private TextureView rgbView;
     private TextureView irView;
+    private ImageView irPreviewView;
     private OverlayView overlay;
     private ProgressBar loadingSpinner;
     private ProgressBar irLoadingSpinner;
@@ -73,6 +69,7 @@ public final class MainActivity extends Activity {
     private TextView status;
     private ImageView faceCropView;
     private Bitmap currentPreviewFace;
+    private Bitmap currentIrPreviewFrame;
     private TextView noFaceLabel;
     private TextView resultsLabel;
     private TextView calibrationInstruction;
@@ -91,7 +88,7 @@ public final class MainActivity extends Activity {
     private volatile boolean isCollecting;
     private volatile boolean ioBusy;
     private volatile int collectionCount;
-    private File currentCollectionDir;
+    private File collectionRawRoot;
     private int collectionStartSubjectId;
     private String collectionClassName = "live";
     private LinearLayout expandableLayout;
@@ -115,6 +112,7 @@ public final class MainActivity extends Activity {
     private volatile float inferenceFps;
     private long lastUiUpdateTimeMs;
     private long lastPreviewUpdateTimeMs;
+    private long lastIrPreviewUpdateTimeMs;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -139,9 +137,14 @@ public final class MainActivity extends Activity {
         rgbView = new TextureView(this);
         irView = new TextureView(this);
         irView.setAlpha(0f);
+        irPreviewView = new ImageView(this);
+        irPreviewView.setAlpha(0f);
+        irPreviewView.setScaleX(-1f);
+        irPreviewView.setScaleType(ImageView.ScaleType.FIT_XY);
         overlay = new OverlayView(this);
         root.addView(rgbView, match());
         root.addView(irView, match());
+        root.addView(irPreviewView, match());
         root.addView(overlay, match());
 
         loadingSpinner = new ProgressBar(this);
@@ -277,10 +280,12 @@ public final class MainActivity extends Activity {
     private void setIrVisible(boolean visible) {
         showIr = visible;
         rgbView.setAlpha(showIr ? 0f : 1f);
-        irView.setAlpha(showIr ? 1f : 0f);
+        irView.setAlpha(0f);
+        irPreviewView.setAlpha(showIr ? 1f : 0f);
         overlay.setShowIr(showIr);
-        overlay.setTranslationX(showIr ? irView.getTranslationX() : 0f);
-        overlay.setTranslationY(showIr ? irView.getTranslationY() : 0f);
+        overlay.setTranslationX(showIr ? irPreviewView.getTranslationX() : 0f);
+        overlay.setTranslationY(showIr ? irPreviewView.getTranslationY() : 0f);
+        if (!showIr) clearIrPreviewFrame();
         switchButton.setText(showIr ? "SHOW RGB" : "SHOW IR");
     }
 
@@ -337,6 +342,7 @@ public final class MainActivity extends Activity {
     private void initializeEngines() {
         trackingExecutor.execute(() -> {
             StringBuilder messages = new StringBuilder();
+            Calibration.setAppStorageDir(getFilesDir());
             try { calibration = Calibration.load(); }
             catch (Exception e) {
                 calibration = Calibration.identity();
@@ -385,10 +391,12 @@ public final class MainActivity extends Activity {
         HardwareControls.setIrLed(false);
         clearPendingWork();
         overlay.clearResult();
+        clearIrPreviewFrame();
         super.onPause();
     }
 
     private void offerIr(FrameData frame) {
+        updateIrPreview(frame);
         synchronized (irLock) {
             if (latestIr != null) latestIr.recycle();
             latestIr = frame;
@@ -481,8 +489,8 @@ public final class MainActivity extends Activity {
                 return;
             }
             if (!calibrationMode) return;
-            Calibration measured = Calibration.fromFaces(detected, detectedIr, irWidth);
             try {
+                Calibration measured = Calibration.fromFaces(detected, detectedIr, irWidth);
                 measured.save();
                 calibration = measured;
                 normalStatusMessage = "Calibration saved";
@@ -492,7 +500,7 @@ public final class MainActivity extends Activity {
                     status.setText("Calibration saved");
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> calibrationInstruction.setText("Unable to save calibration. Try again."));
+                runOnUiThread(() -> calibrationInstruction.setText("Unable to save calibration: " + e.getMessage()));
             }
             return;
         }
@@ -533,18 +541,18 @@ public final class MainActivity extends Activity {
                 setPreviewFace(finalPreviewFace, finalPreviewRgb);
             }
             if (calibration != null && detected != null) {
-                float sx = irView.getWidth() / 432f;
-                float sy = irView.getHeight() / 768f;
+                float sx = irPreviewView.getWidth() / 432f;
+                float sy = irPreviewView.getHeight() / 768f;
                 float scale = detected.width() / calibration.getReferenceFaceWidth();
                 float tx = calibration.getHorizontal() * scale * sx;
                 float ty = calibration.getVertical() * scale * sy;
-                irView.setTranslationX(tx);
-                irView.setTranslationY(ty);
+                irPreviewView.setTranslationX(tx);
+                irPreviewView.setTranslationY(ty);
                 overlay.setTranslationX(showIr ? tx : 0f);
                 overlay.setTranslationY(showIr ? ty : 0f);
             } else {
-                irView.setTranslationX(0f);
-                irView.setTranslationY(0f);
+                irPreviewView.setTranslationX(0f);
+                irPreviewView.setTranslationY(0f);
                 overlay.setTranslationX(0f);
                 overlay.setTranslationY(0f);
             }
@@ -575,7 +583,8 @@ public final class MainActivity extends Activity {
                 final Bitmap fullIR = frame.ir.bitmap.copy(frame.ir.bitmap.getConfig(), false);
 
                 final String subjectDirName = collectionClassName + "_" + collectionStartSubjectId;
-                final File dir = new File("/sdcard/Pictures/raw/" + collectionClassName + "/" + subjectDirName + "/" + currentCount);
+                final File root = collectionRawRoot != null ? collectionRawRoot : new File(getFilesDir(), "raw");
+                final File dir = new File(root, collectionClassName + "/" + subjectDirName + "/" + currentCount);
                 
                 ioExecutor.execute(() -> {
                     try {
@@ -673,8 +682,31 @@ public final class MainActivity extends Activity {
         });
     }
 
+    /**
+     * Chooses where captured frames are written. Prefers external storage
+     * ({@code /sdcard/Pictures/raw}) so the files are easy to pull off-device, and
+     * verifies it with a real probe write. When the app cannot write external storage
+     * (e.g. running as the system UID under FUSE) it falls back to app-private internal
+     * storage ({@code getFilesDir()/raw}) so capture never silently fails.
+     */
+    private File resolveRawRoot() {
+        File external = new File("/sdcard/Pictures/raw");
+        try {
+            if (external.isDirectory() || external.mkdirs()) {
+                File probe = new File(external, ".wtest");
+                try (FileOutputStream out = new FileOutputStream(probe)) {
+                    out.write(0);
+                }
+                probe.delete();
+                return external;
+            }
+        } catch (Exception ignored) {
+        }
+        return new File(getFilesDir(), "raw");
+    }
+
     private int getNextSubjectNumber(String className) {
-        File baseDir = new File("/sdcard/Pictures/raw/" + className);
+        File baseDir = new File(resolveRawRoot(), className);
         if (!baseDir.exists()) {
             return 1;
         }
@@ -711,6 +743,7 @@ public final class MainActivity extends Activity {
             startCollectionButton.setText("START CAPTURE");
             return;
         }
+        collectionRawRoot = resolveRawRoot();
         startCollectionButton.setEnabled(false);
         switchButton.setEnabled(false);
         startCollectionButton.setText("COLLECTING...");
@@ -866,6 +899,7 @@ public final class MainActivity extends Activity {
         if (classifier != null) classifier.close();
         if (faceDetector != null) faceDetector.close();
         clearPreviewFace();
+        clearIrPreviewFrame();
         appWatchdog.close();
         super.onDestroy();
     }
@@ -925,7 +959,7 @@ public final class MainActivity extends Activity {
     private void setPreviewFace(Bitmap bitmap, boolean rgb) {
         Bitmap previous = currentPreviewFace;
         currentPreviewFace = bitmap;
-        faceCropView.setScaleX(rgb ? -1f : 1f);
+        faceCropView.setScaleX(-1f);
         faceCropView.setImageBitmap(bitmap);
         if (previous != null && previous != bitmap && !previous.isRecycled()) previous.recycle();
     }
@@ -934,6 +968,33 @@ public final class MainActivity extends Activity {
         faceCropView.setImageDrawable(null);
         if (currentPreviewFace != null && !currentPreviewFace.isRecycled()) currentPreviewFace.recycle();
         currentPreviewFace = null;
+    }
+
+    private void updateIrPreview(FrameData frame) {
+        if (!showIr) return;
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastIrPreviewUpdateTimeMs < 150L) return;
+        lastIrPreviewUpdateTimeMs = now;
+        Bitmap.Config config = frame.bitmap.getConfig();
+        Bitmap preview = frame.bitmap.copy(config == null ? Bitmap.Config.ARGB_8888 : config, false);
+        runOnUiThread(() -> setIrPreviewFrame(preview));
+    }
+
+    private void setIrPreviewFrame(Bitmap bitmap) {
+        if (!resumed || !showIr) {
+            bitmap.recycle();
+            return;
+        }
+        Bitmap previous = currentIrPreviewFrame;
+        currentIrPreviewFrame = bitmap;
+        irPreviewView.setImageBitmap(bitmap);
+        if (previous != null && previous != bitmap && !previous.isRecycled()) previous.recycle();
+    }
+
+    private void clearIrPreviewFrame() {
+        irPreviewView.setImageDrawable(null);
+        if (currentIrPreviewFrame != null && !currentIrPreviewFrame.isRecycled()) currentIrPreviewFrame.recycle();
+        currentIrPreviewFrame = null;
     }
 
     private static FrameLayout.LayoutParams match() {
