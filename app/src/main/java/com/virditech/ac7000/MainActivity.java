@@ -152,7 +152,7 @@ public final class MainActivity extends Activity {
         root.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
         performance = label(22f);
-        performance.setText(String.format(Locale.US, "Backend MODEL  Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS", 0, 0, 0, 0.0f, 0, 0.0f));
+        performance.setText(String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS\nBackend MODEL", 0, 0, 0, 0.0f, 0, 0.0f));
         FrameLayout.LayoutParams perfParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 56);
         root.addView(performance, perfParams);
 
@@ -848,8 +848,8 @@ public final class MainActivity extends Activity {
             }
         }
         String backend = classifier != null ? classifier.inferenceBackend() : "MODEL";
-        return String.format(Locale.US, "Backend %s  Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS",
-                backend, rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps);
+        return String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS\nBackend %s",
+                rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps, backend);
     }
 
     private void resetResultsLabelToZero() {

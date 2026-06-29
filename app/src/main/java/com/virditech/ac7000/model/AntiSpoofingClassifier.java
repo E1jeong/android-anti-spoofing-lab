@@ -73,6 +73,18 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             throw new IllegalArgumentException("INT8 output must have a positive quantization scale");
         }
         outputs.put(0, outputDataType == DataType.FLOAT32 ? outputFloat : outputInt8);
+
+        // Warmup the model using zero-filled dummy input buffers
+        try {
+            long warmupStart = SystemClock.elapsedRealtime();
+            inputs[spec.rgbInputIndex] = rgbInput.buffer;
+            inputs[spec.irInputIndex] = irInput.buffer;
+            interpreter.runForMultipleInputsOutputs(inputs, outputs);
+            long warmupDuration = SystemClock.elapsedRealtime() - warmupStart;
+            Log.i(TAG, "Model warmup completed in " + warmupDuration + " ms using " + inferenceBackend);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to warmup model: " + e.getMessage(), e);
+        }
     }
 
     public float cropMarginRatio() {
