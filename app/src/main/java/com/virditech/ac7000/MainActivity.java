@@ -34,6 +34,7 @@ import com.virditech.ac7000.camera.FramePair;
 import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.device.HardwareControls;
 import com.virditech.ac7000.device.AppWatchdog;
+import com.virditech.ac7000.device.UbimDaemonClient;
 import com.virditech.ac7000.model.AntiSpoofingClassifier;
 import com.virditech.ac7000.model.ClassificationResult;
 import com.virditech.ac7000.model.FaceCrop;
@@ -341,10 +342,17 @@ public final class MainActivity extends Activity {
 
     private void initializeEngines() {
         trackingExecutor.execute(() -> {
+            try {
+                UbimDaemonClient daemon = new UbimDaemonClient();
+                daemon.command("ubim cli.command appops set com.virditech.ac7000 MANAGE_EXTERNAL_STORAGE allow");
+            } catch (Exception e) {
+                android.util.Log.e("MainActivity", "Failed to auto-grant MANAGE_EXTERNAL_STORAGE", e);
+            }
             StringBuilder messages = new StringBuilder();
             Calibration.setAppStorageDir(getFilesDir());
             try { calibration = Calibration.load(); }
             catch (Exception e) {
+                android.util.Log.e("MainActivity", "Failed to load calibration config", e);
                 calibration = Calibration.identity();
                 messages.append("CALIBRATION NOT SET");
             }
