@@ -72,7 +72,7 @@ public final class OverlayView extends View {
         if (calibrationMode) drawCalibrationGuide(canvas);
         Rect source = showIr ? irBox : rgbBox;
         if (source == null) return;
-        Rect box = map(source, 432, 768, getWidth(), getHeight(), !showIr);
+        Rect box = map(source, 432, 768, getWidth(), getHeight(), true);
         int color;
         if (isCollecting) {
             color = Color.WHITE;
