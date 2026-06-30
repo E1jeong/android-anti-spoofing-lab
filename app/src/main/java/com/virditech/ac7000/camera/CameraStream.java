@@ -21,6 +21,10 @@ import android.view.Surface;
 import android.view.TextureView;
 
 import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeUnit;
 
 final class CameraStream {
     interface Listener {
@@ -34,6 +38,8 @@ final class CameraStream {
     private final boolean color;
     private final Listener listener;
     private final YuvConverter converter;
+    private final ExecutorService conversionExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean conversionBusy = new AtomicBoolean(false);
     private CameraDevice device;
     private CameraCaptureSession session;
     private ImageReader reader;
@@ -103,9 +109,27 @@ final class CameraStream {
                 try (Image image = r.acquireLatestImage()) {
                     if (image == null) return;
                     if (!frameDeliveryEnabled) return;
-                    listener.onFrame(converter.toPortraitFrame(image, !color, mirrorHorizontally()));
+                    if (conversionBusy.get()) return;
+
+                    int w = image.getWidth();
+                    int h = image.getHeight();
+                    byte[] nv21Data = new byte[w * h * 3 / 2];
+                    YuvConverter.copyToNv21(image, nv21Data);
+                    long timestamp = image.getTimestamp();
+
+                    conversionBusy.set(true);
+                    conversionExecutor.execute(() -> {
+                        try {
+                            FrameData frame = converter.toPortraitFrame(nv21Data, w, h, timestamp, !color, mirrorHorizontally());
+                            listener.onFrame(frame);
+                        } catch (Exception e) {
+                            listener.onError("Frame conversion failed: " + e.getMessage());
+                        } finally {
+                            conversionBusy.set(false);
+                        }
+                    });
                 } catch (Exception e) {
-                    listener.onError("Frame conversion failed: " + e.getMessage());
+                    listener.onError("Frame acquisition failed: " + e.getMessage());
                 }
             }, handler);
             device.createCaptureSession(Arrays.asList(preview, reader.getSurface()), new CameraCaptureSession.StateCallback() {
@@ -156,6 +180,16 @@ final class CameraStream {
         if (reader != null) { reader.close(); reader = null; }
         if (session != null) { session.close(); session = null; }
         if (device != null) { device.close(); device = null; }
+
+        conversionExecutor.shutdown();
+        try {
+            if (!conversionExecutor.awaitTermination(500, TimeUnit.MILLISECONDS)) {
+                conversionExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            conversionExecutor.shutdownNow();
+        }
+
         if (handler != null) {
             handler.post(converter::close);
             handler = null;

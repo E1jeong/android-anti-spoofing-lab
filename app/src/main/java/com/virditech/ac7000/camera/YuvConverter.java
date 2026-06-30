@@ -63,6 +63,26 @@ final class YuvConverter implements AutoCloseable {
         return new FrameData(portrait, image.getTimestamp(), conversionMs, this::releasePortraitBitmap);
     }
 
+    FrameData toPortraitFrame(byte[] nv21Data, int imageWidth, int imageHeight, long timestampNs, boolean grayscale, boolean flipHorizontal) {
+        long start = SystemClock.elapsedRealtimeNanos();
+        ensureBuffers(imageWidth, imageHeight);
+        inputAllocation.copyFromUnchecked(nv21Data);
+        yuvToRgb.setInput(inputAllocation);
+        yuvToRgb.forEach(outputAllocation);
+        outputAllocation.copyTo(landscape);
+
+        Bitmap portrait = obtainPortraitBitmap();
+        rotation.reset();
+        rotation.setRotate(-90f);
+        rotation.postTranslate(0f, width);
+        if (flipHorizontal) {
+            rotation.postScale(-1f, 1f, height / 2f, width / 2f);
+        }
+        new Canvas(portrait).drawBitmap(landscape, rotation, grayscale ? grayscalePaint : colorPaint);
+        long conversionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
+        return new FrameData(portrait, timestampNs, conversionMs, this::releasePortraitBitmap);
+    }
+
     private void ensureBuffers(int newWidth, int newHeight) {
         if (newWidth == width && newHeight == height) return;
         releaseBuffers();
@@ -70,12 +90,12 @@ final class YuvConverter implements AutoCloseable {
         width = newWidth;
         height = newHeight;
         nv21 = new byte[width * height * 3 / 2];
-        landscape = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         inputAllocation = Allocation.createSized(renderScript, Element.U8(renderScript), nv21.length);
+        landscape = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         outputAllocation = Allocation.createFromBitmap(renderScript, landscape);
     }
 
-    private static void copyToNv21(Image image, byte[] output) {
+    static void copyToNv21(Image image, byte[] output) {
         Image.Plane[] planes = image.getPlanes();
         ByteBuffer y = planes[0].getBuffer().slice();
         int yRowStride = planes[0].getRowStride();
