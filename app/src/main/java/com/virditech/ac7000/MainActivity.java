@@ -48,7 +48,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class MainActivity extends Activity {
     private static final int CAMERA_PERMISSION_REQUEST = 10;
-    private static final long MAX_PAIR_DELTA_NS = 50_000_000L;
+    private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -60,6 +60,8 @@ public final class MainActivity extends Activity {
     private final AtomicBoolean calibrationRequested = new AtomicBoolean();
     private final Object irLock = new Object();
     private FrameData latestIr;
+    private final Object irPreviewLock = new Object();
+    private Bitmap latestIrBitmapForCrop;
     private TextureView rgbView;
     private TextureView irView;
     private ImageView irPreviewView;
@@ -286,7 +288,16 @@ public final class MainActivity extends Activity {
         overlay.setShowIr(showIr);
         overlay.setTranslationX(showIr ? irPreviewView.getTranslationX() : 0f);
         overlay.setTranslationY(showIr ? irPreviewView.getTranslationY() : 0f);
-        if (!showIr) clearIrPreviewFrame();
+        if (!showIr) {
+            clearIrPreviewFrame();
+        } else {
+            synchronized (irPreviewLock) {
+                if (latestIrBitmapForCrop != null) {
+                    latestIrBitmapForCrop.recycle();
+                    latestIrBitmapForCrop = null;
+                }
+            }
+        }
         switchButton.setText(showIr ? "SHOW RGB" : "SHOW IR");
     }
 
@@ -400,11 +411,26 @@ public final class MainActivity extends Activity {
         clearPendingWork();
         overlay.clearResult();
         clearIrPreviewFrame();
+        synchronized (irPreviewLock) {
+            if (latestIrBitmapForCrop != null) {
+                latestIrBitmapForCrop.recycle();
+                latestIrBitmapForCrop = null;
+            }
+        }
         super.onPause();
     }
 
     private void offerIr(FrameData frame) {
         updateIrPreview(frame);
+        if (!showIr) {
+            synchronized (irPreviewLock) {
+                if (latestIrBitmapForCrop != null) {
+                    latestIrBitmapForCrop.recycle();
+                }
+                Bitmap.Config config = frame.bitmap.getConfig();
+                latestIrBitmapForCrop = frame.bitmap.copy(config == null ? Bitmap.Config.ARGB_8888 : config, false);
+            }
+        }
         synchronized (irLock) {
             if (latestIr != null) latestIr.recycle();
             latestIr = frame;
@@ -516,18 +542,36 @@ public final class MainActivity extends Activity {
         Bitmap previewFace = null;
         boolean previewRgb = showIr;
         long previewNow = SystemClock.elapsedRealtime();
-        if (previewNow - lastPreviewUpdateTimeMs >= 150L && classifier != null && (previewRgb || frame.ir != null)) {
+        if (previewNow - lastPreviewUpdateTimeMs >= 66L && classifier != null) {
             lastPreviewUpdateTimeMs = previewNow;
-            Bitmap source = previewRgb ? frame.rgb.bitmap : frame.ir.bitmap;
-            Rect face = previewRgb ? detected : irDetected;
-            float margin = classifier.cropMarginRatio();
-            Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
-            int left = Math.max(0, crop.left);
-            int top = Math.max(0, crop.top);
-            int width = Math.min(source.getWidth() - left, crop.width());
-            int height = Math.min(source.getHeight() - top, crop.height());
-            if (width > 0 && height > 0) {
-                previewFace = Bitmap.createBitmap(source, left, top, width, height);
+            if (previewRgb) {
+                Bitmap source = frame.rgb.bitmap;
+                Rect face = detected;
+                float margin = classifier.cropMarginRatio();
+                Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
+                int left = Math.max(0, crop.left);
+                int top = Math.max(0, crop.top);
+                int width = Math.min(source.getWidth() - left, crop.width());
+                int height = Math.min(source.getHeight() - top, crop.height());
+                if (width > 0 && height > 0) {
+                    previewFace = Bitmap.createBitmap(source, left, top, width, height);
+                }
+            } else {
+                synchronized (irPreviewLock) {
+                    if (latestIrBitmapForCrop != null && !latestIrBitmapForCrop.isRecycled()) {
+                        Bitmap source = latestIrBitmapForCrop;
+                        Rect face = irDetected;
+                        float margin = classifier.cropMarginRatio();
+                        Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
+                        int left = Math.max(0, crop.left);
+                        int top = Math.max(0, crop.top);
+                        int width = Math.min(source.getWidth() - left, crop.width());
+                        int height = Math.min(source.getHeight() - top, crop.height());
+                        if (width > 0 && height > 0) {
+                            previewFace = Bitmap.createBitmap(source, left, top, width, height);
+                        }
+                    }
+                }
             }
         }
         final Bitmap finalPreviewFace = previewFace;
