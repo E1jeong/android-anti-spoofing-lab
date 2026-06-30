@@ -10,12 +10,13 @@ Only the device, camera, calibration, face-detection, and lifecycle behavior req
 
 The application performs the following pipeline:
 
-1. Capture RGB and IR frames from the device cameras.
+1. Capture RGB and IR frames from the device cameras. YUV-to-Bitmap conversion is offloaded to dedicated single-threaded executors to avoid blocking camera callbacks, dropping incoming frames when busy.
 2. Detect the largest face from the latest RGB frame with FaceMe and update the overlay independently of model inference.
-3. Match the latest IR frame within the timestamp tolerance for anti-spoofing inference.
+3. Match the latest IR frame within the timestamp tolerance of 150ms (`MAX_PAIR_DELTA_NS`) for anti-spoofing inference.
 4. Map the RGB face region to IR coordinates using the device calibration file, then expand both crops according to the model specification.
 5. Run the matched RGB and IR crops through the TensorFlow Lite anti-spoofing model on a separate worker.
-6. Display the five-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
+6. Update the diagnostic crop preview (top-right) independently of pairing success using a copied frame buffer, throttled to a minimum interval of 66ms (~15 FPS).
+7. Display the five-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
 
 ## Model Contract
 
