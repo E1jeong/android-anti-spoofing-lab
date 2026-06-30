@@ -36,9 +36,12 @@ The application performs the following pipeline:
 - Face detection requires the configured FaceMe dependency and a valid `FACEME_LICENSE_KEY` Gradle property.
 - Platform signing uses `UBIO_KEYSTORE_PATH`, `UBIO_KEY_ALIAS`, `UBIO_KEY_PASSWORD`, and `UBIO_STORE_PASSWORD` when provided.
 - RGB-to-IR mapping requires `/sdcard/devlocal/CalibConfig.dat` on the device.
+  - **Storage Permissions**: Since the app runs as `android.uid.system`, the Android FUSE filesystem/MediaProvider blocks direct file access to `/sdcard/` by default on API 30+. To bypass this, the app uses `UbimDaemonClient` at startup to programmatically grant itself `MANAGE_EXTERNAL_STORAGE` (`appops set com.virditech.ac7000 MANAGE_EXTERNAL_STORAGE allow`).
+  - **Fallback Location**: If reading/writing to `/sdcard/devlocal/CalibConfig.dat` still fails, it transparently falls back to `appFile` at `getFilesDir()/CalibConfig.dat` (internal app storage).
 - The hidden camera-calibration flow is opened by five taps on the upper-left hotspot. It measures one RGB face and one synchronized IR face, then writes the npro-compatible 64-byte calibration file.
 - The app controls the UBio IR LED and LCD through device sysfs paths and communicates with the UBio daemon for watchdog behavior. These paths and protocols are hardware-specific.
 - The application ID and namespace are `com.virditech.ac7000`. Because this is also used by the production application, this test app cannot coexist with UBio-N Face Pro on the same device.
+- **Mirroring & Overlays**: The camera previews are mirrored on screen (RGB is mirrored, and IR preview is mirrored via `irPreviewView.setScaleX(-1f)`). Therefore, `OverlayView` must render mirrored bounding boxes (always passing `true` for the `mirror` argument to `map()` in `onDraw`) so that the green face box aligns with the displayed face.
 
 Default compile validation:
 
