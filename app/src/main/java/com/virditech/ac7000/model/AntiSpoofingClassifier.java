@@ -21,21 +21,26 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public final class AntiSpoofingClassifier implements AutoCloseable {
     private static final String TAG = "AntiSpoofingClassifier";
     private static final String MODEL_NAME = "anti_spoofing.tflite";
     private static final int THREAD_COUNT = 2;
+    private static final int INPUT_COUNT = 5;
+
     private final Interpreter interpreter;
     private final String inferenceBackend;
     private final String backendStatus;
     private final ModelSpec spec;
-    private final Tensor rgbTensor;
-    private final Tensor irTensor;
-    private final InputBuffer rgbInput;
-    private final InputBuffer irInput;
-    private final Object[] inputs = new Object[2];
+    private final InputMapping inputMapping;
+    private final InputBuffer cropRgbInput;
+    private final InputBuffer cropIrInput;
+    private final InputBuffer fullRgbInput;
+    private final InputBuffer fullIrInput;
+    private final InputBuffer heatmapInput;
+    private final Object[] inputs;
     private final DataType outputDataType;
     private final Tensor.QuantizationParams outputQuantization;
     private final float[][] outputFloat = new float[1][5];
@@ -44,22 +49,33 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
 
     public AntiSpoofingClassifier(Context context) throws Exception {
         spec = ModelSpec.load(context);
-        InterpreterBundle bundle = createInterpreter(loadModel(context));
+        InterpreterBundle bundle = createInterpreter(loadModel(context), spec.delegate);
         interpreter = bundle.interpreter;
         inferenceBackend = bundle.backend;
         backendStatus = bundle.status;
-        if (interpreter.getInputTensorCount() != 2 || interpreter.getOutputTensorCount() != 1) {
-            throw new IllegalArgumentException("Model must have exactly two inputs and one output");
+        if (interpreter.getInputTensorCount() != INPUT_COUNT || interpreter.getOutputTensorCount() != 1) {
+            throw new IllegalArgumentException("Model must have exactly five inputs and one output");
         }
-        if (spec.rgbInputIndex < 0 || spec.rgbInputIndex > 1 || spec.irInputIndex < 0 || spec.irInputIndex > 1) {
-            throw new IllegalArgumentException("Input indexes must be 0 and 1");
-        }
-        rgbTensor = interpreter.getInputTensor(spec.rgbInputIndex);
-        irTensor = interpreter.getInputTensor(spec.irInputIndex);
-        validateInput(rgbTensor, "RGB", 3);
-        validateInput(irTensor, "IR", -1);
-        rgbInput = new InputBuffer(rgbTensor);
-        irInput = new InputBuffer(irTensor);
+
+        logModelIo();
+        inputMapping = resolveInputMapping();
+        Tensor cropRgbTensor = interpreter.getInputTensor(inputMapping.cropRgbIndex);
+        Tensor cropIrTensor = interpreter.getInputTensor(inputMapping.cropIrIndex);
+        Tensor fullRgbTensor = interpreter.getInputTensor(inputMapping.fullRgbIndex);
+        Tensor fullIrTensor = interpreter.getInputTensor(inputMapping.fullIrIndex);
+        Tensor heatmapTensor = interpreter.getInputTensor(inputMapping.heatmapIndex);
+        validateInput(cropRgbTensor, "cropRgb", 3);
+        validateInput(cropIrTensor, "cropIr", 1);
+        validateInput(fullRgbTensor, "fullRgb", 3);
+        validateInput(fullIrTensor, "fullIr", 1);
+        validateInput(heatmapTensor, "heatmap", 1);
+        cropRgbInput = new InputBuffer(cropRgbTensor, InputKind.RGB);
+        cropIrInput = new InputBuffer(cropIrTensor, InputKind.IR);
+        fullRgbInput = new InputBuffer(fullRgbTensor, InputKind.RGB);
+        fullIrInput = new InputBuffer(fullIrTensor, InputKind.IR);
+        heatmapInput = new InputBuffer(heatmapTensor, InputKind.HEATMAP);
+        inputs = new Object[interpreter.getInputTensorCount()];
+
         Tensor outputTensor = interpreter.getOutputTensor(0);
         outputDataType = outputTensor.dataType();
         outputQuantization = outputTensor.quantizationParams();
@@ -74,11 +90,13 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         }
         outputs.put(0, outputDataType == DataType.FLOAT32 ? outputFloat : outputInt8);
 
-        // Warmup the model using zero-filled dummy input buffers
         try {
             long warmupStart = SystemClock.elapsedRealtime();
-            inputs[spec.rgbInputIndex] = rgbInput.buffer;
-            inputs[spec.irInputIndex] = irInput.buffer;
+            inputs[inputMapping.cropRgbIndex] = cropRgbInput.zeroFill();
+            inputs[inputMapping.cropIrIndex] = cropIrInput.zeroFill();
+            inputs[inputMapping.fullRgbIndex] = fullRgbInput.zeroFill();
+            inputs[inputMapping.fullIrIndex] = fullIrInput.zeroFill();
+            inputs[inputMapping.heatmapIndex] = heatmapInput.zeroFill();
             interpreter.runForMultipleInputsOutputs(inputs, outputs);
             long warmupDuration = SystemClock.elapsedRealtime() - warmupStart;
             Log.i(TAG, "Model warmup completed in " + warmupDuration + " ms using " + inferenceBackend);
@@ -100,8 +118,11 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     }
 
     public ClassificationResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
-        inputs[spec.rgbInputIndex] = rgbInput.fill(rgb, rgbBox, false);
-        inputs[spec.irInputIndex] = irInput.fill(ir, irBox, true);
+        inputs[inputMapping.cropRgbIndex] = cropRgbInput.fillImage(rgb, rgbBox);
+        inputs[inputMapping.cropIrIndex] = cropIrInput.fillImage(ir, irBox);
+        inputs[inputMapping.fullRgbIndex] = fullRgbInput.fillImage(rgb, null);
+        inputs[inputMapping.fullIrIndex] = fullIrInput.fillImage(ir, null);
+        inputs[inputMapping.heatmapIndex] = heatmapInput.fillHeatmap(rgbBox, rgb.getWidth(), rgb.getHeight());
         long start = SystemClock.elapsedRealtimeNanos();
         interpreter.runForMultipleInputsOutputs(inputs, outputs);
         long inferenceMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
@@ -111,15 +132,69 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         return new ClassificationResult(probabilities, inferenceMs);
     }
 
-    private static void validateInput(Tensor tensor, String name, int requiredChannels) {
+    private void logModelIo() {
+        Log.i(TAG, "Input tensor count=" + interpreter.getInputTensorCount());
+        for (int i = 0; i < interpreter.getInputTensorCount(); i++) {
+            Tensor tensor = interpreter.getInputTensor(i);
+            Tensor.QuantizationParams quantization = tensor.quantizationParams();
+            Log.i(TAG, String.format(Locale.US,
+                    "Input[%d] name=%s shape=%s dtype=%s quantization(scale=%f, zeroPoint=%d)",
+                    i, tensor.name(), Arrays.toString(tensor.shape()), tensor.dataType(),
+                    quantization.getScale(), quantization.getZeroPoint()));
+        }
+        Tensor output = interpreter.getOutputTensor(0);
+        Log.i(TAG, "Output[0] shape=" + Arrays.toString(output.shape()) + " dtype=" + output.dataType());
+    }
+
+    private InputMapping resolveInputMapping() {
+        InputMapping mapping = new InputMapping();
+        String cropRgbTarget = spec.inputs.cropRgb.toLowerCase(Locale.US);
+        String cropIrTarget = spec.inputs.cropIr.toLowerCase(Locale.US);
+        String fullRgbTarget = spec.inputs.fullRgb.toLowerCase(Locale.US);
+        String fullIrTarget = spec.inputs.fullIr.toLowerCase(Locale.US);
+        String heatmapTarget = spec.inputs.heatmap.toLowerCase(Locale.US);
+
+        for (int i = 0; i < interpreter.getInputTensorCount(); i++) {
+            String name = interpreter.getInputTensor(i).name().toLowerCase(Locale.US);
+            if (name.contains(cropRgbTarget)) {
+                mapping.cropRgbIndex = assignUnique(mapping.cropRgbIndex, i, "cropRgb");
+            } else if (name.contains(cropIrTarget)) {
+                mapping.cropIrIndex = assignUnique(mapping.cropIrIndex, i, "cropIr");
+            } else if (name.contains(fullRgbTarget)) {
+                mapping.fullRgbIndex = assignUnique(mapping.fullRgbIndex, i, "fullRgb");
+            } else if (name.contains(fullIrTarget)) {
+                mapping.fullIrIndex = assignUnique(mapping.fullIrIndex, i, "fullIr");
+            } else if (name.contains(heatmapTarget)) {
+                mapping.heatmapIndex = assignUnique(mapping.heatmapIndex, i, "heatmap");
+            }
+        }
+        if (!mapping.isComplete()) {
+            throw new IllegalArgumentException("Unable to map all model inputs by tensor name. Expected "
+                    + spec.inputs.cropRgb + ", " + spec.inputs.cropIr + ", " + spec.inputs.fullRgb + ", "
+                    + spec.inputs.fullIr + ", " + spec.inputs.heatmap);
+        }
+        Log.i(TAG, "Resolved input mapping cropRgb=" + mapping.cropRgbIndex
+                + ", cropIr=" + mapping.cropIrIndex
+                + ", fullRgb=" + mapping.fullRgbIndex
+                + ", fullIr=" + mapping.fullIrIndex
+                + ", heatmap=" + mapping.heatmapIndex);
+        return mapping;
+    }
+
+    private static int assignUnique(int current, int next, String label) {
+        if (current >= 0) throw new IllegalArgumentException("Duplicate tensor mapping for " + label);
+        return next;
+    }
+
+    private void validateInput(Tensor tensor, String name, int requiredChannels) {
         int[] shape = tensor.shape();
-        if (shape.length != 4 || shape[0] != 1 || shape[1] <= 0 || shape[2] <= 0
-                || (requiredChannels > 0 && shape[3] != requiredChannels)
-                || (requiredChannels < 0 && shape[3] != 1 && shape[3] != 3)
+        if (shape.length != 4 || shape[0] != 1 || shape[1] != spec.inputHeight || shape[2] != spec.inputWidth
+                || shape[3] != requiredChannels
                 || (tensor.dataType() != DataType.FLOAT32 && tensor.dataType() != DataType.UINT8
                 && tensor.dataType() != DataType.INT8)) {
-            throw new IllegalArgumentException(name + " input must be NHWC FLOAT32/UINT8/INT8 with a supported channel count, actual="
-                    + tensor.dataType() + " " + Arrays.toString(shape));
+            throw new IllegalArgumentException(name + " input must be NHWC "
+                    + spec.inputHeight + "x" + spec.inputWidth + "x" + requiredChannels
+                    + " FLOAT32/UINT8/INT8, actual=" + tensor.dataType() + " " + Arrays.toString(shape));
         }
         if (tensor.dataType() == DataType.INT8 && tensor.quantizationParams().getScale() <= 0f) {
             throw new IllegalArgumentException(name + " INT8 input must have a positive quantization scale");
@@ -169,7 +244,15 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         }
     }
 
-    private static InterpreterBundle createInterpreter(MappedByteBuffer model) {
+    private static InterpreterBundle createInterpreter(MappedByteBuffer model, String delegate) {
+        if ("cpu".equals(delegate)) {
+            Interpreter.Options cpuOptions = new Interpreter.Options()
+                    .setNumThreads(THREAD_COUNT)
+                    .setUseXNNPACK(true);
+            Interpreter cpuInterpreter = new Interpreter(model, cpuOptions);
+            cpuInterpreter.allocateTensors();
+            return new InterpreterBundle(cpuInterpreter, "CPU", "Ready - CPU requested");
+        }
         try {
             Interpreter.Options nnapiOptions = new Interpreter.Options()
                     .setNumThreads(THREAD_COUNT)
@@ -189,9 +272,31 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     }
 
     @Override public void close() {
-        rgbInput.close();
-        irInput.close();
+        cropRgbInput.close();
+        cropIrInput.close();
+        fullRgbInput.close();
+        fullIrInput.close();
+        heatmapInput.close();
         interpreter.close();
+    }
+
+    private enum InputKind {
+        RGB,
+        IR,
+        HEATMAP
+    }
+
+    private static final class InputMapping {
+        int cropRgbIndex = -1;
+        int cropIrIndex = -1;
+        int fullRgbIndex = -1;
+        int fullIrIndex = -1;
+        int heatmapIndex = -1;
+
+        boolean isComplete() {
+            return cropRgbIndex >= 0 && cropIrIndex >= 0 && fullRgbIndex >= 0
+                    && fullIrIndex >= 0 && heatmapIndex >= 0;
+        }
     }
 
     private static final class InterpreterBundle {
@@ -212,6 +317,7 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         final int channels;
         final DataType dataType;
         final Tensor.QuantizationParams quantization;
+        final InputKind kind;
         final Bitmap scaled;
         final Canvas canvas;
         final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -220,69 +326,121 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         final int[] pixels;
         final ByteBuffer buffer;
 
-        InputBuffer(Tensor tensor) {
+        InputBuffer(Tensor tensor, InputKind kind) {
             int[] shape = tensor.shape();
             height = shape[1];
             width = shape[2];
             channels = shape[3];
             dataType = tensor.dataType();
             quantization = tensor.quantizationParams();
+            this.kind = kind;
             int bytesPerValue = dataType == DataType.FLOAT32 ? 4 : 1;
-            scaled = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            canvas = new Canvas(scaled);
+            scaled = kind == InputKind.HEATMAP ? null : Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            canvas = scaled == null ? null : new Canvas(scaled);
             targetRect = new Rect(0, 0, width, height);
-            pixels = new int[width * height];
+            pixels = kind == InputKind.HEATMAP ? null : new int[width * height];
             buffer = ByteBuffer.allocateDirect(width * height * channels * bytesPerValue).order(ByteOrder.nativeOrder());
         }
 
-        ByteBuffer fill(Bitmap source, Rect box, boolean infrared) {
-            int left = Math.max(0, box.left);
-            int top = Math.max(0, box.top);
-            int right = Math.min(source.getWidth(), box.right);
-            int bottom = Math.min(source.getHeight(), box.bottom);
+        ByteBuffer zeroFill() {
             buffer.clear();
-            if (right <= left || bottom <= top) {
-                if (dataType == DataType.FLOAT32) {
-                    while (buffer.hasRemaining()) buffer.putFloat(0f);
-                } else {
-                    byte zero = dataType == DataType.INT8 ? quantize(0f) : 0;
-                    while (buffer.hasRemaining()) buffer.put(zero);
-                }
-                buffer.rewind();
-                return buffer;
+            if (dataType == DataType.FLOAT32) {
+                while (buffer.hasRemaining()) buffer.putFloat(0f);
+            } else if (dataType == DataType.INT8) {
+                byte zero = quantize(0f);
+                while (buffer.hasRemaining()) buffer.put(zero);
+            } else {
+                while (buffer.hasRemaining()) buffer.put((byte) 0);
             }
+            buffer.rewind();
+            return buffer;
+        }
+
+        ByteBuffer fillImage(Bitmap source, Rect box) {
+            if (source == null) return zeroFill();
+            int left = 0;
+            int top = 0;
+            int right = source.getWidth();
+            int bottom = source.getHeight();
+            if (box != null) {
+                left = Math.max(0, box.left);
+                top = Math.max(0, box.top);
+                right = Math.min(source.getWidth(), box.right);
+                bottom = Math.min(source.getHeight(), box.bottom);
+            }
+            if (right <= left || bottom <= top) return zeroFill();
 
             sourceRect.set(left, top, right, bottom);
             canvas.drawBitmap(source, sourceRect, targetRect, paint);
             scaled.getPixels(pixels, 0, width, 0, 0, width, height);
+            buffer.clear();
             for (int pixel : pixels) {
                 int r = Color.red(pixel);
                 int g = Color.green(pixel);
                 int b = Color.blue(pixel);
                 for (int channel = 0; channel < channels; channel++) {
                     int value;
-                    if (infrared || channels == 1) value = r;
+                    if (kind == InputKind.IR || channels == 1) value = r;
                     else if (spec.bgr) value = channel == 0 ? b : channel == 1 ? g : r;
                     else value = channel == 0 ? r : channel == 1 ? g : b;
-                    if (dataType == DataType.FLOAT32) {
-                        buffer.putFloat(normalize(value, channel, infrared));
-                    } else if (dataType == DataType.INT8) {
-                        buffer.put(quantize(normalize(value, channel, infrared)));
-                    } else {
-                        buffer.put((byte) value);
-                    }
+                    putPixelValue(value, channel);
                 }
             }
             buffer.rewind();
             return buffer;
         }
 
-        private float normalize(int value, int channel, boolean infrared) {
-            float[] meanArr = infrared ? spec.irMean : spec.rgbMean;
-            float[] stdArr = infrared ? spec.irStd : spec.rgbStd;
+        ByteBuffer fillHeatmap(Rect faceBox, int sourceWidth, int sourceHeight) {
+            if (sourceWidth <= 0 || sourceHeight <= 0 || faceBox == null) return zeroFill();
+            int left = clamp(Math.round(faceBox.left * width / (float) sourceWidth), 0, width);
+            int top = clamp(Math.round(faceBox.top * height / (float) sourceHeight), 0, height);
+            int right = clamp(Math.round(faceBox.right * width / (float) sourceWidth), 0, width);
+            int bottom = clamp(Math.round(faceBox.bottom * height / (float) sourceHeight), 0, height);
+            buffer.clear();
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    putHeatmapValue(x >= left && x < right && y >= top && y < bottom ? 1f : 0f);
+                }
+            }
+            buffer.rewind();
+            return buffer;
+        }
+
+        private float normalizeImage(int value, int channel) {
+            if (kind == InputKind.IR) {
+                return normalizeWithMeanStd(value / 255.0f, spec.irMean, spec.irStd, channel);
+            }
+            if (ModelSpec.RGB_NORMALIZATION_MINUS_ONE_TO_ONE.equals(spec.rgbNormalization)) {
+                return value / 127.5f - 1.0f;
+            }
+            return normalizeWithMeanStd(value / 255.0f, spec.rgbMean, spec.rgbStd, channel);
+        }
+
+        private float normalizeWithMeanStd(float value, float[] meanArr, float[] stdArr, int channel) {
             float mean = meanArr.length == 1 ? meanArr[0] : meanArr[channel];
             float std = stdArr.length == 1 ? stdArr[0] : stdArr[channel];
-            return ((value / 255.0f) - mean) / std;
+            return (value - mean) / std;
+        }
+
+        private void putPixelValue(int rawValue, int channel) {
+            if (dataType == DataType.FLOAT32) {
+                buffer.putFloat(normalizeImage(rawValue, channel));
+            } else if (dataType == DataType.INT8) {
+                buffer.put(quantize(normalizeImage(rawValue, channel)));
+            } else {
+                buffer.put((byte) Math.max(0, Math.min(255, rawValue)));
+            }
+        }
+
+        private void putHeatmapValue(float value) {
+            if (dataType == DataType.FLOAT32) {
+                buffer.putFloat(value);
+            } else if (dataType == DataType.INT8) {
+                buffer.put(quantize(value));
+            } else {
+                int raw = Math.round(value * 255f);
+                buffer.put((byte) Math.max(0, Math.min(255, raw)));
+            }
         }
 
         private byte quantize(float value) {
@@ -291,7 +449,11 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         }
 
         void close() {
-            scaled.recycle();
+            if (scaled != null) scaled.recycle();
         }
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 }
