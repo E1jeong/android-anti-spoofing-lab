@@ -728,7 +728,7 @@ public final class MainActivity extends Activity {
         Rect irCrop = null;
         synchronized (classifierLock) {
             AntiSpoofingClassifier activeClassifier = classifier;
-            if (activeClassifier != null) {
+            if (activeClassifier != null && frame.ir != null) {
                 float margin = activeClassifier.cropMarginRatio();
                 rgbCrop = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
                 irCrop = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
