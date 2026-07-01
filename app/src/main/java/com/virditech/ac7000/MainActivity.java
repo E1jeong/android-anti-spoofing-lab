@@ -77,6 +77,9 @@ public final class MainActivity extends Activity {
     private TextView resultsLabel;
     private TextView calibrationInstruction;
     private Button switchButton;
+    private Button modelSwitchButton;
+    private boolean isNpuModelSelected = false;
+    private final Object classifierLock = new Object();
     private Button startCollectionButton;
     private TextView collectionProgress;
     private LinearLayout controlsLayout;
@@ -247,6 +250,12 @@ public final class MainActivity extends Activity {
         });
         controlsLayout.addView(switchButton, new LinearLayout.LayoutParams(buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        modelSwitchButton = new Button(this);
+        modelSwitchButton.setText("MODEL: Standard");
+        modelSwitchButton.setEnabled(false);
+        modelSwitchButton.setOnClickListener(v -> toggleModel());
+        controlsLayout.addView(modelSwitchButton, new LinearLayout.LayoutParams(buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         root.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
 
         calibrationInstruction = label(24f);
@@ -369,12 +378,15 @@ public final class MainActivity extends Activity {
             }
             try { faceDetector = new FaceDetector(getApplicationContext()); }
             catch (Exception e) { append(messages, e.getMessage()); }
-            try { classifier = new AntiSpoofingClassifier(getApplicationContext()); }
-            catch (Exception e) { append(messages, "MODEL REQUIRED: " + e.getMessage()); }
+            synchronized (classifierLock) {
+                try { classifier = new AntiSpoofingClassifier(getApplicationContext()); }
+                catch (Exception e) { append(messages, "MODEL REQUIRED: " + e.getMessage()); }
+            }
             String message = messages.length() == 0 ? classifier.backendStatus() : messages.toString();
             normalStatusMessage = message;
             runOnUiThread(() -> {
                 if (cameras != null) cameras.setIrFramesEnabled(true);
+                if (modelSwitchButton != null) modelSwitchButton.setEnabled(true);
                 status.setText(message);
             });
         });
@@ -681,9 +693,17 @@ public final class MainActivity extends Activity {
             }
         }
 
-        if (isCollecting || classifier == null || frame.ir == null) return;
-        Rect rgbCrop = FaceCrop.expand(detected, classifier.cropMarginRatio(), frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-        Rect irCrop = FaceCrop.expand(irDetected, classifier.cropMarginRatio(), frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
+        Rect rgbCrop = null;
+        Rect irCrop = null;
+        synchronized (classifierLock) {
+            AntiSpoofingClassifier activeClassifier = classifier;
+            if (activeClassifier != null) {
+                float margin = activeClassifier.cropMarginRatio();
+                rgbCrop = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
+                irCrop = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
+            }
+        }
+        if (isCollecting || rgbCrop == null || irCrop == null || frame.ir == null) return;
         submitInference(new InferenceTask(frame.detachPair(), rgbCrop, irCrop));
     }
 
@@ -710,8 +730,13 @@ public final class MainActivity extends Activity {
     }
 
     private void processInference(InferenceTask task) {
-        ClassificationResult result = classifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
-                task.pair.ir.bitmap, task.irCrop);
+        ClassificationResult result;
+        synchronized (classifierLock) {
+            AntiSpoofingClassifier activeClassifier = classifier;
+            if (activeClassifier == null) return;
+            result = activeClassifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
+                    task.pair.ir.bitmap, task.irCrop);
+        }
         inferenceMs = result.inferenceMs;
         updateInferenceFps();
 
@@ -911,6 +936,64 @@ public final class MainActivity extends Activity {
             sb.append(String.format(Locale.US, "%s 0.0%%", ClassificationResult.LABELS[i]));
         }
         resultsLabel.setText(sb.toString());
+    }
+
+    private void toggleModel() {
+        if (modelSwitchButton != null) modelSwitchButton.setEnabled(false);
+        status.setText("Switching model...");
+        trackingExecutor.execute(() -> {
+            synchronized (classifierLock) {
+                if (classifier != null) {
+                    try {
+                        classifier.close();
+                    } catch (Exception e) {
+                        android.util.Log.e("MainActivity", "Failed to close classifier", e);
+                    }
+                    classifier = null;
+                }
+                isNpuModelSelected = !isNpuModelSelected;
+
+                String modelName = "anti_spoofing.tflite";
+                String specName = isNpuModelSelected ? "model_spec_npu.json" : "model_spec.json";
+
+                if (isNpuModelSelected) {
+                    try {
+                        String[] assets = getAssets().list("");
+                        if (assets != null) {
+                            for (String asset : assets) {
+                                if ("anti_spoofing_npu.tflite".equals(asset)) {
+                                    modelName = "anti_spoofing_npu.tflite";
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                }
+
+                StringBuilder messages = new StringBuilder();
+                try {
+                    classifier = new AntiSpoofingClassifier(getApplicationContext(), modelName, specName);
+                } catch (Exception e) {
+                    android.util.Log.e("MainActivity", "Failed to switch model: " + e.getMessage(), e);
+                    append(messages, "MODEL REQUIRED: " + e.getMessage());
+                }
+
+                String message = (classifier != null) ? classifier.backendStatus() : (messages.length() == 0 ? "Failed" : messages.toString());
+                normalStatusMessage = message;
+
+                final String btnText = isNpuModelSelected ? "MODEL: NPU" : "MODEL: Standard";
+                runOnUiThread(() -> {
+                    status.setText(message);
+                    if (modelSwitchButton != null) {
+                        modelSwitchButton.setText(btnText);
+                        modelSwitchButton.setEnabled(true);
+                    }
+                    performance.setText(formatPerformance());
+                });
+            }
+        });
     }
 
     private final Runnable restoreStatusRunnable = () -> {

@@ -9,9 +9,9 @@
     "heatmap": "e_heatmap"
   },
   "channelOrder": "RGB",
-  "rgbNormalization": "imagenet",
-  "rgbMean": [0.485, 0.456, 0.406],
-  "rgbStd": [0.229, 0.224, 0.225],
+  "rgbNormalization": "minus_one_to_one",
+  "rgbMean": [0.5],
+  "rgbStd": [0.5],
   "irMean": [0.5],
   "irStd": [0.5],
   "delegate": "nnapi",

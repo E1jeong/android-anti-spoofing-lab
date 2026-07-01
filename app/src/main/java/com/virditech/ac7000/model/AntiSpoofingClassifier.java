@@ -26,7 +26,7 @@ import java.util.Map;
 
 public final class AntiSpoofingClassifier implements AutoCloseable {
     private static final String TAG = "AntiSpoofingClassifier";
-    private static final String MODEL_NAME = "anti_spoofing.tflite";
+    private static final String MODEL_NAME = "anti_spoofing_npu.tflite";
     private static final int THREAD_COUNT = 2;
     private static final int INPUT_COUNT = 5;
 
@@ -48,8 +48,12 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     private final Map<Integer, Object> outputs = new HashMap<>();
 
     public AntiSpoofingClassifier(Context context) throws Exception {
-        spec = ModelSpec.load(context);
-        InterpreterBundle bundle = createInterpreter(loadModel(context), spec.delegate);
+        this(context, MODEL_NAME, "model_spec.json");
+    }
+
+    public AntiSpoofingClassifier(Context context, String modelName, String specName) throws Exception {
+        spec = ModelSpec.load(context, specName);
+        InterpreterBundle bundle = createInterpreter(loadModel(context, modelName), spec.delegate);
         interpreter = bundle.interpreter;
         inferenceBackend = bundle.backend;
         backendStatus = bundle.status;
@@ -238,7 +242,11 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     }
 
     private static MappedByteBuffer loadModel(Context context) throws Exception {
-        try (AssetFileDescriptor descriptor = context.getAssets().openFd(MODEL_NAME);
+        return loadModel(context, MODEL_NAME);
+    }
+
+    private static MappedByteBuffer loadModel(Context context, String modelName) throws Exception {
+        try (AssetFileDescriptor descriptor = context.getAssets().openFd(modelName);
              FileInputStream input = new FileInputStream(descriptor.getFileDescriptor())) {
             return input.getChannel().map(FileChannel.MapMode.READ_ONLY, descriptor.getStartOffset(), descriptor.getDeclaredLength());
         }

@@ -78,10 +78,14 @@ final class ModelSpec {
     }
 
     static ModelSpec load(Context context) throws Exception {
-        try (InputStream input = context.getAssets().open("model_spec.json")) {
+        return load(context, "model_spec.json");
+    }
+
+    static ModelSpec load(Context context, String assetName) throws Exception {
+        try (InputStream input = context.getAssets().open(assetName)) {
             byte[] bytes = new byte[input.available()];
             int read = input.read(bytes);
-            if (read != bytes.length) throw new IllegalStateException("Unable to read model_spec.json");
+            if (read != bytes.length) throw new IllegalStateException("Unable to read " + assetName);
             return new ModelSpec(new JSONObject(new String(bytes, StandardCharsets.UTF_8)));
         }
     }
