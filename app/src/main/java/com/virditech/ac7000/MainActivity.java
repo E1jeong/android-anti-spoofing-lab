@@ -80,6 +80,8 @@ public final class MainActivity extends Activity {
     private Button modelSwitchButton;
     private boolean isNpuModelSelected = false;
     private final Object classifierLock = new Object();
+    private AntiSpoofingClassifier standardClassifier;
+    private AntiSpoofingClassifier npuClassifier;
     private Button startCollectionButton;
     private TextView collectionProgress;
     private LinearLayout controlsLayout;
@@ -379,8 +381,34 @@ public final class MainActivity extends Activity {
             try { faceDetector = new FaceDetector(getApplicationContext()); }
             catch (Exception e) { append(messages, e.getMessage()); }
             synchronized (classifierLock) {
-                try { classifier = new AntiSpoofingClassifier(getApplicationContext()); }
-                catch (Exception e) { append(messages, "MODEL REQUIRED: " + e.getMessage()); }
+                try {
+                    standardClassifier = new AntiSpoofingClassifier(getApplicationContext(), "anti_spoofing.tflite", "model_spec.json");
+                } catch (Exception e) {
+                    append(messages, "STANDARD MODEL FAILED: " + e.getMessage());
+                }
+
+                String npuModelName = "anti_spoofing.tflite";
+                try {
+                    String[] assets = getAssets().list("");
+                    if (assets != null) {
+                        for (String asset : assets) {
+                            if ("anti_spoofing_npu.tflite".equals(asset)) {
+                                npuModelName = "anti_spoofing_npu.tflite";
+                                break;
+                            }
+                        }
+                    }
+                } catch (IOException e) {
+                    // ignore
+                }
+
+                try {
+                    npuClassifier = new AntiSpoofingClassifier(getApplicationContext(), npuModelName, "model_spec_npu.json");
+                } catch (Exception e) {
+                    append(messages, "NPU MODEL FAILED: " + e.getMessage());
+                }
+
+                classifier = standardClassifier;
             }
             String message = messages.length() == 0 ? classifier.backendStatus() : messages.toString();
             normalStatusMessage = message;
@@ -939,61 +967,22 @@ public final class MainActivity extends Activity {
     }
 
     private void toggleModel() {
-        if (modelSwitchButton != null) modelSwitchButton.setEnabled(false);
-        status.setText("Switching model...");
-        trackingExecutor.execute(() -> {
-            synchronized (classifierLock) {
-                if (classifier != null) {
-                    try {
-                        classifier.close();
-                    } catch (Exception e) {
-                        android.util.Log.e("MainActivity", "Failed to close classifier", e);
-                    }
-                    classifier = null;
+        synchronized (classifierLock) {
+            isNpuModelSelected = !isNpuModelSelected;
+            classifier = isNpuModelSelected ? npuClassifier : standardClassifier;
+
+            final String btnText = isNpuModelSelected ? "MODEL: NPU" : "MODEL: Standard";
+            final String message = (classifier != null) ? classifier.backendStatus() : "Model not loaded";
+            normalStatusMessage = message;
+
+            runOnUiThread(() -> {
+                status.setText(message);
+                if (modelSwitchButton != null) {
+                    modelSwitchButton.setText(btnText);
                 }
-                isNpuModelSelected = !isNpuModelSelected;
-
-                String modelName = "anti_spoofing.tflite";
-                String specName = isNpuModelSelected ? "model_spec_npu.json" : "model_spec.json";
-
-                if (isNpuModelSelected) {
-                    try {
-                        String[] assets = getAssets().list("");
-                        if (assets != null) {
-                            for (String asset : assets) {
-                                if ("anti_spoofing_npu.tflite".equals(asset)) {
-                                    modelName = "anti_spoofing_npu.tflite";
-                                    break;
-                                }
-                            }
-                        }
-                    } catch (IOException e) {
-                        // ignore
-                    }
-                }
-
-                StringBuilder messages = new StringBuilder();
-                try {
-                    classifier = new AntiSpoofingClassifier(getApplicationContext(), modelName, specName);
-                } catch (Exception e) {
-                    android.util.Log.e("MainActivity", "Failed to switch model: " + e.getMessage(), e);
-                    append(messages, "MODEL REQUIRED: " + e.getMessage());
-                }
-
-                String message = (classifier != null) ? classifier.backendStatus() : (messages.length() == 0 ? "Failed" : messages.toString());
-                normalStatusMessage = message;
-
-                final String btnText = isNpuModelSelected ? "MODEL: NPU" : "MODEL: Standard";
-                runOnUiThread(() -> {
-                    status.setText(message);
-                    if (modelSwitchButton != null) {
-                        modelSwitchButton.setText(btnText);
-                        modelSwitchButton.setEnabled(true);
-                    }
-                    performance.setText(formatPerformance());
-                });
-            }
-        });
+                performance.setText(formatPerformance());
+            });
+        }
     }
 
     private final Runnable restoreStatusRunnable = () -> {
@@ -1032,7 +1021,17 @@ public final class MainActivity extends Activity {
         trackingExecutor.shutdownNow();
         inferenceExecutor.shutdownNow();
         ioExecutor.shutdownNow();
-        if (classifier != null) classifier.close();
+        synchronized (classifierLock) {
+            if (standardClassifier != null) {
+                try { standardClassifier.close(); } catch (Exception e) {}
+            }
+            if (npuClassifier != null) {
+                try { npuClassifier.close(); } catch (Exception e) {}
+            }
+            classifier = null;
+            standardClassifier = null;
+            npuClassifier = null;
+        }
         if (faceDetector != null) faceDetector.close();
         clearPreviewFace();
         clearIrPreviewFrame();
