@@ -501,7 +501,10 @@ public final class MainActivity extends Activity {
             TrackingFrame frame;
             while ((frame = pendingTracking.getAndSet(null)) != null) {
                 try { processTracking(frame); }
-                catch (Exception e) { showTransientStatus("Tracking failed"); }
+                catch (Exception e) {
+                    android.util.Log.e("MainActivity", "Tracking failed in drainTracking", e);
+                    showTransientStatus("Tracking failed");
+                }
                 finally { frame.recycle(); }
             }
         } finally {
@@ -746,7 +749,10 @@ public final class MainActivity extends Activity {
             InferenceTask task;
             while ((task = pendingInference.getAndSet(null)) != null) {
                 try { processInference(task); }
-                catch (Exception e) { showTransientStatus("Inference failed"); }
+                catch (Exception e) {
+                    android.util.Log.e("MainActivity", "Inference failed in drainInference", e);
+                    showTransientStatus("Inference failed");
+                }
                 finally { task.recycle(); }
             }
         } finally {
