@@ -78,3 +78,20 @@ Default compile validation:
 - Hardware-dependent changes require manual verification on the target device. At minimum, check RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, all five output probabilities, inference timing, and cleanup/restart across pause and resume.
 - Calibration changes must also verify hidden-mode entry, single-face validation for both cameras, cancel-without-save, persisted alignment after restart, and compatibility with the production RGB-to-IR mapping formula.
 - If hardware validation cannot be performed, state which checks remain unverified and the resulting risk.
+
+## Troubleshooting & Evaluation Tips
+
+### 1. 2-Input (2채널) vs 5-Input (5채널) Performance Characteristics
+- **2-Input Model**: 이미지 전처리 및 YUV 변환 개수(RGB Crop, IR Crop)가 적어 Convert 병목이 낮습니다. NPU(NNAPI) 가속 시 추론 속도 20~30ms 수준과 합쳐져 **실제 구동 속도가 7 FPS 가까이** 매끄럽게 표출됩니다.
+- **5-Input Model**: NPU 가속이 작동하더라도(`Inference ~50ms`), 5개의 텐서 이미지(Full RGB, Full IR, Heatmap 등)를 전처리하고 가공하는 과정에서 심각한 CPU 병목(`Convert RGB/IR ~150ms`)이 생겨 전체 프레임 레이트가 **3~4 FPS 수준**으로 저하됩니다.
+
+### 2. Evaluation Branch Management
+- **`master` Branch**: 기존 2채널(2-input: RGB Crop, IR Crop) 연산 구조의 모델을 검증할 때 사용합니다. 
+- **`codex/keras-5-input-tflite` Branch**: 최신 5채널(5-input) 연산 구조 모델 검증 및 표준/NPU 핫스왑 실시간 전환 토글 기능을 테스트할 때 사용합니다.
+
+### 3. Tracking failed Debugging
+- 화면 좌하단에 `Tracking failed` 메시지가 찍힐 경우, `processTracking` 내부에서 비동기 예외(NPE, IllegalArgumentException 등)가 발생한 것입니다.
+- 상세 오류 스택트레이스는 다음 ADB logcat 명령어로 실시간 관측 가능합니다:
+  ```bash
+  adb logcat -s MainActivity:E *:S
+  ```
