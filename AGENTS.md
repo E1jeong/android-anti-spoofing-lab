@@ -13,22 +13,31 @@ The application performs the following pipeline:
 1. Capture RGB and IR frames from the device cameras. YUV-to-Bitmap conversion is offloaded to dedicated single-threaded executors to avoid blocking camera callbacks, dropping incoming frames when busy.
 2. Detect the largest face from the latest RGB frame with FaceMe and update the overlay independently of model inference.
 3. Match the latest IR frame within the timestamp tolerance of 150ms (`MAX_PAIR_DELTA_NS`) for anti-spoofing inference.
-4. Map the RGB face region to IR coordinates using the device calibration file, then expand both crops according to the model specification.
-5. Run the matched RGB and IR crops through the TensorFlow Lite anti-spoofing model on a separate worker.
+4. Map the RGB face region to IR coordinates using the device calibration file, then expand crops according to the model specification.
+5. Run the matched crops (RGB crop, IR crop, Full RGB, Full IR, Heatmap) through the TensorFlow Lite anti-spoofing model.
 6. Update the diagnostic crop preview (top-right) independently of pairing success using a copied frame buffer, throttled to a minimum interval of 66ms (~15 FPS).
 7. Display the five-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
+8. **Pre-warming & Hot Swapping**: On startup, both standard and NPU models are loaded and warmed up concurrently in the background. Pressing the "Switch Model" button instantly (0ms) swaps the model reference without reloading or memory leaks, ensuring thread-safe operation.
 
 ## Model Contract
 
-- The model asset is `app/src/main/assets/anti_spoofing.tflite`.
-- Preprocessing settings are defined by `app/src/main/assets/model_spec.json`. They must match the training contract whenever the model changes.
-- The model must have exactly two NHWC inputs: RGB and IR. Supported input types are `FLOAT32`, `UINT8`, and `INT8`; RGB must have three channels, while IR may have one or three channels.
+- The model asset is `app/src/main/assets/anti_spoofing.tflite` (default). Optional NPU model can be placed at `app/src/main/assets/anti_spoofing_npu.tflite` (fallback is standard if not present).
+- Preprocessing settings are defined by two spec files:
+  - `model_spec.json` (Standard Model: `rgbNormalization: imagenet`, `delegate: nnapi`)
+  - `model_spec_npu.json` (NPU Model: `rgbNormalization: minus_one_to_one`, `delegate: nnapi`)
+- The model must have exactly **five NHWC inputs** matched by name (case-insensitive):
+  - `cropRgb` (RGB Crop, 3 channels)
+  - `cropIr` (IR Crop, 1 channel)
+  - `fullRgb` (Full RGB image, 3 channels)
+  - `fullIr` (Full IR image, 1 channel)
+  - `heatmap` (Face bounding box heatmap, 1 channel)
+- Supported input types are `FLOAT32`, `UINT8`, and `INT8`.
 - The model must have one `FLOAT32` or `INT8` output with shape `[1,5]`.
 - Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY` (must match `ClassificationResult.LABELS`).
-- `model_spec.json` controls the RGB/IR input indices, channel order, normalization values, whether the output contains logits, and the crop margin ratio.
+- Spec JSONs control channel order (RGB/BGR), normalization values, delegate backend (`cpu`/`nnapi`), whether the output contains logits, and the crop margin ratio.
 - Do not change preprocessing, output ordering, or tensor assumptions without updating the model contract and verifying them against the exported model.
 - **Current deployment supports float and full INT8 models.** The app tries Android NNAPI first for NPU evaluation and falls back to CPU/XNNPACK if NNAPI model preparation fails. Current target-board result: even the NPU-friendly Keras INT8 export still falls back to CPU with `ANEURALNETWORKS_BAD_DATA ... while adding operation`; do not report NPU acceleration as working until the on-device UI shows `Backend NNAPI` and latency is measured. Full history/decision: `\\wsl.localhost\Ubuntu-24.04\home\union\access-liveness-model\docs\project_status.md` section 3.
-- The current checked-in INT8 asset is an NPU-friendly export (`best_model_fold4_npu_int8.tflite`) whose RGB and IR inputs both expect `[-1,1]` style normalization (`mean=[0.5]`, `std=[0.5]`). Do not restore ImageNet RGB normalization for this asset unless replacing it with a model exported for that contract.
+- Standard model expects ImageNet RGB normalization. NPU model expects `[-1, 1]` style normalization (`mean=[0.5]`, `std=[0.5]`).
 
 ## Device and Build Requirements
 
