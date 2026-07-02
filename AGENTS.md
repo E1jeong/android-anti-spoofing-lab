@@ -17,13 +17,13 @@ The application performs the following pipeline:
 5. Run the matched crops (RGB crop, IR crop, Full RGB, Full IR, Heatmap) through the TensorFlow Lite anti-spoofing model.
 6. Update the diagnostic crop preview (top-right) independently of pairing success using a copied frame buffer, throttled to a minimum interval of 66ms (~15 FPS).
 7. Display the five-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
-8. **Pre-warming & Hot Swapping**: On startup, both standard and NPU models are loaded and warmed up concurrently in the background. Pressing the "Switch Model" button instantly (0ms) swaps the model reference without reloading or memory leaks, ensuring thread-safe operation.
+8. **Pre-warming & Hot Swapping**: On startup, the standard and NPU models are loaded and warmed up in parallel on a dedicated two-thread init executor, separate from the tracking thread. The loading spinner stays visible until **both** models finish warming up, because NNAPI compilation of the NPU model monopolizes the VSI NPU driver that FaceMe detection also uses (see Troubleshooting section 4). The "Switch Model" button is enabled once the NPU model finishes loading. Switching swaps a `volatile` classifier reference without taking a lock around inference, so the toggle never waits for an in-flight inference and never reloads or leaks a model.
 
 ## Model Contract
 
 - The model asset is `app/src/main/assets/anti_spoofing.tflite` (default). Optional NPU model can be placed at `app/src/main/assets/anti_spoofing_npu.tflite` (fallback is standard if not present).
 - Preprocessing settings are defined by two spec files:
-  - `model_spec.json` (Standard Model: `rgbNormalization: imagenet`, `delegate: nnapi`)
+  - `model_spec.json` (Standard Model: `rgbNormalization: imagenet`, `delegate: cpu`)
   - `model_spec_npu.json` (NPU Model: `rgbNormalization: minus_one_to_one`, `delegate: nnapi`)
 - The model must have exactly **five NHWC inputs** matched by name (case-insensitive):
   - `cropRgb` (RGB Crop, 3 channels)
@@ -36,7 +36,9 @@ The application performs the following pipeline:
 - Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY` (must match `ClassificationResult.LABELS`).
 - Spec JSONs control channel order (RGB/BGR), normalization values, delegate backend (`cpu`/`nnapi`), whether the output contains logits, and the crop margin ratio.
 - Do not change preprocessing, output ordering, or tensor assumptions without updating the model contract and verifying them against the exported model.
-- **Current deployment supports float and full INT8 models.** The app tries Android NNAPI first for NPU evaluation and falls back to CPU/XNNPACK if NNAPI model preparation fails. Current target-board result: even the NPU-friendly Keras INT8 export still falls back to CPU with `ANEURALNETWORKS_BAD_DATA ... while adding operation`; do not report NPU acceleration as working until the on-device UI shows `Backend NNAPI` and latency is measured. Full history/decision: `\\wsl.localhost\Ubuntu-24.04\home\union\access-liveness-model\docs\project_status.md` section 3.
+- **Current deployment supports float and full INT8 models.** The standard model runs on CPU/XNNPACK, while the NPU model tries Android NNAPI first for NPU evaluation and falls back to CPU/XNNPACK if NNAPI model preparation fails. Do not report NPU acceleration as working until the on-device UI shows `Backend NNAPI` and latency is measured. Full history/decision: `docs/project_status.md` section 3 in the model repository (`E1jeong/access-liveness-model`).
+- Target-board NNAPI status (observed 2026-07-01/02): the NPU-friendly INT8 export (`anti_spoofing_npu.tflite`) **does compile on NNAPI**, but vendor compilation takes ~165 s at startup (done in the background init thread). The standard full-INT8 export is kept on CPU because it fails with `ANEURALNETWORKS_BAD_DATA ... while adding operation`.
+- **Do not enable NNAPI compilation caching** (`NnApiDelegate.Options.setCacheDir`/`setModelToken`): the VSI NPU driver on this board fails compilation with `File ... couldn't be opened for reading` + `ANEURALNETWORKS_OP_FAILED` when caching is set, breaking models that otherwise compile fine.
 - Standard model expects ImageNet RGB normalization. NPU model expects `[-1, 1]` style normalization (`mean=[0.5]`, `std=[0.5]`).
 
 ## Device and Build Requirements
@@ -74,24 +76,32 @@ Default compile validation:
 
 - Run the default compile validation after code or build changes. Use a narrower check only when it fully covers the changed behavior.
 - If the model changes, verify that the model loads and that its input/output tensors match the documented contract.
-- For NNAPI/NPU changes, verify the on-device backend label. `Backend CPU` means NNAPI preparation failed and measurements are CPU/XNNPACK, not NPU.
+- For NNAPI/NPU changes, verify the on-device backend label. With the NPU model selected, `Backend CPU` means NNAPI preparation failed and measurements are CPU/XNNPACK, not NPU.
 - Hardware-dependent changes require manual verification on the target device. At minimum, check RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, all five output probabilities, inference timing, and cleanup/restart across pause and resume.
 - Calibration changes must also verify hidden-mode entry, single-face validation for both cameras, cancel-without-save, persisted alignment after restart, and compatibility with the production RGB-to-IR mapping formula.
 - If hardware validation cannot be performed, state which checks remain unverified and the resulting risk.
 
 ## Troubleshooting & Evaluation Tips
 
-### 1. 2-Input (2채널) vs 5-Input (5채널) Performance Characteristics
-- **2-Input Model**: 이미지 전처리 및 YUV 변환 개수(RGB Crop, IR Crop)가 적어 Convert 병목이 낮습니다. NPU(NNAPI) 가속 시 추론 속도 20~30ms 수준과 합쳐져 **실제 구동 속도가 7 FPS 가까이** 매끄럽게 표출됩니다.
-- **5-Input Model**: NPU 가속이 작동하더라도(`Inference ~50ms`), 5개의 텐서 이미지(Full RGB, Full IR, Heatmap 등)를 전처리하고 가공하는 과정에서 심각한 CPU 병목(`Convert RGB/IR ~150ms`)이 생겨 전체 프레임 레이트가 **3~4 FPS 수준**으로 저하됩니다.
+### 1. 2-Input vs 5-Input Performance Characteristics
+- **2-Input Model**: With only two tensors to preprocess and convert (RGB Crop, IR Crop), the Convert bottleneck is low. Combined with NPU (NNAPI) inference of about 20-30 ms, the app runs smoothly at **close to 7 FPS**.
+- **5-Input Model**: Even with NPU acceleration working (`Inference ~50ms`), preprocessing the five tensor images (Full RGB, Full IR, Heatmap, and both crops) creates a severe CPU bottleneck (`Convert RGB/IR ~150ms`), dropping the overall frame rate to **about 3-4 FPS**.
+- The numbers above were measured on 2026-07-01. On 2026-07-02 the preprocessing lookup tables (LUT), heatmap buffer caching, NV21 buffer reuse, chroma row bulk copy, and lock-free inference optimizations were applied, so re-measure on the target device before quoting them.
 
 ### 2. Evaluation Branch Management
-- **`master` Branch**: 기존 2채널(2-input: RGB Crop, IR Crop) 연산 구조의 모델을 검증할 때 사용합니다. 
-- **`codex/keras-5-input-tflite` Branch**: 최신 5채널(5-input) 연산 구조 모델 검증 및 표준/NPU 핫스왑 실시간 전환 토글 기능을 테스트할 때 사용합니다.
+- **`master` Branch**: Use to evaluate models with the legacy 2-input structure (RGB Crop, IR Crop).
+- **`codex/keras-5-input-tflite` Branch**: Use to evaluate the latest 5-input model structure and to test the standard/NPU pre-warmed hot-swap toggle.
 
 ### 3. Tracking failed Debugging
-- 화면 좌하단에 `Tracking failed` 메시지가 찍힐 경우, `processTracking` 내부에서 비동기 예외(NPE, IllegalArgumentException 등)가 발생한 것입니다.
-- 상세 오류 스택트레이스는 다음 ADB logcat 명령어로 실시간 관측 가능합니다:
+- If a `Tracking failed` message appears at the bottom-left of the screen, an asynchronous exception (NPE, IllegalArgumentException, etc.) was thrown inside `processTracking`.
+- Watch the detailed stack trace live with this ADB logcat command:
   ```bash
   adb logcat -s MainActivity:E *:S
+  ```
+
+### 4. Face Tracking Stalls During NPU Model Warmup
+- While the NPU model's NNAPI compilation is running (~165 s per launch), the VSI NPU driver is monopolized. FaceMe detection is configured with `PREFER_NXP_DETECTION` and uses the same NPU, so `detectLargest` blocks and face tracking appears frozen until the compilation finishes.
+- This is expected: the loading spinner intentionally stays visible until **both** models finish warming up. Do not treat a frozen overlay during startup as a tracking bug; check the spinner and the `Model warmup completed` logcat lines first:
+  ```bash
+  adb logcat -s AntiSpoofingClassifier:I
   ```

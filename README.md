@@ -4,9 +4,9 @@ Minimal Android shell for RGB/IR anti-spoofing model evaluation.
 
 ## Required local inputs
 
-1. Put the model at `app/src/main/assets/anti_spoofing.tflite`.
-2. Update `app/src/main/assets/model_spec.json` to match the training preprocessing contract.
-3. Supply the private Maven repository URL and platform-signing values through user-level Gradle properties or the ignored root `local.properties` file. Do not commit them.
+1. Put the standard model at `app/src/main/assets/anti_spoofing.tflite` (five-input contract: `cropRgb`, `cropIr`, `fullRgb`, `fullIr`, `heatmap`). Optionally put an NPU-friendly model at `app/src/main/assets/anti_spoofing_npu.tflite`; if it is absent, the NPU slot reuses the standard model file.
+2. Update `app/src/main/assets/model_spec.json` (standard) and `app/src/main/assets/model_spec_npu.json` (NPU) to match the training preprocessing contract.
+3. Supply the private Maven repository URL, Face SDK license, and platform-signing values through user-level Gradle properties or the ignored root `local.properties` file. Do not commit them.
 4. Ensure `/sdcard/devlocal/CalibConfig.dat` exists on the device, or create it with the built-in calibration flow.
 
 Required Gradle property names:
@@ -23,12 +23,14 @@ STORE_PASSWORD=...
 
 ## Model runtime status
 
-The app supports float and full INT8 TFLite models. It tries Android NNAPI first and falls back to CPU/XNNPACK if NNAPI preparation fails. The on-screen backend label is authoritative:
+The app supports float and full INT8 TFLite models. The standard spec runs CPU/XNNPACK directly because the current standard full-INT8 export is known to fail NNAPI preparation on the target board. The NPU spec tries Android NNAPI first and falls back to CPU/XNNPACK if NNAPI preparation fails. The on-screen backend label is authoritative:
 
 - `Backend NNAPI`: NNAPI delegate was prepared.
-- `Backend CPU`: NNAPI failed and inference is running on CPU/XNNPACK.
+- `Backend CPU`: inference is running on CPU/XNNPACK, either by spec request or NNAPI fallback.
 
-Current NPU experiment status: the NPU-friendly Keras INT8 export still falls back to CPU on the target board with `ANEURALNETWORKS_BAD_DATA ... while adding operation`. Do not treat INT8 model size reduction as proof of NPU acceleration.
+Both the standard and NPU models are loaded and warmed up in parallel at startup. The loading spinner stays visible until both warmups finish (NNAPI compilation of the NPU model occupies the NPU driver that face detection also uses). The `MODEL: Standard / NPU` button is enabled once the NPU model finishes loading and switches the active model instantly.
+
+Current NPU experiment status: the NPU-friendly INT8 export compiles on NNAPI on the target board, but vendor compilation takes about 165 seconds at startup (performed in the background). The standard full-INT8 export is kept on CPU to avoid the known `ANEURALNETWORKS_BAD_DATA ... while adding operation` delegate failure. NNAPI compilation caching must stay disabled because the board's VSI NPU driver fails compilation when caching is enabled.
 
 ## Camera calibration
 

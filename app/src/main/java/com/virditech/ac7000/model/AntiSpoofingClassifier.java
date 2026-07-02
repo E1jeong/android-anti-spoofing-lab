@@ -52,7 +52,7 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
 
     public AntiSpoofingClassifier(Context context, String modelName, String specName) throws Exception {
         spec = ModelSpec.load(context, specName);
-        InterpreterBundle bundle = createInterpreter(loadModel(context, modelName), spec.delegate);
+        InterpreterBundle bundle = createInterpreter(loadModel(context, modelName), spec.delegate, modelName, specName);
         interpreter = bundle.interpreter;
         inferenceBackend = bundle.backend;
         backendStatus = bundle.status;
@@ -251,7 +251,12 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         }
     }
 
-    private static InterpreterBundle createInterpreter(MappedByteBuffer model, String delegate) {
+    // Do NOT enable NNAPI compilation caching (NnApiDelegate.Options.setCacheDir/setModelToken)
+    // here: the i.MX 8M Plus VSI NPU driver fails compilation with
+    // "File ... couldn't be opened for reading" + ANEURALNETWORKS_OP_FAILED when caching is set,
+    // even for models that compile fine without it.
+    private static InterpreterBundle createInterpreter(MappedByteBuffer model, String delegate,
+                                                       String modelName, String specName) {
         if ("cpu".equals(delegate)) {
             Interpreter.Options cpuOptions = new Interpreter.Options()
                     .setNumThreads(THREAD_COUNT)
@@ -268,7 +273,8 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             nnapiInterpreter.allocateTensors();
             return new InterpreterBundle(nnapiInterpreter, "NNAPI", "Ready");
         } catch (RuntimeException nnapiError) {
-            Log.w(TAG, "NNAPI delegate failed. Falling back to CPU/XNNPACK.", nnapiError);
+            Log.w(TAG, "NNAPI delegate failed for " + modelName + " with " + specName
+                    + ". Falling back to CPU/XNNPACK.", nnapiError);
             Interpreter.Options cpuOptions = new Interpreter.Options()
                     .setNumThreads(THREAD_COUNT)
                     .setUseXNNPACK(true);
