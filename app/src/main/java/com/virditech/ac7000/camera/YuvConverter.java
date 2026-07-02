@@ -122,12 +122,24 @@ final class YuvConverter implements AutoCloseable {
         int vRowStride = planes[2].getRowStride();
         int uPixelStride = planes[1].getPixelStride();
         int vPixelStride = planes[2].getPixelStride();
-        for (int row = 0; row < height / 2; row++) {
+        int chromaWidth = width / 2;
+        int chromaHeight = height / 2;
+        // Bulk-read each chroma row once, then interleave from local arrays; per-byte
+        // ByteBuffer.get calls dominate the copy cost otherwise.
+        int uRowLength = (chromaWidth - 1) * uPixelStride + 1;
+        int vRowLength = (chromaWidth - 1) * vPixelStride + 1;
+        byte[] uRow = new byte[uRowLength];
+        byte[] vRow = new byte[vRowLength];
+        for (int row = 0; row < chromaHeight; row++) {
             int uRowStart = row * uRowStride;
             int vRowStart = row * vRowStride;
-            for (int column = 0; column < width / 2; column++) {
-                output[offset++] = v.get(vRowStart + column * vPixelStride);
-                output[offset++] = u.get(uRowStart + column * uPixelStride);
+            u.position(uRowStart);
+            u.get(uRow, 0, Math.min(uRowLength, u.limit() - uRowStart));
+            v.position(vRowStart);
+            v.get(vRow, 0, Math.min(vRowLength, v.limit() - vRowStart));
+            for (int column = 0; column < chromaWidth; column++) {
+                output[offset++] = vRow[column * vPixelStride];
+                output[offset++] = uRow[column * uPixelStride];
             }
         }
     }

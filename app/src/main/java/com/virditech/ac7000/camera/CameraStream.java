@@ -45,6 +45,9 @@ final class CameraStream {
     private ImageReader reader;
     private Handler handler;
     private volatile boolean frameDeliveryEnabled = true;
+    // Reused NV21 buffer; safe because frames are dropped while a conversion is in flight,
+    // so the camera thread only rewrites it after the previous conversion finished.
+    private byte[] nv21Buffer;
 
     CameraStream(Context context, TextureView textureView, boolean color, Listener listener) {
         this.context = context;
@@ -113,7 +116,11 @@ final class CameraStream {
 
                     int w = image.getWidth();
                     int h = image.getHeight();
-                    byte[] nv21Data = new byte[w * h * 3 / 2];
+                    int required = w * h * 3 / 2;
+                    if (nv21Buffer == null || nv21Buffer.length != required) {
+                        nv21Buffer = new byte[required];
+                    }
+                    byte[] nv21Data = nv21Buffer;
                     YuvConverter.copyToNv21(image, nv21Data);
                     long timestamp = image.getTimestamp();
 

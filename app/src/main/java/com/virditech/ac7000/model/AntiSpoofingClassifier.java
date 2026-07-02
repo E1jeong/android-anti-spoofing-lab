@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.SystemClock;
@@ -27,7 +26,7 @@ import java.util.Map;
 public final class AntiSpoofingClassifier implements AutoCloseable {
     private static final String TAG = "AntiSpoofingClassifier";
     private static final String MODEL_NAME = "anti_spoofing_npu.tflite";
-    private static final int THREAD_COUNT = 2;
+    private static final int THREAD_COUNT = Math.min(4, Runtime.getRuntime().availableProcessors());
     private static final int INPUT_COUNT = 5;
 
     private final Interpreter interpreter;
@@ -333,6 +332,15 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         final Rect targetRect;
         final int[] pixels;
         final ByteBuffer buffer;
+        // Per-channel 0..255 lookup tables replace per-pixel normalization/quantization math.
+        final float[][] floatLut;
+        final byte[][] byteLut;
+        final float[] floatScratch;
+        final byte[] byteScratch;
+        final byte byteZero;
+        final byte byteOne;
+        final Rect cachedHeatmapBox = new Rect();
+        boolean heatmapCached;
 
         InputBuffer(Tensor tensor, InputKind kind) {
             int[] shape = tensor.shape();
@@ -348,17 +356,59 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             targetRect = new Rect(0, 0, width, height);
             pixels = kind == InputKind.HEATMAP ? null : new int[width * height];
             buffer = ByteBuffer.allocateDirect(width * height * channels * bytesPerValue).order(ByteOrder.nativeOrder());
+            if (dataType == DataType.FLOAT32) {
+                floatScratch = new float[width * height * channels];
+                byteScratch = null;
+                floatLut = kind == InputKind.HEATMAP ? null : buildFloatLut();
+                byteLut = null;
+                byteZero = 0;
+                byteOne = 0;
+            } else {
+                byteScratch = new byte[width * height * channels];
+                floatScratch = null;
+                byteLut = kind == InputKind.HEATMAP ? null : buildByteLut();
+                floatLut = null;
+                if (dataType == DataType.INT8) {
+                    byteZero = quantize(0f);
+                    byteOne = quantize(1f);
+                } else {
+                    byteZero = 0;
+                    byteOne = (byte) 255;
+                }
+            }
+        }
+
+        private float[][] buildFloatLut() {
+            float[][] lut = new float[channels][256];
+            for (int channel = 0; channel < channels; channel++) {
+                for (int value = 0; value < 256; value++) {
+                    lut[channel][value] = normalizeImage(value, channel);
+                }
+            }
+            return lut;
+        }
+
+        private byte[][] buildByteLut() {
+            byte[][] lut = new byte[channels][256];
+            for (int channel = 0; channel < channels; channel++) {
+                for (int value = 0; value < 256; value++) {
+                    lut[channel][value] = dataType == DataType.INT8
+                            ? quantize(normalizeImage(value, channel))
+                            : (byte) value;
+                }
+            }
+            return lut;
         }
 
         ByteBuffer zeroFill() {
+            heatmapCached = false;
             buffer.clear();
             if (dataType == DataType.FLOAT32) {
-                while (buffer.hasRemaining()) buffer.putFloat(0f);
-            } else if (dataType == DataType.INT8) {
-                byte zero = quantize(0f);
-                while (buffer.hasRemaining()) buffer.put(zero);
+                Arrays.fill(floatScratch, 0f);
+                buffer.asFloatBuffer().put(floatScratch);
             } else {
-                while (buffer.hasRemaining()) buffer.put((byte) 0);
+                Arrays.fill(byteScratch, dataType == DataType.INT8 ? byteZero : (byte) 0);
+                buffer.put(byteScratch);
             }
             buffer.rewind();
             return buffer;
@@ -382,20 +432,69 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             canvas.drawBitmap(source, sourceRect, targetRect, paint);
             scaled.getPixels(pixels, 0, width, 0, 0, width, height);
             buffer.clear();
-            for (int pixel : pixels) {
-                int r = Color.red(pixel);
-                int g = Color.green(pixel);
-                int b = Color.blue(pixel);
-                for (int channel = 0; channel < channels; channel++) {
-                    int value;
-                    if (kind == InputKind.IR || channels == 1) value = r;
-                    else if (spec.bgr) value = channel == 0 ? b : channel == 1 ? g : r;
-                    else value = channel == 0 ? r : channel == 1 ? g : b;
-                    putPixelValue(value, channel);
-                }
+            if (dataType == DataType.FLOAT32) {
+                fillFloatPixels();
+                buffer.asFloatBuffer().put(floatScratch);
+            } else {
+                fillBytePixels();
+                buffer.put(byteScratch);
             }
             buffer.rewind();
             return buffer;
+        }
+
+        private void fillFloatPixels() {
+            int index = 0;
+            if (channels == 1) {
+                float[] lut = floatLut[0];
+                for (int pixel : pixels) {
+                    floatScratch[index++] = lut[(pixel >> 16) & 0xFF];
+                }
+            } else {
+                float[] lut0 = floatLut[0];
+                float[] lut1 = floatLut[1];
+                float[] lut2 = floatLut[2];
+                if (spec.bgr) {
+                    for (int pixel : pixels) {
+                        floatScratch[index++] = lut0[pixel & 0xFF];
+                        floatScratch[index++] = lut1[(pixel >> 8) & 0xFF];
+                        floatScratch[index++] = lut2[(pixel >> 16) & 0xFF];
+                    }
+                } else {
+                    for (int pixel : pixels) {
+                        floatScratch[index++] = lut0[(pixel >> 16) & 0xFF];
+                        floatScratch[index++] = lut1[(pixel >> 8) & 0xFF];
+                        floatScratch[index++] = lut2[pixel & 0xFF];
+                    }
+                }
+            }
+        }
+
+        private void fillBytePixels() {
+            int index = 0;
+            if (channels == 1) {
+                byte[] lut = byteLut[0];
+                for (int pixel : pixels) {
+                    byteScratch[index++] = lut[(pixel >> 16) & 0xFF];
+                }
+            } else {
+                byte[] lut0 = byteLut[0];
+                byte[] lut1 = byteLut[1];
+                byte[] lut2 = byteLut[2];
+                if (spec.bgr) {
+                    for (int pixel : pixels) {
+                        byteScratch[index++] = lut0[pixel & 0xFF];
+                        byteScratch[index++] = lut1[(pixel >> 8) & 0xFF];
+                        byteScratch[index++] = lut2[(pixel >> 16) & 0xFF];
+                    }
+                } else {
+                    for (int pixel : pixels) {
+                        byteScratch[index++] = lut0[(pixel >> 16) & 0xFF];
+                        byteScratch[index++] = lut1[(pixel >> 8) & 0xFF];
+                        byteScratch[index++] = lut2[pixel & 0xFF];
+                    }
+                }
+            }
         }
 
         ByteBuffer fillHeatmap(Rect faceBox, int sourceWidth, int sourceHeight) {
@@ -404,13 +503,28 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             int top = clamp(Math.round(faceBox.top * height / (float) sourceHeight), 0, height);
             int right = clamp(Math.round(faceBox.right * width / (float) sourceWidth), 0, width);
             int bottom = clamp(Math.round(faceBox.bottom * height / (float) sourceHeight), 0, height);
+            if (heatmapCached && cachedHeatmapBox.left == left && cachedHeatmapBox.top == top
+                    && cachedHeatmapBox.right == right && cachedHeatmapBox.bottom == bottom) {
+                buffer.rewind();
+                return buffer;
+            }
             buffer.clear();
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    putHeatmapValue(x >= left && x < right && y >= top && y < bottom ? 1f : 0f);
+            if (dataType == DataType.FLOAT32) {
+                Arrays.fill(floatScratch, 0f);
+                for (int y = top; y < bottom; y++) {
+                    Arrays.fill(floatScratch, y * width + left, y * width + right, 1f);
                 }
+                buffer.asFloatBuffer().put(floatScratch);
+            } else {
+                Arrays.fill(byteScratch, byteZero);
+                for (int y = top; y < bottom; y++) {
+                    Arrays.fill(byteScratch, y * width + left, y * width + right, byteOne);
+                }
+                buffer.put(byteScratch);
             }
             buffer.rewind();
+            cachedHeatmapBox.set(left, top, right, bottom);
+            heatmapCached = true;
             return buffer;
         }
 
@@ -428,27 +542,6 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             float mean = meanArr.length == 1 ? meanArr[0] : meanArr[channel];
             float std = stdArr.length == 1 ? stdArr[0] : stdArr[channel];
             return (value - mean) / std;
-        }
-
-        private void putPixelValue(int rawValue, int channel) {
-            if (dataType == DataType.FLOAT32) {
-                buffer.putFloat(normalizeImage(rawValue, channel));
-            } else if (dataType == DataType.INT8) {
-                buffer.put(quantize(normalizeImage(rawValue, channel)));
-            } else {
-                buffer.put((byte) Math.max(0, Math.min(255, rawValue)));
-            }
-        }
-
-        private void putHeatmapValue(float value) {
-            if (dataType == DataType.FLOAT32) {
-                buffer.putFloat(value);
-            } else if (dataType == DataType.INT8) {
-                buffer.put(quantize(value));
-            } else {
-                int raw = Math.round(value * 255f);
-                buffer.put((byte) Math.max(0, Math.min(255, raw)));
-            }
         }
 
         private byte quantize(float value) {
