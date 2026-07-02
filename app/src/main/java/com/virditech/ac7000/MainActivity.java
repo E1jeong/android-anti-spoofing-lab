@@ -43,7 +43,9 @@ import com.virditech.ac7000.ui.OverlayView;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class MainActivity extends Activity {
@@ -53,6 +55,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService modelInitExecutor = Executors.newFixedThreadPool(2);
     private final AtomicReference<TrackingFrame> pendingTracking = new AtomicReference<>();
     private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
@@ -80,8 +83,15 @@ public final class MainActivity extends Activity {
     private Button modelSwitchButton;
     private boolean isNpuModelSelected = false;
     private final Object classifierLock = new Object();
+    private final StringBuilder engineErrors = new StringBuilder();
+    private final AtomicInteger pendingModelLoads = new AtomicInteger(2);
     private AntiSpoofingClassifier standardClassifier;
     private AntiSpoofingClassifier npuClassifier;
+    private boolean enginesShutDown;
+    // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
+    // detection also uses, so tracking stalls until every warmup finishes. Keep the
+    // loading spinner up until then instead of pretending the camera is usable.
+    private volatile boolean modelsWarmedUp;
     private Button startCollectionButton;
     private TextView collectionProgress;
     private LinearLayout controlsLayout;
@@ -89,9 +99,9 @@ public final class MainActivity extends Activity {
     private Button calibrationCancel;
     private View calibrationHotspot;
     private DualCameraController cameras;
-    private FaceDetector faceDetector;
-    private AntiSpoofingClassifier classifier;
-    private Calibration calibration;
+    private volatile FaceDetector faceDetector;
+    private volatile AntiSpoofingClassifier classifier;
+    private volatile Calibration calibration;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private volatile boolean isCollecting;
     private volatile boolean ioBusy;
@@ -107,7 +117,7 @@ public final class MainActivity extends Activity {
     private int calibrationTapCount;
     private long lastCalibrationTapMs;
     private long lastFaceDetectedMs;
-    private String normalStatusMessage = "Initializing...";
+    private volatile String normalStatusMessage = "Initializing...";
     private int trackingFrames;
     private int inferenceFrames;
     private long trackingWindowStartNs;
@@ -121,6 +131,7 @@ public final class MainActivity extends Activity {
     private long lastUiUpdateTimeMs;
     private long lastPreviewUpdateTimeMs;
     private long lastIrPreviewUpdateTimeMs;
+    private long lastIrCropCopyTimeMs;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -363,61 +374,103 @@ public final class MainActivity extends Activity {
     }
 
     private void initializeEngines() {
-        trackingExecutor.execute(() -> {
+        ioExecutor.execute(() -> {
             try {
                 UbimDaemonClient daemon = new UbimDaemonClient();
                 daemon.command("ubim cli.command appops set com.virditech.ac7000 MANAGE_EXTERNAL_STORAGE allow");
             } catch (Exception e) {
                 android.util.Log.e("MainActivity", "Failed to auto-grant MANAGE_EXTERNAL_STORAGE", e);
             }
-            StringBuilder messages = new StringBuilder();
             Calibration.setAppStorageDir(getFilesDir());
             try { calibration = Calibration.load(); }
             catch (Exception e) {
                 android.util.Log.e("MainActivity", "Failed to load calibration config", e);
                 calibration = Calibration.identity();
-                messages.append("CALIBRATION NOT SET");
+                reportEngineError("CALIBRATION NOT SET");
             }
             try { faceDetector = new FaceDetector(getApplicationContext()); }
-            catch (Exception e) { append(messages, e.getMessage()); }
-            synchronized (classifierLock) {
-                try {
-                    standardClassifier = new AntiSpoofingClassifier(getApplicationContext(), "anti_spoofing.tflite", "model_spec.json");
-                } catch (Exception e) {
-                    append(messages, "STANDARD MODEL FAILED: " + e.getMessage());
-                }
-
-                String npuModelName = "anti_spoofing.tflite";
-                try {
-                    String[] assets = getAssets().list("");
-                    if (assets != null) {
-                        for (String asset : assets) {
-                            if ("anti_spoofing_npu.tflite".equals(asset)) {
-                                npuModelName = "anti_spoofing_npu.tflite";
-                                break;
-                            }
-                        }
-                    }
-                } catch (IOException e) {
-                    // ignore
-                }
-
-                try {
-                    npuClassifier = new AntiSpoofingClassifier(getApplicationContext(), npuModelName, "model_spec_npu.json");
-                } catch (Exception e) {
-                    append(messages, "NPU MODEL FAILED: " + e.getMessage());
-                }
-
-                classifier = standardClassifier;
-            }
-            String message = messages.length() == 0 ? classifier.backendStatus() : messages.toString();
-            normalStatusMessage = message;
-            runOnUiThread(() -> {
-                if (cameras != null) cameras.setIrFramesEnabled(true);
-                if (modelSwitchButton != null) modelSwitchButton.setEnabled(true);
-                status.setText(message);
-            });
+            catch (Exception e) { reportEngineError(e.getMessage()); }
         });
+        modelInitExecutor.execute(() -> loadClassifier(false));
+        modelInitExecutor.execute(() -> loadClassifier(true));
+    }
+
+    private void loadClassifier(boolean npu) {
+        String modelName = npu && hasAsset("anti_spoofing_npu.tflite")
+                ? "anti_spoofing_npu.tflite" : "anti_spoofing.tflite";
+        String specName = npu ? "model_spec_npu.json" : "model_spec.json";
+        AntiSpoofingClassifier loaded = null;
+        try {
+            loaded = new AntiSpoofingClassifier(getApplicationContext(), modelName, specName);
+        } catch (Exception e) {
+            reportEngineError((npu ? "NPU MODEL FAILED: " : "STANDARD MODEL FAILED: ") + e.getMessage());
+        }
+        synchronized (classifierLock) {
+            if (enginesShutDown) {
+                if (loaded != null) {
+                    try { loaded.close(); } catch (Exception ignored) {}
+                }
+                return;
+            }
+            if (npu) npuClassifier = loaded;
+            else standardClassifier = loaded;
+            if (npu == isNpuModelSelected && loaded != null) classifier = loaded;
+        }
+        if (loaded != null) {
+            runOnUiThread(() -> {
+                if (npu) {
+                    if (modelSwitchButton != null) modelSwitchButton.setEnabled(true);
+                } else {
+                    if (cameras != null) cameras.setIrFramesEnabled(true);
+                }
+            });
+            updateEngineStatus();
+        }
+        onModelLoadFinished();
+    }
+
+    private void onModelLoadFinished() {
+        if (pendingModelLoads.decrementAndGet() != 0) return;
+        modelsWarmedUp = true;
+        runOnUiThread(() -> {
+            if (!resumed) return;
+            performance.setText(formatPerformance());
+        });
+    }
+
+    private boolean hasAsset(String name) {
+        try {
+            String[] assets = getAssets().list("");
+            if (assets != null) {
+                for (String asset : assets) {
+                    if (name.equals(asset)) return true;
+                }
+            }
+        } catch (IOException e) {
+            // ignore
+        }
+        return false;
+    }
+
+    private void reportEngineError(String message) {
+        if (message == null) return;
+        synchronized (engineErrors) {
+            append(engineErrors, message);
+        }
+        updateEngineStatus();
+    }
+
+    private void updateEngineStatus() {
+        String errors;
+        synchronized (engineErrors) {
+            errors = engineErrors.toString();
+        }
+        AntiSpoofingClassifier active = classifier;
+        String message = errors.isEmpty()
+                ? (active != null ? active.backendStatus() : "Loading model...")
+                : errors;
+        normalStatusMessage = message;
+        runOnUiThread(() -> status.setText(message));
     }
 
     private void startCameras() {
@@ -463,12 +516,16 @@ public final class MainActivity extends Activity {
     private void offerIr(FrameData frame) {
         updateIrPreview(frame);
         if (!showIr) {
-            synchronized (irPreviewLock) {
-                if (latestIrBitmapForCrop != null) {
-                    latestIrBitmapForCrop.recycle();
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastIrCropCopyTimeMs >= 66L) {
+                lastIrCropCopyTimeMs = now;
+                synchronized (irPreviewLock) {
+                    if (latestIrBitmapForCrop != null) {
+                        latestIrBitmapForCrop.recycle();
+                    }
+                    Bitmap.Config config = frame.bitmap.getConfig();
+                    latestIrBitmapForCrop = frame.bitmap.copy(config == null ? Bitmap.Config.ARGB_8888 : config, false);
                 }
-                Bitmap.Config config = frame.bitmap.getConfig();
-                latestIrBitmapForCrop = frame.bitmap.copy(config == null ? Bitmap.Config.ARGB_8888 : config, false);
             }
         }
         synchronized (irLock) {
@@ -585,12 +642,13 @@ public final class MainActivity extends Activity {
         Bitmap previewFace = null;
         boolean previewRgb = showIr;
         long previewNow = SystemClock.elapsedRealtime();
-        if (previewNow - lastPreviewUpdateTimeMs >= 66L && classifier != null) {
+        AntiSpoofingClassifier previewClassifier = classifier;
+        if (previewNow - lastPreviewUpdateTimeMs >= 66L && previewClassifier != null) {
             lastPreviewUpdateTimeMs = previewNow;
             if (previewRgb) {
                 Bitmap source = frame.rgb.bitmap;
                 Rect face = detected;
-                float margin = classifier.cropMarginRatio();
+                float margin = previewClassifier.cropMarginRatio();
                 Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
                 int left = Math.max(0, crop.left);
                 int top = Math.max(0, crop.top);
@@ -604,7 +662,7 @@ public final class MainActivity extends Activity {
                     if (latestIrBitmapForCrop != null && !latestIrBitmapForCrop.isRecycled()) {
                         Bitmap source = latestIrBitmapForCrop;
                         Rect face = irDetected;
-                        float margin = classifier.cropMarginRatio();
+                        float margin = previewClassifier.cropMarginRatio();
                         Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
                         int left = Math.max(0, crop.left);
                         int top = Math.max(0, crop.top);
@@ -659,7 +717,8 @@ public final class MainActivity extends Activity {
             final int currentCount = collectionCount + 1;
             if (currentCount <= 100) {
                 collectionCount = currentCount;
-                float margin = classifier != null ? classifier.cropMarginRatio() : 0.10f;
+                AntiSpoofingClassifier collectionClassifier = classifier;
+                float margin = collectionClassifier != null ? collectionClassifier.cropMarginRatio() : 0.10f;
                 Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
                 int rL = Math.max(0, rgbR.left);
                 int rT = Math.max(0, rgbR.top);
@@ -726,13 +785,11 @@ public final class MainActivity extends Activity {
 
         Rect rgbCrop = null;
         Rect irCrop = null;
-        synchronized (classifierLock) {
-            AntiSpoofingClassifier activeClassifier = classifier;
-            if (activeClassifier != null && frame.ir != null) {
-                float margin = activeClassifier.cropMarginRatio();
-                rgbCrop = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-                irCrop = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
-            }
+        AntiSpoofingClassifier activeClassifier = classifier;
+        if (activeClassifier != null && frame.ir != null) {
+            float margin = activeClassifier.cropMarginRatio();
+            rgbCrop = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
+            irCrop = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
         }
         if (isCollecting || rgbCrop == null || irCrop == null || frame.ir == null) return;
         submitInference(new InferenceTask(frame.detachPair(), rgbCrop, irCrop));
@@ -764,13 +821,10 @@ public final class MainActivity extends Activity {
     }
 
     private void processInference(InferenceTask task) {
-        ClassificationResult result;
-        synchronized (classifierLock) {
-            AntiSpoofingClassifier activeClassifier = classifier;
-            if (activeClassifier == null) return;
-            result = activeClassifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
-                    task.pair.ir.bitmap, task.irCrop);
-        }
+        AntiSpoofingClassifier activeClassifier = classifier;
+        if (activeClassifier == null) return;
+        ClassificationResult result = activeClassifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
+                task.pair.ir.bitmap, task.irCrop);
         inferenceMs = result.inferenceMs;
         updateInferenceFps();
 
@@ -950,7 +1004,7 @@ public final class MainActivity extends Activity {
     }
 
     private String formatPerformance() {
-        if (loadingSpinner.getVisibility() == View.VISIBLE) {
+        if (modelsWarmedUp && loadingSpinner.getVisibility() == View.VISIBLE) {
             loadingSpinner.setVisibility(View.GONE);
             irLoadingSpinner.setVisibility(View.GONE);
             if (!isCollecting) {
@@ -1027,7 +1081,12 @@ public final class MainActivity extends Activity {
         trackingExecutor.shutdownNow();
         inferenceExecutor.shutdownNow();
         ioExecutor.shutdownNow();
+        modelInitExecutor.shutdownNow();
+        awaitExecutorTermination(inferenceExecutor);
+        awaitExecutorTermination(trackingExecutor);
+        awaitExecutorTermination(modelInitExecutor);
         synchronized (classifierLock) {
+            enginesShutDown = true;
             if (standardClassifier != null) {
                 try { standardClassifier.close(); } catch (Exception e) {}
             }
@@ -1155,5 +1214,15 @@ public final class MainActivity extends Activity {
     private static void append(StringBuilder builder, String message) {
         if (builder.length() > 0) builder.append('\n');
         builder.append(message);
+    }
+
+    private static void awaitExecutorTermination(ExecutorService executor) {
+        try {
+            if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
+                android.util.Log.w("MainActivity", "Executor did not terminate in time");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }
