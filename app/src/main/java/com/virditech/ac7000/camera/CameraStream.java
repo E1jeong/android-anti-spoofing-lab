@@ -163,15 +163,11 @@ final class CameraStream {
         float height = textureView.getHeight();
         if (width <= 0f || height <= 0f) return;
         Matrix matrix = new Matrix();
-        if (!color) {
-            matrix.setScale(1f, -1f);
-            matrix.postTranslate(0f, height);
-        }
         float degrees = color ? 90f : 270f;
         matrix.postRotate(degrees, width / 2f, height / 2f);
         matrix.postScale(width / height, height / width, width / 2f, height / 2f);
         textureView.setTransform(matrix);
-        textureView.setScaleX(mirrorHorizontally() ? -1f : 1f);
+        textureView.setScaleX(1f);
     }
 
     private boolean mirrorHorizontally() {

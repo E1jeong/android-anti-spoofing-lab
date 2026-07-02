@@ -67,7 +67,6 @@ public final class MainActivity extends Activity {
     private Bitmap latestIrBitmapForCrop;
     private TextureView rgbView;
     private TextureView irView;
-    private ImageView irPreviewView;
     private OverlayView overlay;
     private ProgressBar loadingSpinner;
     private ProgressBar irLoadingSpinner;
@@ -75,7 +74,6 @@ public final class MainActivity extends Activity {
     private TextView status;
     private ImageView faceCropView;
     private Bitmap currentPreviewFace;
-    private Bitmap currentIrPreviewFrame;
     private TextView noFaceLabel;
     private TextView resultsLabel;
     private TextView calibrationInstruction;
@@ -130,7 +128,6 @@ public final class MainActivity extends Activity {
     private volatile float inferenceFps;
     private long lastUiUpdateTimeMs;
     private long lastPreviewUpdateTimeMs;
-    private long lastIrPreviewUpdateTimeMs;
     private long lastIrCropCopyTimeMs;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -156,14 +153,9 @@ public final class MainActivity extends Activity {
         rgbView = new TextureView(this);
         irView = new TextureView(this);
         irView.setAlpha(0f);
-        irPreviewView = new ImageView(this);
-        irPreviewView.setAlpha(0f);
-        irPreviewView.setScaleX(-1f);
-        irPreviewView.setScaleType(ImageView.ScaleType.FIT_XY);
         overlay = new OverlayView(this);
         root.addView(rgbView, match());
         root.addView(irView, match());
-        root.addView(irPreviewView, match());
         root.addView(overlay, match());
 
         loadingSpinner = new ProgressBar(this);
@@ -305,14 +297,11 @@ public final class MainActivity extends Activity {
     private void setIrVisible(boolean visible) {
         showIr = visible;
         rgbView.setAlpha(showIr ? 0f : 1f);
-        irView.setAlpha(0f);
-        irPreviewView.setAlpha(showIr ? 1f : 0f);
+        irView.setAlpha(showIr ? 1f : 0f);
         overlay.setShowIr(showIr);
-        overlay.setTranslationX(showIr ? irPreviewView.getTranslationX() : 0f);
-        overlay.setTranslationY(showIr ? irPreviewView.getTranslationY() : 0f);
-        if (!showIr) {
-            clearIrPreviewFrame();
-        } else {
+        overlay.setTranslationX(0f);
+        overlay.setTranslationY(0f);
+        if (showIr) {
             synchronized (irPreviewLock) {
                 if (latestIrBitmapForCrop != null) {
                     latestIrBitmapForCrop.recycle();
@@ -503,7 +492,6 @@ public final class MainActivity extends Activity {
         HardwareControls.setIrLed(false);
         clearPendingWork();
         overlay.clearResult();
-        clearIrPreviewFrame();
         synchronized (irPreviewLock) {
             if (latestIrBitmapForCrop != null) {
                 latestIrBitmapForCrop.recycle();
@@ -514,7 +502,6 @@ public final class MainActivity extends Activity {
     }
 
     private void offerIr(FrameData frame) {
-        updateIrPreview(frame);
         if (!showIr) {
             long now = SystemClock.elapsedRealtime();
             if (now - lastIrCropCopyTimeMs >= 66L) {
@@ -692,22 +679,6 @@ public final class MainActivity extends Activity {
             noFaceLabel.setVisibility(View.GONE);
             if (finalPreviewFace != null) {
                 setPreviewFace(finalPreviewFace, finalPreviewRgb);
-            }
-            if (calibration != null && detected != null) {
-                float sx = irPreviewView.getWidth() / 432f;
-                float sy = irPreviewView.getHeight() / 768f;
-                float scale = detected.width() / calibration.getReferenceFaceWidth();
-                float tx = calibration.getHorizontal() * scale * sx;
-                float ty = calibration.getVertical() * scale * sy;
-                irPreviewView.setTranslationX(tx);
-                irPreviewView.setTranslationY(ty);
-                overlay.setTranslationX(showIr ? tx : 0f);
-                overlay.setTranslationY(showIr ? ty : 0f);
-            } else {
-                irPreviewView.setTranslationX(0f);
-                irPreviewView.setTranslationY(0f);
-                overlay.setTranslationX(0f);
-                overlay.setTranslationY(0f);
             }
         });
         if (calibrationMode) return;
@@ -1099,7 +1070,6 @@ public final class MainActivity extends Activity {
         }
         if (faceDetector != null) faceDetector.close();
         clearPreviewFace();
-        clearIrPreviewFrame();
         appWatchdog.close();
         super.onDestroy();
     }
@@ -1168,33 +1138,6 @@ public final class MainActivity extends Activity {
         faceCropView.setImageDrawable(null);
         if (currentPreviewFace != null && !currentPreviewFace.isRecycled()) currentPreviewFace.recycle();
         currentPreviewFace = null;
-    }
-
-    private void updateIrPreview(FrameData frame) {
-        if (!showIr) return;
-        long now = SystemClock.elapsedRealtime();
-        if (now - lastIrPreviewUpdateTimeMs < 150L) return;
-        lastIrPreviewUpdateTimeMs = now;
-        Bitmap.Config config = frame.bitmap.getConfig();
-        Bitmap preview = frame.bitmap.copy(config == null ? Bitmap.Config.ARGB_8888 : config, false);
-        runOnUiThread(() -> setIrPreviewFrame(preview));
-    }
-
-    private void setIrPreviewFrame(Bitmap bitmap) {
-        if (!resumed || !showIr) {
-            bitmap.recycle();
-            return;
-        }
-        Bitmap previous = currentIrPreviewFrame;
-        currentIrPreviewFrame = bitmap;
-        irPreviewView.setImageBitmap(bitmap);
-        if (previous != null && previous != bitmap && !previous.isRecycled()) previous.recycle();
-    }
-
-    private void clearIrPreviewFrame() {
-        irPreviewView.setImageDrawable(null);
-        if (currentIrPreviewFrame != null && !currentIrPreviewFrame.isRecycled()) currentIrPreviewFrame.recycle();
-        currentIrPreviewFrame = null;
     }
 
     private static FrameLayout.LayoutParams match() {
