@@ -13,6 +13,8 @@ final class ModelSpec {
     static final String RGB_NORMALIZATION_IMAGENET = "imagenet";
     static final String RGB_NORMALIZATION_MINUS_ONE_TO_ONE = "minus_one_to_one";
 
+    final int rgbInputIndex;
+    final int irInputIndex;
     final int inputWidth;
     final int inputHeight;
     final InputNames inputs;
@@ -27,21 +29,32 @@ final class ModelSpec {
     final float cropMarginRatio;
 
     private ModelSpec(JSONObject json) throws JSONException {
-        inputWidth = json.getInt("inputWidth");
-        inputHeight = json.getInt("inputHeight");
-        inputs = new InputNames(json.getJSONObject("inputs"));
+        rgbInputIndex = json.optInt("rgbInputIndex", -1);
+        irInputIndex = json.optInt("irInputIndex", -1);
+        inputWidth = json.optInt("inputWidth", -1);
+        inputHeight = json.optInt("inputHeight", -1);
+        inputs = json.has("inputs") && !json.isNull("inputs")
+                ? new InputNames(json.getJSONObject("inputs"))
+                : null;
         bgr = "BGR".equalsIgnoreCase(json.optString("channelOrder", "RGB"));
         rgbNormalization = json.optString("rgbNormalization", RGB_NORMALIZATION_IMAGENET);
         rgbMean = parseFloatArray(json, "rgbMean");
         rgbStd = parseFloatArray(json, "rgbStd");
         irMean = parseFloatArray(json, "irMean");
         irStd = parseFloatArray(json, "irStd");
-        delegate = json.optString("delegate", "cpu");
+        delegate = json.optString("delegate", inputs == null ? "nnapi" : "cpu");
         outputIsLogits = json.getBoolean("outputIsLogits");
         cropMarginRatio = (float) json.getDouble("cropMarginRatio");
 
-        if (inputWidth <= 0 || inputHeight <= 0 || cropMarginRatio < 0f || cropMarginRatio > 1f) {
-            throw new IllegalArgumentException("model_spec.json contains invalid dimensions or cropMarginRatio");
+        if (cropMarginRatio < 0f || cropMarginRatio > 1f) {
+            throw new IllegalArgumentException("model_spec.json contains invalid cropMarginRatio");
+        }
+        if (inputs == null) {
+            if (rgbInputIndex < 0 || irInputIndex < 0 || rgbInputIndex == irInputIndex) {
+                throw new IllegalArgumentException("2-input model_spec.json must define distinct rgbInputIndex and irInputIndex");
+            }
+        } else if (inputWidth <= 0 || inputHeight <= 0) {
+            throw new IllegalArgumentException("5-input model_spec.json contains invalid input dimensions");
         }
         if (!RGB_NORMALIZATION_IMAGENET.equals(rgbNormalization)
                 && !RGB_NORMALIZATION_MINUS_ONE_TO_ONE.equals(rgbNormalization)) {

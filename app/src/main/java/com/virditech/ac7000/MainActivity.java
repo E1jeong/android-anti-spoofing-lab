@@ -385,9 +385,10 @@ public final class MainActivity extends Activity {
     }
 
     private void loadClassifier(boolean npu) {
-        String modelName = npu && hasAsset("anti_spoofing_npu.tflite")
-                ? "anti_spoofing_npu.tflite" : "anti_spoofing.tflite";
-        String specName = npu ? "model_spec_npu.json" : "model_spec.json";
+        boolean useNpuAsset = npu && hasAsset("anti_spoofing_npu.tflite");
+        String modelName = useNpuAsset ? "anti_spoofing_npu.tflite" : "anti_spoofing.tflite";
+        String specName = useNpuAsset && hasAsset("model_spec_npu.json")
+                ? "model_spec_npu.json" : "model_spec.json";
         AntiSpoofingClassifier loaded = null;
         try {
             loaded = new AntiSpoofingClassifier(getApplicationContext(), modelName, specName);
