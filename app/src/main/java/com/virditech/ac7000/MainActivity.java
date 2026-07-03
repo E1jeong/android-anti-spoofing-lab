@@ -7,6 +7,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -20,6 +22,7 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -30,6 +33,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
+import com.cyberlink.faceme.FaceQualityLevel;
 import com.virditech.ac7000.calibration.Calibration;
 import com.virditech.ac7000.camera.DualCameraController;
 import com.virditech.ac7000.camera.FrameData;
@@ -108,6 +112,9 @@ public final class MainActivity extends Activity {
     // loading spinner up until then instead of pretending the camera is usable.
     private volatile boolean modelsWarmedUp;
     private Button startCollectionButton;
+    private FrameLayout highQualityOnlyContainer;
+    private CheckBox highQualityOnlyButton;
+    private boolean highQualityOnly;
     private TextView collectionProgress;
     private LinearLayout controlsLayout;
     private Button calibrationConfirm;
@@ -124,6 +131,8 @@ public final class MainActivity extends Activity {
     private volatile int collectionStepIndex;
     private volatile int collectionStepCount;
     private volatile long collectionCountdownEndMs;
+    private volatile int collectionMinQualityLevel = FaceQualityLevel.NOT_RECOMMEND;
+    private volatile FaceDetector.FaceQualityCheckResult lastCollectionQuality;
     private File collectionRawRoot;
     private int collectionStartSubjectId;
     private String collectionClassName = "live";
@@ -237,6 +246,29 @@ public final class MainActivity extends Activity {
         expandableLayout.setOrientation(LinearLayout.VERTICAL);
         expandableLayout.setGravity(Gravity.END);
         expandableLayout.setVisibility(View.GONE);
+
+        highQualityOnlyContainer = new FrameLayout(this);
+        GradientDrawable highQualityBackground = new GradientDrawable();
+        highQualityBackground.setColor(Color.parseColor("#C49A00"));
+        highQualityBackground.setCornerRadius(0f);
+        highQualityOnlyContainer.setBackground(highQualityBackground);
+        highQualityOnlyContainer.setOnClickListener(v -> highQualityOnlyButton.performClick());
+
+        highQualityOnlyButton = new CheckBox(this);
+        highQualityOnlyButton.setGravity(Gravity.CENTER);
+        highQualityOnlyButton.setMinHeight(dp(48));
+        highQualityOnlyButton.setMinimumHeight(dp(48));
+        highQualityOnlyButton.setIncludeFontPadding(false);
+        highQualityOnlyButton.setPadding(0, 0, 0, 0);
+        updateHighQualityOnlyButton();
+        highQualityOnlyButton.setOnClickListener(v -> {
+            highQualityOnly = highQualityOnlyButton.isChecked();
+            updateHighQualityOnlyButton();
+        });
+        highQualityOnlyContainer.addView(highQualityOnlyButton, match());
+        LinearLayout.LayoutParams highQualityLp = new LinearLayout.LayoutParams(buttonWidth, dp(48));
+        highQualityLp.bottomMargin = dp(4);
+        expandableLayout.addView(highQualityOnlyContainer, highQualityLp);
 
         String[] classes = {"live", "display", "picture", "print", "mask"};
         for (String c : classes) {
@@ -712,6 +744,15 @@ public final class MainActivity extends Activity {
         if (isCollecting && frame.ir != null && !ioBusy) {
             long nowMs = SystemClock.elapsedRealtime();
             if (getCollectionCountdownSeconds(nowMs) > 0) return;
+            FaceDetector.FaceQualityCheckResult quality =
+                    faceDetector.checkFaceQuality(frame.rgb.bitmap, collectionMinQualityLevel);
+            lastCollectionQuality = quality;
+            if (highQualityOnly && !quality.passed) {
+                runOnUiThread(() -> {
+                    if (resumed && isCollecting) updateCollectionUi(SystemClock.elapsedRealtime());
+                });
+                return;
+            }
             ioBusy = true;
             final int currentCount = collectionCount + 1;
             if (currentCount <= COLLECTION_TARGET_COUNT) {
@@ -874,12 +915,35 @@ public final class MainActivity extends Activity {
                 .append(" of ")
                 .append(COLLECTION_TARGET_COUNT);
         int totalCountEnd = sb.length();
+        sb.append("\n")
+                .append(formatCollectionQualityLine());
 
         SpannableString text = new SpannableString(sb.toString());
         int countColor = Color.rgb(255, 214, 0);
         text.setSpan(new ForegroundColorSpan(countColor), stepCountStart, stepCountEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         text.setSpan(new ForegroundColorSpan(countColor), totalCountStart, totalCountEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
+    }
+
+    private String formatCollectionQualityLine() {
+        FaceDetector.FaceQualityCheckResult quality = lastCollectionQuality;
+        if (quality == null) {
+            return "WAITING 0.000";
+        }
+        if (quality.actualLevel < 0) {
+            return "UNKNOWN 0.000";
+        }
+        return String.format(Locale.US, "%s %.3f", FaceDetector.levelName(quality.actualLevel), quality.score);
+    }
+
+    private void updateHighQualityOnlyButton() {
+        if (highQualityOnlyButton == null) return;
+        highQualityOnlyButton.setText("HIGH QUALITY");
+        highQualityOnlyButton.setChecked(highQualityOnly);
+        highQualityOnlyButton.setTextColor(Color.WHITE);
+        highQualityOnlyButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        highQualityOnlyButton.setBackgroundColor(Color.TRANSPARENT);
+        highQualityOnlyButton.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
     }
 
     private CaptureStep currentCollectionStep() {
@@ -899,6 +963,8 @@ public final class MainActivity extends Activity {
         setCollectionChromeVisible(true);
         startCollectionButton.setEnabled(true);
         switchButton.setEnabled(true);
+        if (highQualityOnlyContainer != null) highQualityOnlyContainer.setEnabled(true);
+        if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(true);
         startCollectionButton.setText("START CAPTURE");
         collectionProgress.setVisibility(View.GONE);
     }
@@ -974,6 +1040,13 @@ public final class MainActivity extends Activity {
 
     private void startDataCollection(String className, int subjectNum) {
         if (isCollecting) return;
+        FaceDetector detector = faceDetector;
+        if (detector == null || !detector.isQualityAvailable()) {
+            String message = detector == null ? "Face detector unavailable" : detector.qualityError();
+            showTransientStatus(message.isEmpty() ? "Face quality unavailable" : message);
+            startCollectionButton.setText("START CAPTURE");
+            return;
+        }
         if (!Environment.isExternalStorageManager()) {
             Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
             intent.setData(Uri.parse("package:" + getPackageName()));
@@ -985,6 +1058,8 @@ public final class MainActivity extends Activity {
         collectionRawRoot = resolveRawRoot();
         startCollectionButton.setEnabled(false);
         switchButton.setEnabled(false);
+        if (highQualityOnlyContainer != null) highQualityOnlyContainer.setEnabled(false);
+        if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(false);
         startCollectionButton.setText("COLLECTING...");
         collectionProgress.setVisibility(View.VISIBLE);
 
@@ -994,6 +1069,8 @@ public final class MainActivity extends Activity {
         collectionStepIndex = 0;
         collectionStepCount = 0;
         collectionCountdownEndMs = SystemClock.elapsedRealtime() + COLLECTION_STEP_COUNTDOWN_MS;
+        collectionMinQualityLevel = highQualityOnly ? FaceQualityLevel.HIGH : FaceQualityLevel.NOT_RECOMMEND;
+        lastCollectionQuality = null;
         ioBusy = false;
         isCollecting = true;
         overlay.setCollecting(true);
