@@ -12,6 +12,9 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.TextureView;
 import android.view.View;
@@ -51,6 +54,19 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class MainActivity extends Activity {
     private static final int CAMERA_PERMISSION_REQUEST = 10;
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
+    private static final long COLLECTION_STEP_COUNTDOWN_MS = 3_000L;
+    private static final CaptureStep[] COLLECTION_SCHEDULE = {
+            new CaptureStep(5, "CENTER", 20),
+            new CaptureStep(1, "LEFT TOP", 10),
+            new CaptureStep(2, "TOP", 10),
+            new CaptureStep(3, "RIGHT TOP", 10),
+            new CaptureStep(4, "LEFT", 10),
+            new CaptureStep(6, "RIGHT", 10),
+            new CaptureStep(7, "LEFT BOTTOM", 10),
+            new CaptureStep(8, "BOTTOM", 10),
+            new CaptureStep(9, "RIGHT BOTTOM", 10)
+    };
+    private static final int COLLECTION_TARGET_COUNT = calculateCollectionTargetCount();
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -72,6 +88,7 @@ public final class MainActivity extends Activity {
     private ProgressBar irLoadingSpinner;
     private TextView performance;
     private TextView status;
+    private FrameLayout irCropContainer;
     private ImageView faceCropView;
     private Bitmap currentPreviewFace;
     private TextView noFaceLabel;
@@ -104,6 +121,9 @@ public final class MainActivity extends Activity {
     private volatile boolean isCollecting;
     private volatile boolean ioBusy;
     private volatile int collectionCount;
+    private volatile int collectionStepIndex;
+    private volatile int collectionStepCount;
+    private volatile long collectionCountdownEndMs;
     private File collectionRawRoot;
     private int collectionStartSubjectId;
     private String collectionClassName = "live";
@@ -182,7 +202,7 @@ public final class MainActivity extends Activity {
         FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
         root.addView(status, statusParams);
 
-        FrameLayout irCropContainer = new FrameLayout(this);
+        irCropContainer = new FrameLayout(this);
         FrameLayout.LayoutParams irCropParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
         irCropParams.width = buttonWidth;
         irCropParams.height = buttonWidth;
@@ -206,10 +226,12 @@ public final class MainActivity extends Activity {
         controlsLayout.setOrientation(LinearLayout.VERTICAL);
         controlsLayout.setGravity(Gravity.END | Gravity.BOTTOM);
 
-        collectionProgress = label(24f);
+        collectionProgress = label(32f);
         collectionProgress.setText("");
+        collectionProgress.setGravity(Gravity.CENTER);
         collectionProgress.setVisibility(View.GONE);
-        controlsLayout.addView(collectionProgress);
+        FrameLayout.LayoutParams collectionProgressParams = wrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 16, 16);
+        root.addView(collectionProgress, collectionProgressParams);
 
         expandableLayout = new LinearLayout(this);
         expandableLayout.setOrientation(LinearLayout.VERTICAL);
@@ -672,6 +694,9 @@ public final class MainActivity extends Activity {
                 return;
             }
             overlay.showFace(detected, irDetected);
+            if (isCollecting) {
+                updateCollectionUi(SystemClock.elapsedRealtime());
+            }
             long now = SystemClock.elapsedRealtime();
             if (now - lastUiUpdateTimeMs >= 150L) {
                 performance.setText(formatPerformance());
@@ -685,10 +710,19 @@ public final class MainActivity extends Activity {
         if (calibrationMode) return;
 
         if (isCollecting && frame.ir != null && !ioBusy) {
+            long nowMs = SystemClock.elapsedRealtime();
+            if (getCollectionCountdownSeconds(nowMs) > 0) return;
             ioBusy = true;
             final int currentCount = collectionCount + 1;
-            if (currentCount <= 100) {
+            if (currentCount <= COLLECTION_TARGET_COUNT) {
                 collectionCount = currentCount;
+                CaptureStep captureStep = currentCollectionStep();
+                collectionStepCount++;
+                if (collectionStepCount >= captureStep.targetCount && currentCount < COLLECTION_TARGET_COUNT) {
+                    collectionStepIndex = Math.min(collectionStepIndex + 1, COLLECTION_SCHEDULE.length - 1);
+                    collectionStepCount = 0;
+                    collectionCountdownEndMs = nowMs + COLLECTION_STEP_COUNTDOWN_MS;
+                }
                 AntiSpoofingClassifier collectionClassifier = classifier;
                 float margin = collectionClassifier != null ? collectionClassifier.cropMarginRatio() : 0.10f;
                 Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
@@ -737,21 +771,15 @@ public final class MainActivity extends Activity {
                         ioBusy = false;
                     }
                     runOnUiThread(() -> {
-                        collectionProgress.setText("Captured: " + currentCount + "/100");
-                        if (currentCount == 100) {
-                            isCollecting = false;
-                            overlay.setCollecting(false);
-                            startCollectionButton.setEnabled(true);
-                            switchButton.setEnabled(true);
-                            startCollectionButton.setText("START CAPTURE");
-                            collectionProgress.setVisibility(View.GONE);
+                        updateCollectionUi(SystemClock.elapsedRealtime());
+                        if (currentCount == COLLECTION_TARGET_COUNT) {
+                            finishDataCollection();
                         }
                     });
                 });
             } else {
-                isCollecting = false;
                 ioBusy = false;
-                runOnUiThread(() -> overlay.setCollecting(false));
+                runOnUiThread(this::finishDataCollection);
             }
         }
 
@@ -819,6 +847,72 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void updateCollectionUi(long nowMs) {
+        CaptureStep step = currentCollectionStep();
+        int countdownSeconds = getCollectionCountdownSeconds(nowMs);
+        overlay.setCollectionGuide(step.sector, countdownSeconds);
+        collectionProgress.setText(formatCollectionProgress(step));
+    }
+
+    private SpannableString formatCollectionProgress(CaptureStep step) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(collectionClassName.toUpperCase(Locale.US))
+                .append(" / Sector ")
+                .append(step.sector)
+                .append(" ")
+                .append(step.name)
+                .append("\n");
+        int stepCountStart = sb.length();
+        sb.append(collectionStepCount)
+                .append(" of ")
+                .append(step.targetCount);
+        int stepCountEnd = sb.length();
+        sb.append(" / ");
+        int totalCountStart = sb.length();
+        sb.append("Total ")
+                .append(collectionCount)
+                .append(" of ")
+                .append(COLLECTION_TARGET_COUNT);
+        int totalCountEnd = sb.length();
+
+        SpannableString text = new SpannableString(sb.toString());
+        int countColor = Color.rgb(255, 214, 0);
+        text.setSpan(new ForegroundColorSpan(countColor), stepCountStart, stepCountEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new ForegroundColorSpan(countColor), totalCountStart, totalCountEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return text;
+    }
+
+    private CaptureStep currentCollectionStep() {
+        int index = Math.max(0, Math.min(collectionStepIndex, COLLECTION_SCHEDULE.length - 1));
+        return COLLECTION_SCHEDULE[index];
+    }
+
+    private int getCollectionCountdownSeconds(long nowMs) {
+        long remainingMs = collectionCountdownEndMs - nowMs;
+        return remainingMs > 0L ? (int) ((remainingMs + 999L) / 1000L) : 0;
+    }
+
+    private void finishDataCollection() {
+        isCollecting = false;
+        ioBusy = false;
+        overlay.setCollecting(false);
+        setCollectionChromeVisible(true);
+        startCollectionButton.setEnabled(true);
+        switchButton.setEnabled(true);
+        startCollectionButton.setText("START CAPTURE");
+        collectionProgress.setVisibility(View.GONE);
+    }
+
+    private void setCollectionChromeVisible(boolean visible) {
+        int visibility = visible ? View.VISIBLE : View.GONE;
+        performance.setVisibility(visibility);
+        status.setVisibility(visibility);
+        resultsLabel.setVisibility(visibility);
+        irCropContainer.setVisibility(visibility);
+        controlsLayout.setVisibility(visibility);
+        calibrationHotspot.setVisibility(visibility);
+    }
+
     /**
      * Chooses where captured frames are written. Prefers external storage
      * ({@code /sdcard/Pictures/raw}) so the files are easy to pull off-device, and
@@ -870,6 +964,14 @@ public final class MainActivity extends Activity {
         return maxNum + 1;
     }
 
+    private static int calculateCollectionTargetCount() {
+        int total = 0;
+        for (CaptureStep step : COLLECTION_SCHEDULE) {
+            total += step.targetCount;
+        }
+        return total;
+    }
+
     private void startDataCollection(String className, int subjectNum) {
         if (isCollecting) return;
         if (!Environment.isExternalStorageManager()) {
@@ -885,14 +987,18 @@ public final class MainActivity extends Activity {
         switchButton.setEnabled(false);
         startCollectionButton.setText("COLLECTING...");
         collectionProgress.setVisibility(View.VISIBLE);
-        collectionProgress.setText("Captured: 0/100");
 
         collectionClassName = className;
         collectionStartSubjectId = subjectNum;
         collectionCount = 0;
+        collectionStepIndex = 0;
+        collectionStepCount = 0;
+        collectionCountdownEndMs = SystemClock.elapsedRealtime() + COLLECTION_STEP_COUNTDOWN_MS;
         ioBusy = false;
         isCollecting = true;
-        runOnUiThread(() -> overlay.setCollecting(true));
+        overlay.setCollecting(true);
+        updateCollectionUi(SystemClock.elapsedRealtime());
+        setCollectionChromeVisible(false);
     }
 
     private void saveBitmapAsBmp(Bitmap bitmap, File file) {
@@ -1116,6 +1222,18 @@ public final class MainActivity extends Activity {
 
         void recycle() {
             pair.recycle();
+        }
+    }
+
+    private static final class CaptureStep {
+        final int sector;
+        final String name;
+        final int targetCount;
+
+        CaptureStep(int sector, String name, int targetCount) {
+            this.sector = sector;
+            this.name = name;
+            this.targetCount = targetCount;
         }
     }
 
