@@ -79,7 +79,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
-    private final ExecutorService modelInitExecutor = Executors.newFixedThreadPool(2);
+    private final ExecutorService modelInitExecutor = Executors.newSingleThreadExecutor();
     private final AtomicReference<TrackingFrame> pendingTracking = new AtomicReference<>();
     private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();

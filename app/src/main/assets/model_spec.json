@@ -6,6 +6,7 @@
   "rgbStd": [0.5],
   "irMean": [0.5],
   "irStd": [0.5],
+  "delegate": "nnapi",
   "outputIsLogits": true,
   "cropMarginRatio": 0.10
 }

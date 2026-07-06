@@ -311,14 +311,7 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             nnapiInterpreter.allocateTensors();
             return new InterpreterBundle(nnapiInterpreter, "NNAPI", "Ready");
         } catch (RuntimeException nnapiError) {
-            Log.w(TAG, "NNAPI delegate failed for " + modelName + " with " + specName
-                    + ". Falling back to CPU/XNNPACK.", nnapiError);
-            Interpreter.Options cpuOptions = new Interpreter.Options()
-                    .setNumThreads(THREAD_COUNT)
-                    .setUseXNNPACK(true);
-            Interpreter cpuInterpreter = new Interpreter(model, cpuOptions);
-            cpuInterpreter.allocateTensors();
-            return new InterpreterBundle(cpuInterpreter, "CPU", "Ready - CPU fallback");
+            throw new IllegalStateException("NNAPI delegate failed for " + modelName + " with " + specName, nnapiError);
         }
     }
 
