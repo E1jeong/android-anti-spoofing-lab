@@ -789,6 +789,9 @@ public final class MainActivity extends Activity {
             ioBusy = true;
             final int currentCount = collectionCount + 1;
             if (currentCount <= COLLECTION_TARGET_COUNT) {
+                final String className = collectionClassName;
+                final int subjectId = collectionStartSubjectId;
+                final String subjectDirName = className + "_" + collectionStartSubjectId;
                 AntiSpoofingClassifier collectionClassifier = classifier;
                 float margin = collectionClassifier != null ? collectionClassifier.cropMarginRatio() : 0.10f;
                 Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
@@ -808,9 +811,8 @@ public final class MainActivity extends Activity {
                 final Bitmap fullRGB = frame.rgb.bitmap.copy(frame.rgb.bitmap.getConfig(), false);
                 final Bitmap fullIR = frame.ir.bitmap.copy(frame.ir.bitmap.getConfig(), false);
 
-                final String subjectDirName = collectionClassName + "_" + collectionStartSubjectId;
                 final String relativeDir = Environment.DIRECTORY_PICTURES + "/raw/"
-                        + collectionClassName + "/" + subjectDirName + "/" + currentCount;
+                        + className + "/" + subjectDirName + "/" + currentCount;
                 final String displayDir = "/sdcard/" + relativeDir;
                 
                 ioExecutor.execute(() -> {
@@ -833,7 +835,9 @@ public final class MainActivity extends Activity {
                             savedAll &= saveBitmapAsBmp(cropIR, relativeDir, "cropIR.bmp");
                             cropIR.recycle();
                         }
-                        if (savedAll) {
+                        if (savedAll && isCollecting
+                                && className.equals(collectionClassName)
+                                && collectionStartSubjectId == subjectId) {
                             collectionCount = currentCount;
                             CaptureStep captureStep = currentCollectionStep();
                             collectionStepCount++;
@@ -850,6 +854,7 @@ public final class MainActivity extends Activity {
                     }
                     final boolean savedSample = saved;
                     runOnUiThread(() -> {
+                        if (!isCollecting) return;
                         updateCollectionUi(SystemClock.elapsedRealtime());
                         if (savedSample && currentCount == COLLECTION_TARGET_COUNT) {
                             finishDataCollection();
@@ -1016,11 +1021,13 @@ public final class MainActivity extends Activity {
 
     private void cancelDataCollection() {
         if (!isCollecting) return;
+        final String canceledClassName = collectionClassName;
+        final String canceledSubjectDirName = collectionClassName + "_" + collectionStartSubjectId;
         isCollecting = false;
         ioBusy = false;
         overlay.setCollecting(false);
         setCollectionChromeVisible(true);
-        startCollectionButton.setEnabled(true);
+        startCollectionButton.setEnabled(false);
         switchButton.setEnabled(true);
         if (highQualityOnlyContainer != null) highQualityOnlyContainer.setEnabled(true);
         if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(true);
@@ -1028,6 +1035,15 @@ public final class MainActivity extends Activity {
         collectionProgress.setVisibility(View.GONE);
         if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.GONE);
         showTransientStatus("Capture canceled");
+        ioExecutor.execute(() -> {
+            deleteCollectionSubject(canceledClassName, canceledSubjectDirName);
+            runOnUiThread(() -> {
+                if (!isCollecting) {
+                    FaceDetector detector = faceDetector;
+                    startCollectionButton.setEnabled(detector != null);
+                }
+            });
+        });
     }
 
     private void setCollectionChromeVisible(boolean visible) {
@@ -1120,6 +1136,47 @@ public final class MainActivity extends Activity {
         overlay.setCollecting(true);
         updateCollectionUi(SystemClock.elapsedRealtime());
         setCollectionChromeVisible(false);
+    }
+
+    private void deleteCollectionSubject(String className, String subjectDirName) {
+        String relativePrefix = Environment.DIRECTORY_PICTURES + "/raw/"
+                + className + "/" + subjectDirName + "/";
+        ContentResolver resolver = getContentResolver();
+        Uri collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+        String selection = MediaStore.Images.Media.RELATIVE_PATH + " LIKE ?";
+        int deletedRows = resolver.delete(collection, selection, new String[]{relativePrefix + "%"});
+        boolean deletedFiles = deleteCollectionSubjectFiles(className, subjectDirName);
+        android.util.Log.i(TAG, "Deleted canceled collection subject " + relativePrefix
+                + " rows=" + deletedRows + " files=" + deletedFiles);
+    }
+
+    private boolean deleteCollectionSubjectFiles(String className, String subjectDirName) {
+        File classDir = new File(resolveRawRoot(), className);
+        File subjectDir = new File(classDir, subjectDirName);
+        try {
+            String classPath = classDir.getCanonicalPath();
+            String subjectPath = subjectDir.getCanonicalPath();
+            if (!subjectPath.startsWith(classPath + File.separator)) {
+                android.util.Log.e(TAG, "Refusing to delete outside collection class folder: " + subjectPath);
+                return false;
+            }
+            return deleteRecursively(subjectDir);
+        } catch (IOException e) {
+            android.util.Log.e(TAG, "Unable to delete canceled collection folder", e);
+            return false;
+        }
+    }
+
+    private boolean deleteRecursively(File file) {
+        if (!file.exists()) return true;
+        boolean deleted = true;
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleted &= deleteRecursively(child);
+            }
+        }
+        return deleted && (file.delete() || !file.exists());
     }
 
     private boolean saveBitmapAsBmp(Bitmap bitmap, String relativeDir, String fileName) {
