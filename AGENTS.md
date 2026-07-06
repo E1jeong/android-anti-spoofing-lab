@@ -17,7 +17,8 @@ The application performs the following pipeline:
 5. Run the matched crops (RGB crop, IR crop, Full RGB, Full IR, Heatmap) through the TensorFlow Lite anti-spoofing model.
 6. Update the diagnostic crop preview (top-right) independently of pairing success using a copied frame buffer, throttled to a minimum interval of 66ms (~15 FPS).
 7. Display the five-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
-8. **Pre-warming & Hot Swapping**: On startup, the standard and NPU models are loaded and warmed up in parallel on a dedicated two-thread init executor, separate from the tracking thread. The loading spinner stays visible until **both** models finish warming up, because NNAPI compilation of the NPU model monopolizes the VSI NPU driver that FaceMe detection also uses (see Troubleshooting section 4). The "Switch Model" button is enabled once the NPU model finishes loading. Switching swaps a `volatile` classifier reference without taking a lock around inference, so the toggle never waits for an in-flight inference and never reloads or leaks a model.
+8. **Pre-warming & Hot Swapping**: On startup, the standard model, NPU model, and FaceMe quality detector are initialized in the loading phase. The loading spinner stays visible until the model warmups finish **and** the quality detector reports available, because NNAPI compilation of the NPU model monopolizes the VSI NPU driver that FaceMe detection also uses (see Troubleshooting section 4). The "Switch Model" button is enabled once the NPU model finishes loading. Switching swaps a `volatile` classifier reference without taking a lock around inference, so the toggle never waits for an in-flight inference and never reloads or leaks a model.
+9. **Data Capture Collection**: The `START CAPTURE` flow writes exactly 100 valid samples per selected class. For `live` only, every candidate frame is checked with FaceMe quality before saving; low-quality frames are skipped without incrementing the saved count or sector count. Non-live classes (`display`, `picture`, `print`, `mask`) bypass quality checking and save the next synchronized frame. The collection can be stopped with the top-center `CANCEL CAPTURE` button; canceling stops future captures but does not delete samples already written.
 
 ## Model Contract
 
@@ -50,6 +51,7 @@ The application performs the following pipeline:
 - RGB-to-IR mapping requires `/sdcard/devlocal/CalibConfig.dat` on the device.
   - **Storage Permissions**: Since the app runs as `android.uid.system`, the Android FUSE filesystem/MediaProvider blocks direct file access to `/sdcard/` by default on API 30+. To bypass this, the app uses `UbimDaemonClient` at startup to programmatically grant itself `MANAGE_EXTERNAL_STORAGE` (`appops set com.virditech.ac7000 MANAGE_EXTERNAL_STORAGE allow`).
   - **Fallback Location**: If reading/writing to `/sdcard/devlocal/CalibConfig.dat` still fails, it transparently falls back to `appFile` at `getFilesDir()/CalibConfig.dat` (internal app storage).
+- Capture images are saved under `/sdcard/Pictures/raw/<class>/<class>_<subject>/<index>/` with `RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, and `cropIR.bmp`. Saving uses `MediaStore` with relative paths instead of direct `FileOutputStream` to `/sdcard`, because direct FUSE-path writes can fail on API 30+ system-UID builds.
 - The hidden camera-calibration flow is opened by five taps on the upper-left hotspot. It measures one RGB face and one synchronized IR face, then writes the npro-compatible 64-byte calibration file.
 - The app controls the UBio IR LED and LCD through device sysfs paths and communicates with the UBio daemon for watchdog behavior. These paths and protocols are hardware-specific.
 - The application ID and namespace are `com.virditech.ac7000`. Because this is also used by the production application, this test app cannot coexist with UBio-N Face Pro on the same device.
@@ -101,7 +103,16 @@ Default compile validation:
 
 ### 4. Face Tracking Stalls During NPU Model Warmup
 - While the NPU model's NNAPI compilation is running (~165 s per launch), the VSI NPU driver is monopolized. FaceMe detection is configured with `PREFER_NXP_DETECTION` and uses the same NPU, so `detectLargest` blocks and face tracking appears frozen until the compilation finishes.
-- This is expected: the loading spinner intentionally stays visible until **both** models finish warming up. Do not treat a frozen overlay during startup as a tracking bug; check the spinner and the `Model warmup completed` logcat lines first:
+- This is expected: the loading spinner intentionally stays visible until **both** models finish warming up and the FaceMe quality detector is available. Do not treat a frozen overlay during startup as a tracking bug; check the spinner and the `Model warmup completed` / `Face quality warmup completed` logcat lines first:
   ```bash
-  adb logcat -s AntiSpoofingClassifier:I
+  adb logcat -s AntiSpoofingClassifier:I MainActivity:I
+  ```
+
+### 5. Capture Collection Notes
+- `live` capture may appear paused while the face quality level is below the configured threshold. This is intentional: the current sample number is not consumed until the frame passes quality and all four BMP files are saved.
+- Non-live captures do not run FaceMe quality checks. If those classes stall, debug frame pairing, IR availability, storage writes, or asynchronous `Tracking failed` errors instead of quality level.
+- `CANCEL CAPTURE` only stops the active collection session. It does not roll back or delete a partial `<class>_<subject>` directory; any samples saved before the cancel remain on disk.
+- For storage failures, watch:
+  ```bash
+  adb logcat -s MainActivity:E MainActivity:I
   ```
