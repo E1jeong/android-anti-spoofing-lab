@@ -56,6 +56,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class MainActivity extends Activity {
+    private static final String TAG = "MainActivity";
     private static final int CAMERA_PERMISSION_REQUEST = 10;
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
     private static final long COLLECTION_STEP_COUNTDOWN_MS = 3_000L;
@@ -111,6 +112,7 @@ public final class MainActivity extends Activity {
     // detection also uses, so tracking stalls until every warmup finishes. Keep the
     // loading spinner up until then instead of pretending the camera is usable.
     private volatile boolean enginesWarmedUp;
+    private volatile boolean qualityWarmedUp;
     private Button startCollectionButton;
     private FrameLayout highQualityOnlyContainer;
     private CheckBox highQualityOnlyButton;
@@ -437,6 +439,9 @@ public final class MainActivity extends Activity {
                 if (!detector.isQualityAvailable()) {
                     String message = detector.qualityError();
                     reportEngineError(message.isEmpty() ? "Face quality unavailable" : message);
+                } else {
+                    qualityWarmedUp = true;
+                    android.util.Log.i(TAG, "Face quality warmup completed");
                 }
             } catch (Exception e) {
                 String message = e.getMessage();
@@ -755,14 +760,17 @@ public final class MainActivity extends Activity {
         if (isCollecting && frame.ir != null && !ioBusy) {
             long nowMs = SystemClock.elapsedRealtime();
             if (getCollectionCountdownSeconds(nowMs) > 0) return;
-            FaceDetector.FaceQualityCheckResult quality =
-                    faceDetector.checkFaceQuality(frame.rgb.bitmap, collectionMinQualityLevel);
-            lastCollectionQuality = quality;
-            if (!quality.passed) {
-                runOnUiThread(() -> {
-                    if (resumed && isCollecting) updateCollectionUi(SystemClock.elapsedRealtime());
-                });
-                return;
+            if (shouldCheckCollectionQuality()) {
+                FaceDetector.FaceQualityCheckResult quality =
+                        faceDetector.checkFaceQuality(frame.rgb.bitmap, collectionMinQualityLevel);
+                lastCollectionQuality = quality;
+                if (!quality.passed) {
+                    android.util.Log.i(TAG, "Collection quality skipped: " + quality.reason);
+                    runOnUiThread(() -> {
+                        if (resumed && isCollecting) updateCollectionUi(SystemClock.elapsedRealtime());
+                    });
+                    return;
+                }
             }
             ioBusy = true;
             final int currentCount = collectionCount + 1;
@@ -931,8 +939,10 @@ public final class MainActivity extends Activity {
                 .append(" of ")
                 .append(COLLECTION_TARGET_COUNT);
         int totalCountEnd = sb.length();
-        sb.append("\n")
-                .append(formatCollectionQualityLine());
+        if (shouldCheckCollectionQuality()) {
+            sb.append("\n")
+                    .append(formatCollectionQualityLine());
+        }
 
         SpannableString text = new SpannableString(sb.toString());
         int countColor = Color.rgb(255, 214, 0);
@@ -950,6 +960,10 @@ public final class MainActivity extends Activity {
             return "UNKNOWN 0.000";
         }
         return String.format(Locale.US, "%s %.3f", FaceDetector.levelName(quality.actualLevel), quality.score);
+    }
+
+    private boolean shouldCheckCollectionQuality() {
+        return "live".equals(collectionClassName);
     }
 
     private void updateHighQualityOnlyButton() {
@@ -1057,7 +1071,7 @@ public final class MainActivity extends Activity {
     private void startDataCollection(String className, int subjectNum) {
         if (isCollecting) return;
         FaceDetector detector = faceDetector;
-        if (detector == null || !detector.isQualityAvailable()) {
+        if ("live".equals(className) && (detector == null || !detector.isQualityAvailable())) {
             String message = detector == null ? "Face detector unavailable" : detector.qualityError();
             showTransientStatus(message.isEmpty() ? "Face quality unavailable" : message);
             startCollectionButton.setText("START CAPTURE");
@@ -1177,12 +1191,12 @@ public final class MainActivity extends Activity {
     }
 
     private String formatPerformance() {
-        if (enginesWarmedUp && loadingSpinner.getVisibility() == View.VISIBLE) {
+        if (enginesWarmedUp && qualityWarmedUp && loadingSpinner.getVisibility() == View.VISIBLE) {
             loadingSpinner.setVisibility(View.GONE);
             irLoadingSpinner.setVisibility(View.GONE);
             if (!isCollecting) {
                 FaceDetector detector = faceDetector;
-                startCollectionButton.setEnabled(detector != null && detector.isQualityAvailable());
+                startCollectionButton.setEnabled(detector != null);
                 switchButton.setEnabled(true);
             }
         }

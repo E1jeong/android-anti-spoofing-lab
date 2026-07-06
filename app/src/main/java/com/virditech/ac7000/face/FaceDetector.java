@@ -171,8 +171,11 @@ public final class FaceDetector implements AutoCloseable {
             return FaceQualityCheckResult.failed(minLevel, -1, 0f,
                     "Quality check failed: " + e.getMessage());
         }
-        if (results == null || results.length == 0) {
+        if (results == null) {
             return FaceQualityCheckResult.failed(minLevel, -1, 0f, "No quality result");
+        }
+        if (results.length == 0) {
+            return new FaceQualityCheckResult(true, minLevel, minLevel, 0f, "");
         }
 
         QualityCheckResult result = results[0];
