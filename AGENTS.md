@@ -116,3 +116,7 @@ Default compile validation:
   ```bash
   adb logcat -s MainActivity:E MainActivity:I
   ```
+
+## Wiki Sync
+
+This project has a maintained Obsidian LLM wiki (`Project/Company/Anti-Spoofing Viewer`, paired with `Project/Company/Access Liveness Model`) tracking model contract, branch state, and a per-session `핸드오프.md` handoff. When the user asks to sync, check, or update the wiki, use the `obsidian-sync` skill (`.claude/skills/obsidian-sync/SKILL.md`) rather than guessing paths.
