@@ -103,14 +103,14 @@ public final class MainActivity extends Activity {
     private boolean isNpuModelSelected = false;
     private final Object classifierLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
-    private final AtomicInteger pendingModelLoads = new AtomicInteger(2);
+    private final AtomicInteger pendingEngineLoads = new AtomicInteger(3);
     private AntiSpoofingClassifier standardClassifier;
     private AntiSpoofingClassifier npuClassifier;
     private boolean enginesShutDown;
     // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
     // detection also uses, so tracking stalls until every warmup finishes. Keep the
     // loading spinner up until then instead of pretending the camera is usable.
-    private volatile boolean modelsWarmedUp;
+    private volatile boolean enginesWarmedUp;
     private Button startCollectionButton;
     private FrameLayout highQualityOnlyContainer;
     private CheckBox highQualityOnlyButton;
@@ -431,8 +431,19 @@ public final class MainActivity extends Activity {
                 calibration = Calibration.identity();
                 reportEngineError("CALIBRATION NOT SET");
             }
-            try { faceDetector = new FaceDetector(getApplicationContext()); }
-            catch (Exception e) { reportEngineError(e.getMessage()); }
+            try {
+                FaceDetector detector = new FaceDetector(getApplicationContext());
+                faceDetector = detector;
+                if (!detector.isQualityAvailable()) {
+                    String message = detector.qualityError();
+                    reportEngineError(message.isEmpty() ? "Face quality unavailable" : message);
+                }
+            } catch (Exception e) {
+                String message = e.getMessage();
+                reportEngineError(message == null ? "Face detector unavailable" : message);
+            } finally {
+                onEngineLoadFinished();
+            }
         });
         modelInitExecutor.execute(() -> loadClassifier(false));
         modelInitExecutor.execute(() -> loadClassifier(true));
@@ -470,12 +481,12 @@ public final class MainActivity extends Activity {
             });
             updateEngineStatus();
         }
-        onModelLoadFinished();
+        onEngineLoadFinished();
     }
 
-    private void onModelLoadFinished() {
-        if (pendingModelLoads.decrementAndGet() != 0) return;
-        modelsWarmedUp = true;
+    private void onEngineLoadFinished() {
+        if (pendingEngineLoads.decrementAndGet() != 0) return;
+        enginesWarmedUp = true;
         runOnUiThread(() -> {
             if (!resumed) return;
             performance.setText(formatPerformance());
@@ -747,7 +758,7 @@ public final class MainActivity extends Activity {
             FaceDetector.FaceQualityCheckResult quality =
                     faceDetector.checkFaceQuality(frame.rgb.bitmap, collectionMinQualityLevel);
             lastCollectionQuality = quality;
-            if (highQualityOnly && !quality.passed) {
+            if (!quality.passed) {
                 runOnUiThread(() -> {
                     if (resumed && isCollecting) updateCollectionUi(SystemClock.elapsedRealtime());
                 });
@@ -756,14 +767,6 @@ public final class MainActivity extends Activity {
             ioBusy = true;
             final int currentCount = collectionCount + 1;
             if (currentCount <= COLLECTION_TARGET_COUNT) {
-                collectionCount = currentCount;
-                CaptureStep captureStep = currentCollectionStep();
-                collectionStepCount++;
-                if (collectionStepCount >= captureStep.targetCount && currentCount < COLLECTION_TARGET_COUNT) {
-                    collectionStepIndex = Math.min(collectionStepIndex + 1, COLLECTION_SCHEDULE.length - 1);
-                    collectionStepCount = 0;
-                    collectionCountdownEndMs = nowMs + COLLECTION_STEP_COUNTDOWN_MS;
-                }
                 AntiSpoofingClassifier collectionClassifier = classifier;
                 float margin = collectionClassifier != null ? collectionClassifier.cropMarginRatio() : 0.10f;
                 Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
@@ -788,32 +791,45 @@ public final class MainActivity extends Activity {
                 final File dir = new File(root, collectionClassName + "/" + subjectDirName + "/" + currentCount);
                 
                 ioExecutor.execute(() -> {
+                    boolean saved = false;
                     try {
-                        if (!dir.exists()) {
-                            dir.mkdirs();
-                        }
+                        boolean dirReady = dir.isDirectory() || dir.mkdirs();
+                        boolean savedAll = dirReady && fullRGB != null && cropRGB != null && fullIR != null && cropIR != null;
                         if (fullRGB != null) {
-                            saveBitmapAsBmp(fullRGB, new File(dir, "RGB.bmp"));
+                            savedAll &= saveBitmapAsBmp(fullRGB, new File(dir, "RGB.bmp"));
                             fullRGB.recycle();
                         }
                         if (cropRGB != null) {
-                            saveBitmapAsBmp(cropRGB, new File(dir, "cropRGB.bmp"));
+                            savedAll &= saveBitmapAsBmp(cropRGB, new File(dir, "cropRGB.bmp"));
                             cropRGB.recycle();
                         }
                         if (fullIR != null) {
-                            saveBitmapAsBmp(fullIR, new File(dir, "IR.bmp"));
+                            savedAll &= saveBitmapAsBmp(fullIR, new File(dir, "IR.bmp"));
                             fullIR.recycle();
                         }
                         if (cropIR != null) {
-                            saveBitmapAsBmp(cropIR, new File(dir, "cropIR.bmp"));
+                            savedAll &= saveBitmapAsBmp(cropIR, new File(dir, "cropIR.bmp"));
                             cropIR.recycle();
+                        }
+                        if (!dirReady) showTransientStatus("Save failed: unable to create " + dir.getAbsolutePath());
+                        if (savedAll) {
+                            collectionCount = currentCount;
+                            CaptureStep captureStep = currentCollectionStep();
+                            collectionStepCount++;
+                            if (collectionStepCount >= captureStep.targetCount && currentCount < COLLECTION_TARGET_COUNT) {
+                                collectionStepIndex = Math.min(collectionStepIndex + 1, COLLECTION_SCHEDULE.length - 1);
+                                collectionStepCount = 0;
+                                collectionCountdownEndMs = SystemClock.elapsedRealtime() + COLLECTION_STEP_COUNTDOWN_MS;
+                            }
+                            saved = true;
                         }
                     } finally {
                         ioBusy = false;
                     }
+                    final boolean savedSample = saved;
                     runOnUiThread(() -> {
                         updateCollectionUi(SystemClock.elapsedRealtime());
-                        if (currentCount == COLLECTION_TARGET_COUNT) {
+                        if (savedSample && currentCount == COLLECTION_TARGET_COUNT) {
                             finishDataCollection();
                         }
                     });
@@ -1078,7 +1094,7 @@ public final class MainActivity extends Activity {
         setCollectionChromeVisible(false);
     }
 
-    private void saveBitmapAsBmp(Bitmap bitmap, File file) {
+    private boolean saveBitmapAsBmp(Bitmap bitmap, File file) {
         try {
             int width = bitmap.getWidth();
             int height = bitmap.getHeight();
@@ -1128,9 +1144,11 @@ public final class MainActivity extends Activity {
                     out.write(rowBytes);
                 }
             }
+            return true;
         } catch (IOException e) {
             showTransientStatus("Save failed: " + e.getMessage());
             e.printStackTrace();
+            return false;
         }
     }
 
@@ -1159,11 +1177,12 @@ public final class MainActivity extends Activity {
     }
 
     private String formatPerformance() {
-        if (modelsWarmedUp && loadingSpinner.getVisibility() == View.VISIBLE) {
+        if (enginesWarmedUp && loadingSpinner.getVisibility() == View.VISIBLE) {
             loadingSpinner.setVisibility(View.GONE);
             irLoadingSpinner.setVisibility(View.GONE);
             if (!isCollecting) {
-                startCollectionButton.setEnabled(true);
+                FaceDetector detector = faceDetector;
+                startCollectionButton.setEnabled(detector != null && detector.isQualityAvailable());
                 switchButton.setEnabled(true);
             }
         }

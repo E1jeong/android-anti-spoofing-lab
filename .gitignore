@@ -5,6 +5,7 @@ local.properties
 
 # IDE and OS metadata
 .idea/
+.claude/
 *.iml
 .DS_Store
 Thumbs.db
