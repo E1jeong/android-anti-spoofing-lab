@@ -251,6 +251,8 @@ public final class MainActivity extends Activity {
 
         cancelCollectionButton = new Button(this);
         cancelCollectionButton.setText("CANCEL CAPTURE");
+        cancelCollectionButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#C49A00")));
+        cancelCollectionButton.setTextColor(Color.WHITE);
         cancelCollectionButton.setVisibility(View.GONE);
         cancelCollectionButton.setOnClickListener(v -> cancelDataCollection());
         FrameLayout.LayoutParams cancelCollectionParams = wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 16);
