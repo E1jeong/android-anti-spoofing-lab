@@ -43,6 +43,7 @@ import com.virditech.ac7000.camera.FrameData;
 import com.virditech.ac7000.camera.FramePair;
 import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.device.HardwareControls;
+import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
 import com.virditech.ac7000.model.AntiSpoofingClassifier;
@@ -549,6 +550,7 @@ public final class MainActivity extends Activity {
         if (!resumed || cameras != null || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
         HardwareControls.setLcdBrightness(90);
         HardwareControls.setIrLed(true);
+        IrCameraExposureController.applyFullAutoExposure();
         cameras = new DualCameraController(this, rgbView, irView, new DualCameraController.Listener() {
             @Override public void onRgb(FrameData frame) { submitTracking(frame); }
             @Override public void onIr(FrameData frame) { offerIr(frame); }
