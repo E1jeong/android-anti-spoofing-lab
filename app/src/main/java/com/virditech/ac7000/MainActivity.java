@@ -2,6 +2,8 @@ package com.virditech.ac7000;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -13,6 +15,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.SystemClock;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -30,8 +33,8 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 
 import com.cyberlink.faceme.FaceQualityLevel;
 import com.virditech.ac7000.calibration.Calibration;
@@ -795,31 +798,30 @@ public final class MainActivity extends Activity {
                 final Bitmap fullIR = frame.ir.bitmap.copy(frame.ir.bitmap.getConfig(), false);
 
                 final String subjectDirName = collectionClassName + "_" + collectionStartSubjectId;
-                final File root = collectionRawRoot != null ? collectionRawRoot : new File(getFilesDir(), "raw");
-                final File dir = new File(root, collectionClassName + "/" + subjectDirName + "/" + currentCount);
+                final String relativeDir = Environment.DIRECTORY_PICTURES + "/raw/"
+                        + collectionClassName + "/" + subjectDirName + "/" + currentCount;
+                final String displayDir = "/sdcard/" + relativeDir;
                 
                 ioExecutor.execute(() -> {
                     boolean saved = false;
                     try {
-                        boolean dirReady = dir.isDirectory() || dir.mkdirs();
-                        boolean savedAll = dirReady && fullRGB != null && cropRGB != null && fullIR != null && cropIR != null;
+                        boolean savedAll = fullRGB != null && cropRGB != null && fullIR != null && cropIR != null;
                         if (fullRGB != null) {
-                            savedAll &= saveBitmapAsBmp(fullRGB, new File(dir, "RGB.bmp"));
+                            savedAll &= saveBitmapAsBmp(fullRGB, relativeDir, "RGB.bmp");
                             fullRGB.recycle();
                         }
                         if (cropRGB != null) {
-                            savedAll &= saveBitmapAsBmp(cropRGB, new File(dir, "cropRGB.bmp"));
+                            savedAll &= saveBitmapAsBmp(cropRGB, relativeDir, "cropRGB.bmp");
                             cropRGB.recycle();
                         }
                         if (fullIR != null) {
-                            savedAll &= saveBitmapAsBmp(fullIR, new File(dir, "IR.bmp"));
+                            savedAll &= saveBitmapAsBmp(fullIR, relativeDir, "IR.bmp");
                             fullIR.recycle();
                         }
                         if (cropIR != null) {
-                            savedAll &= saveBitmapAsBmp(cropIR, new File(dir, "cropIR.bmp"));
+                            savedAll &= saveBitmapAsBmp(cropIR, relativeDir, "cropIR.bmp");
                             cropIR.recycle();
                         }
-                        if (!dirReady) showTransientStatus("Save failed: unable to create " + dir.getAbsolutePath());
                         if (savedAll) {
                             collectionCount = currentCount;
                             CaptureStep captureStep = currentCollectionStep();
@@ -830,6 +832,7 @@ public final class MainActivity extends Activity {
                                 collectionCountdownEndMs = SystemClock.elapsedRealtime() + COLLECTION_STEP_COUNTDOWN_MS;
                             }
                             saved = true;
+                            android.util.Log.i(TAG, "Saved collection sample: " + displayDir);
                         }
                     } finally {
                         ioBusy = false;
@@ -1009,27 +1012,8 @@ public final class MainActivity extends Activity {
         calibrationHotspot.setVisibility(visibility);
     }
 
-    /**
-     * Chooses where captured frames are written. Prefers external storage
-     * ({@code /sdcard/Pictures/raw}) so the files are easy to pull off-device, and
-     * verifies it with a real probe write. When the app cannot write external storage
-     * (e.g. running as the system UID under FUSE) it falls back to app-private internal
-     * storage ({@code getFilesDir()/raw}) so capture never silently fails.
-     */
     private File resolveRawRoot() {
-        File external = new File("/sdcard/Pictures/raw");
-        try {
-            if (external.isDirectory() || external.mkdirs()) {
-                File probe = new File(external, ".wtest");
-                try (FileOutputStream out = new FileOutputStream(probe)) {
-                    out.write(0);
-                }
-                probe.delete();
-                return external;
-            }
-        } catch (Exception ignored) {
-        }
-        return new File(getFilesDir(), "raw");
+        return new File("/sdcard/Pictures/raw");
     }
 
     private int getNextSubjectNumber(String className) {
@@ -1086,6 +1070,7 @@ public final class MainActivity extends Activity {
             return;
         }
         collectionRawRoot = resolveRawRoot();
+        android.util.Log.i(TAG, "Collection raw root: " + collectionRawRoot.getAbsolutePath());
         startCollectionButton.setEnabled(false);
         switchButton.setEnabled(false);
         if (highQualityOnlyContainer != null) highQualityOnlyContainer.setEnabled(false);
@@ -1108,8 +1093,44 @@ public final class MainActivity extends Activity {
         setCollectionChromeVisible(false);
     }
 
-    private boolean saveBitmapAsBmp(Bitmap bitmap, File file) {
+    private boolean saveBitmapAsBmp(Bitmap bitmap, String relativeDir, String fileName) {
+        String relativePath = relativeDir.endsWith("/") ? relativeDir : relativeDir + "/";
+        ContentResolver resolver = getContentResolver();
+        Uri collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+        String selection = MediaStore.Images.Media.DISPLAY_NAME + "=? AND "
+                + MediaStore.Images.Media.RELATIVE_PATH + "=?";
+        resolver.delete(collection, selection, new String[]{fileName, relativePath});
+
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/bmp");
+        values.put(MediaStore.Images.Media.RELATIVE_PATH, relativePath);
+        values.put(MediaStore.Images.Media.IS_PENDING, 1);
+
+        Uri uri = resolver.insert(collection, values);
+        if (uri == null) {
+            showTransientStatus("Save failed: unable to create " + fileName);
+            return false;
+        }
+
         try {
+            try (OutputStream out = resolver.openOutputStream(uri)) {
+                if (out == null) throw new IOException("openOutputStream returned null");
+                writeBitmapAsBmp(bitmap, out);
+            }
+            values.clear();
+            values.put(MediaStore.Images.Media.IS_PENDING, 0);
+            resolver.update(uri, values, null, null);
+            return true;
+        } catch (IOException e) {
+            resolver.delete(uri, null, null);
+            showTransientStatus("Save failed: " + e.getMessage());
+            android.util.Log.e(TAG, "Unable to save " + relativePath + fileName, e);
+            return false;
+        }
+    }
+
+    private void writeBitmapAsBmp(Bitmap bitmap, OutputStream out) throws IOException {
             int width = bitmap.getWidth();
             int height = bitmap.getHeight();
             int rowSize = ((width * 24 + 31) / 32) * 4;
@@ -1141,29 +1162,21 @@ public final class MainActivity extends Activity {
             header[36] = (byte) ((pixelDataSize >> 16) & 0xFF);
             header[37] = (byte) ((pixelDataSize >> 24) & 0xFF);
 
-            try (FileOutputStream out = new FileOutputStream(file)) {
-                out.write(header);
-                int[] pixels = new int[width * height];
-                bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
-                byte[] rowBytes = new byte[rowSize];
-                for (int y = height - 1; y >= 0; y--) {
-                    int offset = y * width;
-                    int rowOffset = 0;
-                    for (int x = 0; x < width; x++) {
-                        int color = pixels[offset + x];
-                        rowBytes[rowOffset++] = (byte) (color & 0xFF);
-                        rowBytes[rowOffset++] = (byte) ((color >> 8) & 0xFF);
-                        rowBytes[rowOffset++] = (byte) ((color >> 16) & 0xFF);
-                    }
-                    out.write(rowBytes);
+            out.write(header);
+            int[] pixels = new int[width * height];
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+            byte[] rowBytes = new byte[rowSize];
+            for (int y = height - 1; y >= 0; y--) {
+                int offset = y * width;
+                int rowOffset = 0;
+                for (int x = 0; x < width; x++) {
+                    int color = pixels[offset + x];
+                    rowBytes[rowOffset++] = (byte) (color & 0xFF);
+                    rowBytes[rowOffset++] = (byte) ((color >> 8) & 0xFF);
+                    rowBytes[rowOffset++] = (byte) ((color >> 16) & 0xFF);
                 }
+                out.write(rowBytes);
             }
-            return true;
-        } catch (IOException e) {
-            showTransientStatus("Save failed: " + e.getMessage());
-            e.printStackTrace();
-            return false;
-        }
     }
 
     private void updateTrackingFps() {
