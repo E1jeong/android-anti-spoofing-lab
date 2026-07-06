@@ -117,6 +117,7 @@ public final class MainActivity extends Activity {
     private volatile boolean enginesWarmedUp;
     private volatile boolean qualityWarmedUp;
     private Button startCollectionButton;
+    private Button cancelCollectionButton;
     private FrameLayout highQualityOnlyContainer;
     private CheckBox highQualityOnlyButton;
     private boolean highQualityOnly;
@@ -246,6 +247,14 @@ public final class MainActivity extends Activity {
         collectionProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams collectionProgressParams = wrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 16, 16);
         root.addView(collectionProgress, collectionProgressParams);
+
+        cancelCollectionButton = new Button(this);
+        cancelCollectionButton.setText("CANCEL CAPTURE");
+        cancelCollectionButton.setVisibility(View.GONE);
+        cancelCollectionButton.setOnClickListener(v -> cancelDataCollection());
+        FrameLayout.LayoutParams cancelCollectionParams = wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 16);
+        cancelCollectionParams.width = buttonWidth;
+        root.addView(cancelCollectionButton, cancelCollectionParams);
 
         expandableLayout = new LinearLayout(this);
         expandableLayout.setOrientation(LinearLayout.VERTICAL);
@@ -1000,6 +1009,23 @@ public final class MainActivity extends Activity {
         if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(true);
         startCollectionButton.setText("START CAPTURE");
         collectionProgress.setVisibility(View.GONE);
+        if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.GONE);
+    }
+
+    private void cancelDataCollection() {
+        if (!isCollecting) return;
+        isCollecting = false;
+        ioBusy = false;
+        overlay.setCollecting(false);
+        setCollectionChromeVisible(true);
+        startCollectionButton.setEnabled(true);
+        switchButton.setEnabled(true);
+        if (highQualityOnlyContainer != null) highQualityOnlyContainer.setEnabled(true);
+        if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(true);
+        startCollectionButton.setText("START CAPTURE");
+        collectionProgress.setVisibility(View.GONE);
+        if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.GONE);
+        showTransientStatus("Capture canceled");
     }
 
     private void setCollectionChromeVisible(boolean visible) {
@@ -1077,6 +1103,7 @@ public final class MainActivity extends Activity {
         if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(false);
         startCollectionButton.setText("COLLECTING...");
         collectionProgress.setVisibility(View.VISIBLE);
+        if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.VISIBLE);
 
         collectionClassName = className;
         collectionStartSubjectId = subjectNum;
