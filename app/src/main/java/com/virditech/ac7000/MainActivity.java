@@ -138,6 +138,7 @@ public final class MainActivity extends Activity {
     private volatile boolean isCollecting;
     private volatile boolean ioBusy;
     private volatile int collectionCount;
+    private volatile int collectionSessionId;
     private volatile int collectionStepIndex;
     private volatile int collectionStepCount;
     private volatile long collectionCountdownEndMs;
@@ -777,9 +778,12 @@ public final class MainActivity extends Activity {
         if (calibrationMode) return;
 
         if (isCollecting && frame.ir != null && !ioBusy) {
+            final int sessionId = collectionSessionId;
+            final String className = collectionClassName;
+            final int subjectId = collectionStartSubjectId;
             long nowMs = SystemClock.elapsedRealtime();
             if (getCollectionCountdownSeconds(nowMs) > 0) return;
-            if (shouldCheckCollectionQuality()) {
+            if (shouldCheckCollectionQuality(className)) {
                 FaceDetector.FaceQualityCheckResult quality =
                         faceDetector.checkFaceQuality(frame.rgb.bitmap, collectionMinQualityLevel);
                 lastCollectionQuality = quality;
@@ -791,12 +795,11 @@ public final class MainActivity extends Activity {
                     return;
                 }
             }
+            if (!isActiveCollection(sessionId, className, subjectId)) return;
             ioBusy = true;
             final int currentCount = collectionCount + 1;
             if (currentCount <= COLLECTION_TARGET_COUNT) {
-                final String className = collectionClassName;
-                final int subjectId = collectionStartSubjectId;
-                final String subjectDirName = className + "_" + collectionStartSubjectId;
+                final String subjectDirName = className + "_" + subjectId;
                 AntiSpoofingClassifier collectionClassifier = classifier;
                 float margin = collectionClassifier != null ? collectionClassifier.cropMarginRatio() : 0.10f;
                 Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
@@ -823,10 +826,20 @@ public final class MainActivity extends Activity {
                 final File sampleDir = new File(root,
                         className + "/" + subjectDirName + "/" + currentCount);
                 final String displayDir = sampleDir.getAbsolutePath();
+
+                if (!isActiveCollection(sessionId, className, subjectId)) {
+                    recycleCollectionBitmaps(fullRGB, cropRGB, fullIR, cropIR);
+                    ioBusy = false;
+                    return;
+                }
                 
                 ioExecutor.execute(() -> {
                     boolean saved = false;
                     try {
+                        if (!isActiveCollection(sessionId, className, subjectId)) {
+                            recycleCollectionBitmaps(fullRGB, cropRGB, fullIR, cropIR);
+                            return;
+                        }
                         boolean dirReady = sampleDir.isDirectory() || sampleDir.mkdirs();
                         boolean hasAllBitmaps = fullRGB != null && cropRGB != null
                                 && fullIR != null && cropIR != null;
@@ -855,9 +868,7 @@ public final class MainActivity extends Activity {
                             cropIR.recycle();
                         }
                         if (savedAll) savedAll = saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
-                        if (savedAll && isCollecting
-                                && className.equals(collectionClassName)
-                                && collectionStartSubjectId == subjectId) {
+                        if (savedAll && isActiveCollection(sessionId, className, subjectId)) {
                             collectionCount = currentCount;
                             CaptureStep captureStep = currentCollectionStep();
                             collectionStepCount++;
@@ -1002,7 +1013,18 @@ public final class MainActivity extends Activity {
     }
 
     private boolean shouldCheckCollectionQuality() {
-        return "live".equals(collectionClassName);
+        return shouldCheckCollectionQuality(collectionClassName);
+    }
+
+    private boolean shouldCheckCollectionQuality(String className) {
+        return "live".equals(className);
+    }
+
+    private boolean isActiveCollection(int sessionId, String className, int subjectId) {
+        return isCollecting
+                && collectionSessionId == sessionId
+                && className.equals(collectionClassName)
+                && collectionStartSubjectId == subjectId;
     }
 
     private void updateHighQualityOnlyButton() {
@@ -1027,6 +1049,7 @@ public final class MainActivity extends Activity {
 
     private void finishDataCollection() {
         isCollecting = false;
+        collectionSessionId++;
         ioBusy = false;
         overlay.setCollecting(false);
         setCollectionChromeVisible(true);
@@ -1044,6 +1067,7 @@ public final class MainActivity extends Activity {
         final String canceledClassName = collectionClassName;
         final String canceledSubjectDirName = collectionClassName + "_" + collectionStartSubjectId;
         isCollecting = false;
+        collectionSessionId++;
         ioBusy = false;
         overlay.setCollecting(false);
         setCollectionChromeVisible(true);
@@ -1174,6 +1198,7 @@ public final class MainActivity extends Activity {
         collectionClassName = className;
         collectionStartSubjectId = subjectNum;
         collectionCount = 0;
+        collectionSessionId++;
         collectionStepIndex = 0;
         collectionStepCount = 0;
         collectionCountdownEndMs = SystemClock.elapsedRealtime() + COLLECTION_STEP_COUNTDOWN_MS;
@@ -1219,6 +1244,14 @@ public final class MainActivity extends Activity {
             }
         }
         return deleted && (file.delete() || !file.exists());
+    }
+
+    private void recycleCollectionBitmaps(Bitmap... bitmaps) {
+        for (Bitmap bitmap : bitmaps) {
+            if (bitmap != null && !bitmap.isRecycled()) {
+                bitmap.recycle();
+            }
+        }
     }
 
     private boolean saveBitmapAsBmp(Bitmap bitmap, File file) {
