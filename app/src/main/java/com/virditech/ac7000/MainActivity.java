@@ -2,8 +2,6 @@ package com.virditech.ac7000;
 
 import android.Manifest;
 import android.app.Activity;
-import android.content.ContentResolver;
-import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -15,7 +13,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.SystemClock;
-import android.provider.MediaStore;
 import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -33,6 +30,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -821,31 +819,42 @@ public final class MainActivity extends Activity {
                         frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(), detected, rgbR,
                         frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight(), irDetected, irR, margin);
 
-                final String relativeDir = Environment.DIRECTORY_PICTURES + "/raw/"
-                        + className + "/" + subjectDirName + "/" + currentCount;
-                final String displayDir = "/sdcard/" + relativeDir;
+                final File root = collectionRawRoot != null ? collectionRawRoot : resolveRawRoot();
+                final File sampleDir = new File(root,
+                        className + "/" + subjectDirName + "/" + currentCount);
+                final String displayDir = sampleDir.getAbsolutePath();
                 
                 ioExecutor.execute(() -> {
                     boolean saved = false;
                     try {
-                        boolean savedAll = fullRGB != null && cropRGB != null && fullIR != null && cropIR != null;
+                        boolean dirReady = sampleDir.isDirectory() || sampleDir.mkdirs();
+                        boolean hasAllBitmaps = fullRGB != null && cropRGB != null
+                                && fullIR != null && cropIR != null;
+                        boolean savedAll = dirReady && hasAllBitmaps;
+                        if (!dirReady) {
+                            showTransientStatus("Save failed: unable to create " + displayDir);
+                            android.util.Log.e(TAG, "Unable to create collection sample folder: " + displayDir);
+                        } else if (!hasAllBitmaps) {
+                            showTransientStatus("Save failed: incomplete capture frame");
+                            android.util.Log.e(TAG, "Incomplete collection sample frame: " + displayDir);
+                        }
                         if (fullRGB != null) {
-                            savedAll &= saveBitmapAsBmp(fullRGB, relativeDir, "RGB.bmp");
+                            if (savedAll) savedAll = saveBitmapAsBmp(fullRGB, new File(sampleDir, "RGB.bmp"));
                             fullRGB.recycle();
                         }
                         if (cropRGB != null) {
-                            savedAll &= saveBitmapAsBmp(cropRGB, relativeDir, "cropRGB.bmp");
+                            if (savedAll) savedAll = saveBitmapAsBmp(cropRGB, new File(sampleDir, "cropRGB.bmp"));
                             cropRGB.recycle();
                         }
                         if (fullIR != null) {
-                            savedAll &= saveBitmapAsBmp(fullIR, relativeDir, "IR.bmp");
+                            if (savedAll) savedAll = saveBitmapAsBmp(fullIR, new File(sampleDir, "IR.bmp"));
                             fullIR.recycle();
                         }
                         if (cropIR != null) {
-                            savedAll &= saveBitmapAsBmp(cropIR, relativeDir, "cropIR.bmp");
+                            if (savedAll) savedAll = saveBitmapAsBmp(cropIR, new File(sampleDir, "cropIR.bmp"));
                             cropIR.recycle();
                         }
-                        savedAll &= saveTextFile(metadataJson, relativeDir, "meta.json", "application/json");
+                        if (savedAll) savedAll = saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
                         if (savedAll && isCollecting
                                 && className.equals(collectionClassName)
                                 && collectionStartSubjectId == subjectId) {
@@ -1099,6 +1108,29 @@ public final class MainActivity extends Activity {
         return maxNum + 1;
     }
 
+    private boolean prepareRawRoot(File rawRoot) {
+        try {
+            if (!rawRoot.isDirectory() && !rawRoot.mkdirs()) {
+                android.util.Log.e(TAG, "Unable to create collection raw root: "
+                        + rawRoot.getAbsolutePath());
+                return false;
+            }
+            File probe = new File(rawRoot, ".wtest");
+            try (FileOutputStream out = new FileOutputStream(probe)) {
+                out.write(0);
+            }
+            if (!probe.delete() && probe.exists()) {
+                android.util.Log.e(TAG, "Unable to delete collection raw root probe: "
+                        + probe.getAbsolutePath());
+            }
+            return true;
+        } catch (IOException | SecurityException e) {
+            android.util.Log.e(TAG, "Collection raw root is not writable: "
+                    + rawRoot.getAbsolutePath(), e);
+            return false;
+        }
+    }
+
     private static int calculateCollectionTargetCount() {
         int total = 0;
         for (CaptureStep step : COLLECTION_SCHEDULE) {
@@ -1125,6 +1157,11 @@ public final class MainActivity extends Activity {
             return;
         }
         collectionRawRoot = resolveRawRoot();
+        if (!prepareRawRoot(collectionRawRoot)) {
+            showTransientStatus("Save failed: unable to write " + collectionRawRoot.getAbsolutePath());
+            startCollectionButton.setText("START CAPTURE");
+            return;
+        }
         android.util.Log.i(TAG, "Collection raw root: " + collectionRawRoot.getAbsolutePath());
         startCollectionButton.setEnabled(false);
         switchButton.setEnabled(false);
@@ -1150,15 +1187,9 @@ public final class MainActivity extends Activity {
     }
 
     private void deleteCollectionSubject(String className, String subjectDirName) {
-        String relativePrefix = Environment.DIRECTORY_PICTURES + "/raw/"
-                + className + "/" + subjectDirName + "/";
-        ContentResolver resolver = getContentResolver();
-        Uri collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-        String selection = MediaStore.Images.Media.RELATIVE_PATH + " LIKE ?";
-        int deletedRows = resolver.delete(collection, selection, new String[]{relativePrefix + "%"});
         boolean deletedFiles = deleteCollectionSubjectFiles(className, subjectDirName);
-        android.util.Log.i(TAG, "Deleted canceled collection subject " + relativePrefix
-                + " rows=" + deletedRows + " files=" + deletedFiles);
+        android.util.Log.i(TAG, "Deleted canceled collection subject "
+                + className + "/" + subjectDirName + " files=" + deletedFiles);
     }
 
     private boolean deleteCollectionSubjectFiles(String className, String subjectDirName) {
@@ -1190,76 +1221,24 @@ public final class MainActivity extends Activity {
         return deleted && (file.delete() || !file.exists());
     }
 
-    private boolean saveBitmapAsBmp(Bitmap bitmap, String relativeDir, String fileName) {
-        String relativePath = relativeDir.endsWith("/") ? relativeDir : relativeDir + "/";
-        ContentResolver resolver = getContentResolver();
-        Uri collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-        String selection = MediaStore.Images.Media.DISPLAY_NAME + "=? AND "
-                + MediaStore.Images.Media.RELATIVE_PATH + "=?";
-        resolver.delete(collection, selection, new String[]{fileName, relativePath});
-
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
-        values.put(MediaStore.Images.Media.MIME_TYPE, "image/bmp");
-        values.put(MediaStore.Images.Media.RELATIVE_PATH, relativePath);
-        values.put(MediaStore.Images.Media.IS_PENDING, 1);
-
-        Uri uri = resolver.insert(collection, values);
-        if (uri == null) {
-            showTransientStatus("Save failed: unable to create " + fileName);
-            return false;
-        }
-
-        try {
-            try (OutputStream out = resolver.openOutputStream(uri)) {
-                if (out == null) throw new IOException("openOutputStream returned null");
-                writeBitmapAsBmp(bitmap, out);
-            }
-            values.clear();
-            values.put(MediaStore.Images.Media.IS_PENDING, 0);
-            resolver.update(uri, values, null, null);
+    private boolean saveBitmapAsBmp(Bitmap bitmap, File file) {
+        try (OutputStream out = new FileOutputStream(file)) {
+            writeBitmapAsBmp(bitmap, out);
             return true;
         } catch (IOException e) {
-            resolver.delete(uri, null, null);
             showTransientStatus("Save failed: " + e.getMessage());
-            android.util.Log.e(TAG, "Unable to save " + relativePath + fileName, e);
+            android.util.Log.e(TAG, "Unable to save " + file.getAbsolutePath(), e);
             return false;
         }
     }
 
-    private boolean saveTextFile(String text, String relativeDir, String fileName, String mimeType) {
-        String relativePath = relativeDir.endsWith("/") ? relativeDir : relativeDir + "/";
-        ContentResolver resolver = getContentResolver();
-        Uri collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-        String selection = MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
-                + MediaStore.MediaColumns.RELATIVE_PATH + "=?";
-        resolver.delete(collection, selection, new String[]{fileName, relativePath});
-
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-        values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-        values.put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath);
-        values.put(MediaStore.MediaColumns.IS_PENDING, 1);
-
-        Uri uri = resolver.insert(collection, values);
-        if (uri == null) {
-            showTransientStatus("Save failed: unable to create " + fileName);
-            return false;
-        }
-
-        try {
-            try (OutputStream out = resolver.openOutputStream(uri)) {
-                if (out == null) throw new IOException("openOutputStream returned null");
-                out.write(text.getBytes(StandardCharsets.UTF_8));
-            }
-            values.clear();
-            values.put(MediaStore.MediaColumns.IS_PENDING, 0);
-            resolver.update(uri, values, null, null);
+    private boolean saveTextFile(String text, File file) {
+        try (OutputStream out = new FileOutputStream(file)) {
+            out.write(text.getBytes(StandardCharsets.UTF_8));
             return true;
         } catch (IOException e) {
-            resolver.delete(uri, null, null);
             showTransientStatus("Save failed: " + e.getMessage());
-            android.util.Log.e(TAG, "Unable to save " + relativePath + fileName, e);
+            android.util.Log.e(TAG, "Unable to save " + file.getAbsolutePath(), e);
             return false;
         }
     }
