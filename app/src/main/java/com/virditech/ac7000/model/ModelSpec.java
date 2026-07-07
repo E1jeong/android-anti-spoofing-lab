@@ -8,6 +8,7 @@ import org.json.JSONObject;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 final class ModelSpec {
     static final String RGB_NORMALIZATION_IMAGENET = "imagenet";
@@ -18,6 +19,7 @@ final class ModelSpec {
     final int inputWidth;
     final int inputHeight;
     final InputNames inputs;
+    final String inputKind;
     final boolean bgr;
     final String rgbNormalization;
     final float[] rgbMean;
@@ -36,6 +38,7 @@ final class ModelSpec {
         inputs = json.has("inputs") && !json.isNull("inputs")
                 ? new InputNames(json.getJSONObject("inputs"))
                 : null;
+        inputKind = json.optString("inputKind", "").toLowerCase(Locale.US);
         bgr = "BGR".equalsIgnoreCase(json.optString("channelOrder", "RGB"));
         rgbNormalization = json.optString("rgbNormalization", RGB_NORMALIZATION_IMAGENET);
         rgbMean = parseFloatArray(json, "rgbMean");
@@ -50,8 +53,9 @@ final class ModelSpec {
             throw new IllegalArgumentException("model_spec.json contains invalid cropMarginRatio");
         }
         if (inputs == null) {
-            if (rgbInputIndex < 0 || irInputIndex < 0 || rgbInputIndex == irInputIndex) {
-                throw new IllegalArgumentException("2-input model_spec.json must define distinct rgbInputIndex and irInputIndex");
+            boolean singleInput = "rgb".equals(inputKind) || "ir".equals(inputKind);
+            if (!singleInput && (rgbInputIndex < 0 || irInputIndex < 0 || rgbInputIndex == irInputIndex)) {
+                throw new IllegalArgumentException("model_spec.json must define inputKind=rgb/ir or distinct rgbInputIndex and irInputIndex");
             }
         } else if (inputWidth <= 0 || inputHeight <= 0) {
             throw new IllegalArgumentException("5-input model_spec.json contains invalid input dimensions");

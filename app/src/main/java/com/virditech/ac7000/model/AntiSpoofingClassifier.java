@@ -27,6 +27,7 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     private static final String TAG = "AntiSpoofingClassifier";
     private static final String MODEL_NAME = "anti_spoofing.tflite";
     private static final int THREAD_COUNT = Math.min(4, Runtime.getRuntime().availableProcessors());
+    private static final int ONE_INPUT_COUNT = 1;
     private static final int TWO_INPUT_COUNT = 2;
     private static final int FIVE_INPUT_COUNT = 5;
 
@@ -58,19 +59,28 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         inferenceBackend = bundle.backend;
         backendStatus = bundle.status;
         int inputTensorCount = interpreter.getInputTensorCount();
-        if ((inputTensorCount != TWO_INPUT_COUNT && inputTensorCount != FIVE_INPUT_COUNT)
+        if ((inputTensorCount != ONE_INPUT_COUNT && inputTensorCount != TWO_INPUT_COUNT && inputTensorCount != FIVE_INPUT_COUNT)
                 || interpreter.getOutputTensorCount() != 1) {
-            throw new IllegalArgumentException("Model must have exactly two or five inputs and one output");
+            throw new IllegalArgumentException("Model must have exactly one, two, or five inputs and one output");
         }
 
         logModelIo();
         inputMapping = resolveInputMapping();
-        Tensor cropRgbTensor = interpreter.getInputTensor(inputMapping.cropRgbIndex);
-        Tensor cropIrTensor = interpreter.getInputTensor(inputMapping.cropIrIndex);
-        validateInput(cropRgbTensor, "cropRgb", 3);
-        validateInput(cropIrTensor, "cropIr", inputMapping.hasFiveInputs() ? 1 : -1);
-        cropRgbInput = new InputBuffer(cropRgbTensor, InputKind.RGB);
-        cropIrInput = new InputBuffer(cropIrTensor, InputKind.IR);
+        if (inputMapping.cropRgbIndex >= 0) {
+            Tensor cropRgbTensor = interpreter.getInputTensor(inputMapping.cropRgbIndex);
+            validateInput(cropRgbTensor, "cropRgb", 3);
+            cropRgbInput = new InputBuffer(cropRgbTensor, InputKind.RGB);
+        } else {
+            cropRgbInput = null;
+        }
+        if (inputMapping.cropIrIndex >= 0) {
+            Tensor cropIrTensor = interpreter.getInputTensor(inputMapping.cropIrIndex);
+            validateInput(cropIrTensor, "cropIr",
+                    interpreter.getInputTensorCount() == ONE_INPUT_COUNT || inputMapping.hasFiveInputs() ? 1 : -1);
+            cropIrInput = new InputBuffer(cropIrTensor, InputKind.IR);
+        } else {
+            cropIrInput = null;
+        }
         if (inputMapping.hasFiveInputs()) {
             Tensor fullRgbTensor = interpreter.getInputTensor(inputMapping.fullRgbIndex);
             Tensor fullIrTensor = interpreter.getInputTensor(inputMapping.fullIrIndex);
@@ -104,8 +114,8 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
 
         try {
             long warmupStart = SystemClock.elapsedRealtime();
-            inputs[inputMapping.cropRgbIndex] = cropRgbInput.zeroFill();
-            inputs[inputMapping.cropIrIndex] = cropIrInput.zeroFill();
+            if (cropRgbInput != null) inputs[inputMapping.cropRgbIndex] = cropRgbInput.zeroFill();
+            if (cropIrInput != null) inputs[inputMapping.cropIrIndex] = cropIrInput.zeroFill();
             if (inputMapping.hasFiveInputs()) {
                 inputs[inputMapping.fullRgbIndex] = fullRgbInput.zeroFill();
                 inputs[inputMapping.fullIrIndex] = fullIrInput.zeroFill();
@@ -131,9 +141,17 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         return backendStatus;
     }
 
+    public int inputTensorCount() {
+        return interpreter.getInputTensorCount();
+    }
+
+    public String singleInputKind() {
+        return interpreter.getInputTensorCount() == ONE_INPUT_COUNT ? spec.inputKind : "";
+    }
+
     public ClassificationResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
-        inputs[inputMapping.cropRgbIndex] = cropRgbInput.fillImage(rgb, rgbBox);
-        inputs[inputMapping.cropIrIndex] = cropIrInput.fillImage(ir, irBox);
+        if (cropRgbInput != null) inputs[inputMapping.cropRgbIndex] = cropRgbInput.fillImage(rgb, rgbBox);
+        if (cropIrInput != null) inputs[inputMapping.cropIrIndex] = cropIrInput.fillImage(ir, irBox);
         if (inputMapping.hasFiveInputs()) {
             inputs[inputMapping.fullRgbIndex] = fullRgbInput.fillImage(rgb, null);
             inputs[inputMapping.fullIrIndex] = fullIrInput.fillImage(ir, null);
@@ -163,6 +181,18 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     }
 
     private InputMapping resolveInputMapping() {
+        if (interpreter.getInputTensorCount() == ONE_INPUT_COUNT) {
+            InputMapping mapping = new InputMapping();
+            if ("rgb".equals(spec.inputKind)) {
+                mapping.cropRgbIndex = 0;
+            } else if ("ir".equals(spec.inputKind)) {
+                mapping.cropIrIndex = 0;
+            } else {
+                throw new IllegalArgumentException("1-input model requires inputKind=rgb or inputKind=ir in model_spec.json");
+            }
+            Log.i(TAG, "Resolved 1-input mapping " + spec.inputKind + "=0");
+            return mapping;
+        }
         if (interpreter.getInputTensorCount() == TWO_INPUT_COUNT) {
             InputMapping mapping = new InputMapping();
             if (spec.rgbInputIndex < 0 || spec.irInputIndex < 0
@@ -316,8 +346,8 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     }
 
     @Override public void close() {
-        cropRgbInput.close();
-        cropIrInput.close();
+        if (cropRgbInput != null) cropRgbInput.close();
+        if (cropIrInput != null) cropIrInput.close();
         if (fullRgbInput != null) fullRgbInput.close();
         if (fullIrInput != null) fullIrInput.close();
         if (heatmapInput != null) heatmapInput.close();

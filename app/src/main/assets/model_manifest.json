@@ -1,0 +1,10 @@
+{
+  "models": [
+    {
+      "label": "MODEL 1",
+      "type": "dual_2_input",
+      "model": "anti_spoofing.tflite",
+      "spec": "model_spec.json"
+    }
+  ]
+}

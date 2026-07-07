@@ -45,15 +45,18 @@ import com.virditech.ac7000.device.HardwareControls;
 import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
-import com.virditech.ac7000.model.AntiSpoofingClassifier;
 import com.virditech.ac7000.model.ClassificationResult;
 import com.virditech.ac7000.model.FaceCrop;
+import com.virditech.ac7000.model.ModelSlotClassifier;
+import com.virditech.ac7000.model.SlotClassificationResult;
 import com.virditech.ac7000.ui.OverlayView;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -108,12 +111,11 @@ public final class MainActivity extends Activity {
     private TextView calibrationInstruction;
     private Button switchButton;
     private Button modelSwitchButton;
-    private boolean isNpuModelSelected = false;
     private final Object classifierLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
-    private final AtomicInteger pendingEngineLoads = new AtomicInteger(3);
-    private AntiSpoofingClassifier standardClassifier;
-    private AntiSpoofingClassifier npuClassifier;
+    private final AtomicInteger pendingEngineLoads = new AtomicInteger(2);
+    private final ArrayList<ModelSlotClassifier> classifiers = new ArrayList<>();
+    private int activeClassifierIndex;
     private boolean enginesShutDown;
     // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
     // detection also uses, so tracking stalls until every warmup finishes. Keep the
@@ -132,7 +134,7 @@ public final class MainActivity extends Activity {
     private View calibrationHotspot;
     private DualCameraController cameras;
     private volatile FaceDetector faceDetector;
-    private volatile AntiSpoofingClassifier classifier;
+    private volatile ModelSlotClassifier classifier;
     private volatile Calibration calibration;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private volatile boolean isCollecting;
@@ -469,42 +471,42 @@ public final class MainActivity extends Activity {
                 onEngineLoadFinished();
             }
         });
-        modelInitExecutor.execute(() -> loadClassifier(false));
-        modelInitExecutor.execute(() -> loadClassifier(true));
+        modelInitExecutor.execute(this::loadClassifiers);
     }
 
-    private void loadClassifier(boolean npu) {
-        boolean useNpuAsset = npu && hasAsset("anti_spoofing_npu.tflite");
-        String modelName = useNpuAsset ? "anti_spoofing_npu.tflite" : "anti_spoofing.tflite";
-        String specName = useNpuAsset && hasAsset("model_spec_npu.json")
-                ? "model_spec_npu.json" : "model_spec.json";
-        AntiSpoofingClassifier loaded = null;
+    private void loadClassifiers() {
+        ModelSlotClassifier.LoadResult result = null;
         try {
-            loaded = new AntiSpoofingClassifier(getApplicationContext(), modelName, specName);
+            result = ModelSlotClassifier.loadAll(getApplicationContext());
         } catch (Exception e) {
-            reportEngineError((npu ? "NPU MODEL FAILED: " : "STANDARD MODEL FAILED: ") + e.getMessage());
+            reportEngineError("MODEL LOAD FAILED: " + e.getMessage());
+        }
+        List<ModelSlotClassifier> loaded = result != null ? result.slots : new ArrayList<>();
+        if (result != null) {
+            for (String error : result.errors) reportEngineError(error);
         }
         synchronized (classifierLock) {
             if (enginesShutDown) {
-                if (loaded != null) {
-                    try { loaded.close(); } catch (Exception ignored) {}
+                for (ModelSlotClassifier slot : loaded) {
+                    try { slot.close(); } catch (Exception ignored) {}
                 }
                 return;
             }
-            if (npu) npuClassifier = loaded;
-            else standardClassifier = loaded;
-            if (npu == isNpuModelSelected && loaded != null) classifier = loaded;
+            classifiers.clear();
+            classifiers.addAll(loaded);
+            activeClassifierIndex = 0;
+            classifier = classifiers.isEmpty() ? null : classifiers.get(0);
         }
-        if (loaded != null) {
-            runOnUiThread(() -> {
-                if (npu) {
-                    if (modelSwitchButton != null) modelSwitchButton.setEnabled(true);
-                } else {
-                    if (cameras != null) cameras.setIrFramesEnabled(true);
-                }
-            });
-            updateEngineStatus();
-        }
+        runOnUiThread(() -> {
+            if (modelSwitchButton != null) {
+                modelSwitchButton.setEnabled(classifiers.size() > 1);
+                ModelSlotClassifier active = classifier;
+                if (active != null) modelSwitchButton.setText(active.label());
+            }
+            if (classifier != null && cameras != null) cameras.setIrFramesEnabled(true);
+        });
+        if (classifier == null) reportEngineError("No model slots loaded");
+        updateEngineStatus();
         onEngineLoadFinished();
     }
 
@@ -515,20 +517,6 @@ public final class MainActivity extends Activity {
             if (!resumed) return;
             performance.setText(formatPerformance());
         });
-    }
-
-    private boolean hasAsset(String name) {
-        try {
-            String[] assets = getAssets().list("");
-            if (assets != null) {
-                for (String asset : assets) {
-                    if (name.equals(asset)) return true;
-                }
-            }
-        } catch (IOException e) {
-            // ignore
-        }
-        return false;
     }
 
     private void reportEngineError(String message) {
@@ -544,7 +532,7 @@ public final class MainActivity extends Activity {
         synchronized (engineErrors) {
             errors = engineErrors.toString();
         }
-        AntiSpoofingClassifier active = classifier;
+        ModelSlotClassifier active = classifier;
         String message = errors.isEmpty()
                 ? (active != null ? active.backendStatus() : "Loading model...")
                 : errors;
@@ -720,7 +708,7 @@ public final class MainActivity extends Activity {
         Bitmap previewFace = null;
         boolean previewRgb = showIr;
         long previewNow = SystemClock.elapsedRealtime();
-        AntiSpoofingClassifier previewClassifier = classifier;
+        ModelSlotClassifier previewClassifier = classifier;
         if (previewNow - lastPreviewUpdateTimeMs >= 66L && previewClassifier != null) {
             lastPreviewUpdateTimeMs = previewNow;
             if (previewRgb) {
@@ -800,7 +788,7 @@ public final class MainActivity extends Activity {
             final int currentCount = collectionCount + 1;
             if (currentCount <= COLLECTION_TARGET_COUNT) {
                 final String subjectDirName = className + "_" + subjectId;
-                AntiSpoofingClassifier collectionClassifier = classifier;
+                ModelSlotClassifier collectionClassifier = classifier;
                 float margin = collectionClassifier != null ? collectionClassifier.cropMarginRatio() : 0.10f;
                 Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
                 int rL = Math.max(0, rgbR.left);
@@ -900,7 +888,7 @@ public final class MainActivity extends Activity {
 
         Rect rgbCrop = null;
         Rect irCrop = null;
-        AntiSpoofingClassifier activeClassifier = classifier;
+        ModelSlotClassifier activeClassifier = classifier;
         if (activeClassifier != null && frame.ir != null) {
             float margin = activeClassifier.cropMarginRatio();
             rgbCrop = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
@@ -936,23 +924,17 @@ public final class MainActivity extends Activity {
     }
 
     private void processInference(InferenceTask task) {
-        AntiSpoofingClassifier activeClassifier = classifier;
+        ModelSlotClassifier activeClassifier = classifier;
         if (activeClassifier == null) return;
-        ClassificationResult result = activeClassifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
+        SlotClassificationResult result = activeClassifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
                 task.pair.ir.bitmap, task.irCrop);
         inferenceMs = result.inferenceMs;
         updateInferenceFps();
 
         runOnUiThread(() -> {
             if (!resumed) return;
-            overlay.showResult(result);
-            
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
-                if (i > 0) sb.append("\n");
-                sb.append(String.format(Locale.US, "%s %.1f%%", ClassificationResult.LABELS[i], result.probabilities[i] * 100f));
-            }
-            resultsLabel.setText(sb.toString());
+            overlay.showResult(result.primaryResult());
+            resultsLabel.setText(formatClassificationResults(result));
             
             long now = SystemClock.elapsedRealtime();
             if (now - lastUiUpdateTimeMs >= 150L) {
@@ -1398,6 +1380,28 @@ public final class MainActivity extends Activity {
                 rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps, backend);
     }
 
+    private String formatClassificationResults(SlotClassificationResult result) {
+        if (result.hasPairedResults()) {
+            StringBuilder sb = new StringBuilder();
+            appendClassificationResult(sb, "RGB", result.rgbResult);
+            sb.append("\n\n");
+            appendClassificationResult(sb, "IR", result.irResult);
+            return sb.toString();
+        }
+        StringBuilder sb = new StringBuilder();
+        appendClassificationResult(sb, null, result.result);
+        return sb.toString();
+    }
+
+    private void appendClassificationResult(StringBuilder sb, String title, ClassificationResult result) {
+        if (title != null) sb.append(title).append("\n");
+        for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
+            if (i > 0) sb.append("\n");
+            float probability = result != null ? result.probabilities[i] * 100f : 0f;
+            sb.append(String.format(Locale.US, "%s %.1f%%", ClassificationResult.LABELS[i], probability));
+        }
+    }
+
     private void resetResultsLabelToZero() {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
@@ -1409,10 +1413,11 @@ public final class MainActivity extends Activity {
 
     private void toggleModel() {
         synchronized (classifierLock) {
-            isNpuModelSelected = !isNpuModelSelected;
-            classifier = isNpuModelSelected ? npuClassifier : standardClassifier;
+            if (classifiers.isEmpty()) return;
+            activeClassifierIndex = (activeClassifierIndex + 1) % classifiers.size();
+            classifier = classifiers.get(activeClassifierIndex);
 
-            final String btnText = isNpuModelSelected ? "MODEL 2" : "MODEL 1";
+            final String btnText = classifier.label();
             final String message = (classifier != null) ? classifier.backendStatus() : "Model not loaded";
             normalStatusMessage = message;
 
@@ -1468,15 +1473,11 @@ public final class MainActivity extends Activity {
         awaitExecutorTermination(modelInitExecutor);
         synchronized (classifierLock) {
             enginesShutDown = true;
-            if (standardClassifier != null) {
-                try { standardClassifier.close(); } catch (Exception e) {}
-            }
-            if (npuClassifier != null) {
-                try { npuClassifier.close(); } catch (Exception e) {}
+            for (ModelSlotClassifier slot : classifiers) {
+                try { slot.close(); } catch (Exception e) {}
             }
             classifier = null;
-            standardClassifier = null;
-            npuClassifier = null;
+            classifiers.clear();
         }
         if (faceDetector != null) faceDetector.close();
         clearPreviewFace();
