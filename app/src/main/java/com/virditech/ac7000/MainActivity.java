@@ -35,6 +35,7 @@ import android.widget.TextView;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 
 import com.cyberlink.faceme.FaceQualityLevel;
 import com.virditech.ac7000.calibration.Calibration;
@@ -50,6 +51,10 @@ import com.virditech.ac7000.model.AntiSpoofingClassifier;
 import com.virditech.ac7000.model.ClassificationResult;
 import com.virditech.ac7000.model.FaceCrop;
 import com.virditech.ac7000.ui.OverlayView;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -327,7 +332,7 @@ public final class MainActivity extends Activity {
         controlsLayout.addView(switchButton, new LinearLayout.LayoutParams(buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         modelSwitchButton = new Button(this);
-        modelSwitchButton.setText("MODEL: Standard");
+        modelSwitchButton.setText("MODEL 1");
         modelSwitchButton.setEnabled(false);
         modelSwitchButton.setOnClickListener(v -> toggleModel());
         controlsLayout.addView(modelSwitchButton, new LinearLayout.LayoutParams(buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -812,6 +817,9 @@ public final class MainActivity extends Activity {
                 
                 final Bitmap fullRGB = frame.rgb.bitmap.copy(frame.rgb.bitmap.getConfig(), false);
                 final Bitmap fullIR = frame.ir.bitmap.copy(frame.ir.bitmap.getConfig(), false);
+                final String metadataJson = buildSampleMetadataJson(
+                        frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(), detected, rgbR,
+                        frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight(), irDetected, irR, margin);
 
                 final String relativeDir = Environment.DIRECTORY_PICTURES + "/raw/"
                         + className + "/" + subjectDirName + "/" + currentCount;
@@ -837,6 +845,7 @@ public final class MainActivity extends Activity {
                             savedAll &= saveBitmapAsBmp(cropIR, relativeDir, "cropIR.bmp");
                             cropIR.recycle();
                         }
+                        savedAll &= saveTextFile(metadataJson, relativeDir, "meta.json", "application/json");
                         if (savedAll && isCollecting
                                 && className.equals(collectionClassName)
                                 && collectionStartSubjectId == subjectId) {
@@ -1218,6 +1227,77 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private boolean saveTextFile(String text, String relativeDir, String fileName, String mimeType) {
+        String relativePath = relativeDir.endsWith("/") ? relativeDir : relativeDir + "/";
+        ContentResolver resolver = getContentResolver();
+        Uri collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        String selection = MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
+                + MediaStore.MediaColumns.RELATIVE_PATH + "=?";
+        resolver.delete(collection, selection, new String[]{fileName, relativePath});
+
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+        values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath);
+        values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+
+        Uri uri = resolver.insert(collection, values);
+        if (uri == null) {
+            showTransientStatus("Save failed: unable to create " + fileName);
+            return false;
+        }
+
+        try {
+            try (OutputStream out = resolver.openOutputStream(uri)) {
+                if (out == null) throw new IOException("openOutputStream returned null");
+                out.write(text.getBytes(StandardCharsets.UTF_8));
+            }
+            values.clear();
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            resolver.update(uri, values, null, null);
+            return true;
+        } catch (IOException e) {
+            resolver.delete(uri, null, null);
+            showTransientStatus("Save failed: " + e.getMessage());
+            android.util.Log.e(TAG, "Unable to save " + relativePath + fileName, e);
+            return false;
+        }
+    }
+
+    private String buildSampleMetadataJson(int rgbWidth, int rgbHeight, Rect rgbFaceRect, Rect rgbCropRect,
+                                           int irWidth, int irHeight, Rect irMappedFaceRect, Rect irCropRect,
+                                           float cropMarginRatio) {
+        try {
+            JSONObject root = new JSONObject();
+            root.put("schemaVersion", 1);
+            root.put("rgb", frameMetadata(rgbWidth, rgbHeight, "faceRect", rgbFaceRect, rgbCropRect));
+            root.put("ir", frameMetadata(irWidth, irHeight, "mappedFaceRect", irMappedFaceRect, irCropRect));
+            root.put("cropMarginRatio", cropMarginRatio);
+            return root.toString(2);
+        } catch (JSONException e) {
+            throw new IllegalStateException("Unable to build sample metadata", e);
+        }
+    }
+
+    private static JSONObject frameMetadata(int width, int height, String faceRectName, Rect faceRect, Rect cropRect)
+            throws JSONException {
+        JSONObject object = new JSONObject();
+        object.put("width", width);
+        object.put("height", height);
+        object.put(faceRectName, rectToJson(faceRect));
+        object.put("cropRect", rectToJson(cropRect));
+        return object;
+    }
+
+    private static JSONArray rectToJson(Rect rect) {
+        JSONArray array = new JSONArray();
+        array.put(rect.left);
+        array.put(rect.top);
+        array.put(rect.right);
+        array.put(rect.bottom);
+        return array;
+    }
+
     private void writeBitmapAsBmp(Bitmap bitmap, OutputStream out) throws IOException {
             int width = bitmap.getWidth();
             int height = bitmap.getHeight();
@@ -1320,7 +1400,7 @@ public final class MainActivity extends Activity {
             isNpuModelSelected = !isNpuModelSelected;
             classifier = isNpuModelSelected ? npuClassifier : standardClassifier;
 
-            final String btnText = isNpuModelSelected ? "MODEL: NPU" : "MODEL: Standard";
+            final String btnText = isNpuModelSelected ? "MODEL 2" : "MODEL 1";
             final String message = (classifier != null) ? classifier.backendStatus() : "Model not loaded";
             normalStatusMessage = message;
 
