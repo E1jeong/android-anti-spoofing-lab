@@ -520,38 +520,26 @@ public final class MainActivity extends Activity {
             return;
         }
 
+        Rect rgbCrop = null;
+        Rect irCrop = null;
+        ModelSlotClassifier activeClassifier = classifier;
+        if (activeClassifier != null) {
+            float margin = activeClassifier.cropMarginRatio();
+            rgbCrop = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
+            irCrop = FaceCrop.expand(irDetected, margin, irWidth, irHeight);
+        }
+
         Bitmap previewFace = null;
         boolean previewRgb = showIr;
         long previewNow = SystemClock.elapsedRealtime();
-        ModelSlotClassifier previewClassifier = classifier;
-        if (previewNow - lastPreviewUpdateTimeMs >= 66L && previewClassifier != null) {
+        if (previewNow - lastPreviewUpdateTimeMs >= 66L && activeClassifier != null) {
             lastPreviewUpdateTimeMs = previewNow;
             if (previewRgb) {
-                Bitmap source = frame.rgb.bitmap;
-                Rect face = detected;
-                float margin = previewClassifier.cropMarginRatio();
-                Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
-                int left = Math.max(0, crop.left);
-                int top = Math.max(0, crop.top);
-                int width = Math.min(source.getWidth() - left, crop.width());
-                int height = Math.min(source.getHeight() - top, crop.height());
-                if (width > 0 && height > 0) {
-                    previewFace = Bitmap.createBitmap(source, left, top, width, height);
-                }
+                previewFace = createCropPreviewBitmap(frame.rgb.bitmap, rgbCrop);
             } else {
                 synchronized (irPreviewLock) {
                     if (latestIrBitmapForCrop != null && !latestIrBitmapForCrop.isRecycled()) {
-                        Bitmap source = latestIrBitmapForCrop;
-                        Rect face = irDetected;
-                        float margin = previewClassifier.cropMarginRatio();
-                        Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
-                        int left = Math.max(0, crop.left);
-                        int top = Math.max(0, crop.top);
-                        int width = Math.min(source.getWidth() - left, crop.width());
-                        int height = Math.min(source.getHeight() - top, crop.height());
-                        if (width > 0 && height > 0) {
-                            previewFace = Bitmap.createBitmap(source, left, top, width, height);
-                        }
+                        previewFace = createCropPreviewBitmap(latestIrBitmapForCrop, irCrop);
                     }
                 }
             }
@@ -703,16 +691,18 @@ public final class MainActivity extends Activity {
             }
         }
 
-        Rect rgbCrop = null;
-        Rect irCrop = null;
-        ModelSlotClassifier activeClassifier = classifier;
-        if (activeClassifier != null && frame.ir != null) {
-            float margin = activeClassifier.cropMarginRatio();
-            rgbCrop = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-            irCrop = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
-        }
         if (isCollecting || rgbCrop == null || irCrop == null || frame.ir == null) return;
         submitInference(new InferenceTask(frame.detachPair(), rgbCrop, irCrop));
+    }
+
+    private static Bitmap createCropPreviewBitmap(Bitmap source, Rect crop) {
+        if (source == null || crop == null || source.isRecycled()) return null;
+        int left = Math.max(0, crop.left);
+        int top = Math.max(0, crop.top);
+        int width = Math.min(source.getWidth() - left, crop.width());
+        int height = Math.min(source.getHeight() - top, crop.height());
+        if (width <= 0 || height <= 0) return null;
+        return Bitmap.createBitmap(source, left, top, width, height);
     }
 
     private void submitInference(InferenceTask task) {
