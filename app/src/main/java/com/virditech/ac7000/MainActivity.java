@@ -62,6 +62,7 @@ public final class MainActivity extends Activity {
     private static final int CAMERA_PERMISSION_REQUEST = 10;
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
     private static final int COLLECTION_TARGET_COUNT = CaptureSchedule.TARGET_COUNT;
+    private static final int IR_RESULT_COLOR = Color.rgb(64, 196, 255);
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -740,7 +741,7 @@ public final class MainActivity extends Activity {
 
         runOnUiThread(() -> {
             if (!resumed) return;
-            overlay.showResult(result.primaryResult());
+            overlay.showResult(result.primaryResult(), result.irResult);
             resultsLabel.setText(formatClassificationResults(result));
             
             long now = SystemClock.elapsedRealtime();
@@ -973,13 +974,17 @@ public final class MainActivity extends Activity {
                 rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps, backend);
     }
 
-    private String formatClassificationResults(SlotClassificationResult result) {
+    private CharSequence formatClassificationResults(SlotClassificationResult result) {
         if (result.hasPairedResults()) {
             StringBuilder sb = new StringBuilder();
-            appendClassificationResult(sb, "RGB", result.rgbResult);
+            appendClassificationResult(sb, null, result.rgbResult);
             sb.append("\n\n");
-            appendClassificationResult(sb, "IR", result.irResult);
-            return sb.toString();
+            int irStart = sb.length();
+            appendClassificationResult(sb, null, result.irResult);
+            SpannableString text = new SpannableString(sb.toString());
+            text.setSpan(new ForegroundColorSpan(IR_RESULT_COLOR), irStart, text.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            return text;
         }
         StringBuilder sb = new StringBuilder();
         appendClassificationResult(sb, null, result.result);

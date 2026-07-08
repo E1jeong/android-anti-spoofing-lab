@@ -14,6 +14,7 @@ import java.util.Locale;
 public final class OverlayView extends View {
     private final Paint boxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint irTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint guidePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint collectionGridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint collectionFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -22,6 +23,7 @@ public final class OverlayView extends View {
     private Rect rgbBox;
     private Rect irBox;
     private ClassificationResult result;
+    private ClassificationResult irResult;
     private boolean showIr;
     private boolean calibrationMode;
     private boolean isCollecting;
@@ -35,6 +37,9 @@ public final class OverlayView extends View {
         textPaint.setColor(Color.WHITE);
         textPaint.setTextSize(28f);
         textPaint.setShadowLayer(5f, 1f, 1f, Color.BLACK);
+        irTextPaint.setColor(Color.rgb(64, 196, 255));
+        irTextPaint.setTextSize(28f);
+        irTextPaint.setShadowLayer(5f, 1f, 1f, Color.BLACK);
         guidePaint.setColor(Color.WHITE);
         guidePaint.setStyle(Paint.Style.STROKE);
         guidePaint.setStrokeWidth(6f);
@@ -85,7 +90,12 @@ public final class OverlayView extends View {
     }
 
     public void showResult(ClassificationResult result) {
+        showResult(result, null);
+    }
+
+    public void showResult(ClassificationResult result, ClassificationResult irResult) {
         this.result = result;
+        this.irResult = irResult;
         invalidate();
     }
 
@@ -93,6 +103,7 @@ public final class OverlayView extends View {
         rgbBox = null;
         irBox = null;
         result = null;
+        irResult = null;
         invalidate();
     }
 
@@ -120,9 +131,22 @@ public final class OverlayView extends View {
             canvas.drawText("FACE", box.left, titleY, textPaint);
             return;
         }
-        canvas.drawText(String.format(Locale.US, "%s %.1f%%",
-                ClassificationResult.LABELS[result.topIndex], result.probabilities[result.topIndex] * 100f), box.left, titleY, textPaint);
+        if (irResult == null) {
+            canvas.drawText(formatResult(result), box.left, titleY, textPaint);
+            return;
+        }
 
+        String rgbText = formatResult(result);
+        String irText = formatResult(irResult);
+        float topLineY = Math.max(32f, box.top - 42f);
+        canvas.drawText(rgbText, box.left, topLineY, textPaint);
+        canvas.drawText(irText, box.left, Math.max(64f, box.top - 10f), irTextPaint);
+
+    }
+
+    private static String formatResult(ClassificationResult result) {
+        return String.format(Locale.US, "%s %.1f%%",
+                ClassificationResult.LABELS[result.topIndex], result.probabilities[result.topIndex] * 100f);
     }
 
     private void drawCollectionGuide(Canvas canvas) {
