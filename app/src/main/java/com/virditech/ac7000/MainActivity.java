@@ -21,6 +21,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -104,7 +105,8 @@ public final class MainActivity extends Activity {
     private volatile boolean enginesWarmedUp;
     private volatile boolean qualityWarmedUp;
     private Button startCollectionButton;
-    private Button cancelCollectionButton;
+    private ImageButton pauseCollectionButton;
+    private ImageButton cancelCollectionButton;
     private FrameLayout highQualityOnlyContainer;
     private CheckBox highQualityOnlyButton;
     private boolean highQualityOnly;
@@ -120,7 +122,9 @@ public final class MainActivity extends Activity {
     private volatile int collectionSessionId;
     private volatile int collectionStepIndex;
     private volatile int collectionStepCount;
+    private volatile boolean collectionPaused;
     private volatile long collectionCountdownEndMs;
+    private volatile long collectionPausedCountdownMs;
     private volatile int collectionMinQualityLevel = COLLECTION_MEDIUM_QUALITY_LEVEL;
     private volatile String collectionQualityMode;
     private volatile FaceDetector.FaceQualityCheckResult lastCollectionQuality;
@@ -168,6 +172,8 @@ public final class MainActivity extends Activity {
 
     private void buildUi() {
         screen = new MainScreenView(this, new MainScreenView.Listener() {
+            @Override public void onPauseCollection() { toggleCollectionPaused(); }
+
             @Override public void onCancelCollection() { cancelDataCollection(); }
 
             @Override public void onHighQualityOnlyChanged(boolean checked) {
@@ -206,6 +212,7 @@ public final class MainActivity extends Activity {
         switchButton = screen.switchButton;
         modelSwitchButton = screen.modelSwitchButton;
         startCollectionButton = screen.startCollectionButton;
+        pauseCollectionButton = screen.pauseCollectionButton;
         cancelCollectionButton = screen.cancelCollectionButton;
         highQualityOnlyContainer = screen.highQualityOnlyContainer;
         highQualityOnlyButton = screen.highQualityOnlyButton;
@@ -474,6 +481,9 @@ public final class MainActivity extends Activity {
                 clearPreviewFace();
                 faceCropView.setScaleX(1f);
                 noFaceLabel.setVisibility(View.VISIBLE);
+                if (isCollecting) {
+                    updateCollectionUi(SystemClock.elapsedRealtime());
+                }
                 if (captureCalibration) {
                     calibrationInstruction.setText("Exactly one RGB face is required. Try again.");
                 } else {
@@ -571,7 +581,7 @@ public final class MainActivity extends Activity {
         });
         if (calibrationMode) return;
 
-        if (isCollecting && frame.ir != null && !ioBusy) {
+        if (isCollecting && !collectionPaused && frame.ir != null && !ioBusy) {
             final int sessionId = collectionSessionId;
             final String className = collectionClassName;
             final int subjectId = collectionStartSubjectId;
@@ -592,6 +602,7 @@ public final class MainActivity extends Activity {
                 }
                 sampleQuality = quality;
             }
+            if (collectionPaused) return;
             if (!isActiveCollection(sessionId, className, subjectId)) return;
             ioBusy = true;
             final int currentCount = collectionCount + 1;
@@ -816,14 +827,18 @@ public final class MainActivity extends Activity {
     }
 
     private int getCollectionCountdownSeconds(long nowMs) {
+        if (collectionPaused) return CaptureSchedule.countdownSeconds(collectionPausedCountdownMs, 0L);
         return CaptureSchedule.countdownSeconds(collectionCountdownEndMs, nowMs);
     }
 
     private void finishDataCollection() {
         isCollecting = false;
+        collectionPaused = false;
+        collectionPausedCountdownMs = 0L;
         collectionSessionId++;
         ioBusy = false;
         overlay.setCollecting(false);
+        screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
         startCollectionButton.setEnabled(true);
         switchButton.setEnabled(true);
@@ -831,6 +846,7 @@ public final class MainActivity extends Activity {
         if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(true);
         startCollectionButton.setText("START CAPTURE");
         collectionProgress.setVisibility(View.GONE);
+        if (pauseCollectionButton != null) pauseCollectionButton.setVisibility(View.GONE);
         if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.GONE);
     }
 
@@ -840,9 +856,12 @@ public final class MainActivity extends Activity {
         final String canceledQualityMode = collectionQualityMode;
         final String canceledSubjectDirName = collectionClassName + "_" + collectionStartSubjectId;
         isCollecting = false;
+        collectionPaused = false;
+        collectionPausedCountdownMs = 0L;
         collectionSessionId++;
         ioBusy = false;
         overlay.setCollecting(false);
+        screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
         startCollectionButton.setEnabled(false);
         switchButton.setEnabled(true);
@@ -850,6 +869,7 @@ public final class MainActivity extends Activity {
         if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(true);
         startCollectionButton.setText("START CAPTURE");
         collectionProgress.setVisibility(View.GONE);
+        if (pauseCollectionButton != null) pauseCollectionButton.setVisibility(View.GONE);
         if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.GONE);
         showTransientStatus("Capture canceled");
         ioExecutor.execute(() -> {
@@ -861,6 +881,25 @@ public final class MainActivity extends Activity {
                 }
             });
         });
+    }
+
+    private void toggleCollectionPaused() {
+        if (!isCollecting) return;
+        long nowMs = SystemClock.elapsedRealtime();
+        if (collectionPaused) {
+            collectionCountdownEndMs = nowMs + collectionPausedCountdownMs;
+            collectionPausedCountdownMs = 0L;
+            collectionPaused = false;
+            screen.setCollectionPaused(false);
+            updateCollectionUi(nowMs);
+            showTransientStatus("Capture resumed");
+            return;
+        }
+        collectionPausedCountdownMs = Math.max(0L, collectionCountdownEndMs - nowMs);
+        collectionPaused = true;
+        screen.setCollectionPaused(true);
+        updateCollectionUi(nowMs);
+        showTransientStatus("Capture paused");
     }
 
     private void setCollectionChromeVisible(boolean visible) {
@@ -910,6 +949,10 @@ public final class MainActivity extends Activity {
         if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(false);
         startCollectionButton.setText("COLLECTING...");
         collectionProgress.setVisibility(View.VISIBLE);
+        if (pauseCollectionButton != null) {
+            pauseCollectionButton.setVisibility(View.VISIBLE);
+            pauseCollectionButton.setEnabled(true);
+        }
         if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.VISIBLE);
 
         collectionClassName = className;
@@ -919,12 +962,15 @@ public final class MainActivity extends Activity {
         collectionSessionId++;
         collectionStepIndex = 0;
         collectionStepCount = 0;
+        collectionPaused = false;
         collectionCountdownEndMs = SystemClock.elapsedRealtime() + CaptureSchedule.STEP_COUNTDOWN_MS;
+        collectionPausedCountdownMs = 0L;
         collectionMinQualityLevel = highQualityOnly ? FaceQualityLevel.HIGH : COLLECTION_MEDIUM_QUALITY_LEVEL;
         lastCollectionQuality = null;
         ioBusy = false;
         isCollecting = true;
         overlay.setCollecting(true);
+        screen.setCollectionPaused(false);
         updateCollectionUi(SystemClock.elapsedRealtime());
         setCollectionChromeVisible(false);
     }

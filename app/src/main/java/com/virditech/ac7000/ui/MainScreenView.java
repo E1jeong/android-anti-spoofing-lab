@@ -11,6 +11,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -33,7 +34,8 @@ public final class MainScreenView {
     public final Button switchButton;
     public final Button modelSwitchButton;
     public final Button startCollectionButton;
-    public final Button cancelCollectionButton;
+    public final ImageButton pauseCollectionButton;
+    public final ImageButton cancelCollectionButton;
     public final FrameLayout highQualityOnlyContainer;
     public final CheckBox highQualityOnlyButton;
     public final TextView collectionProgress;
@@ -115,16 +117,25 @@ public final class MainScreenView {
                 wrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 16, 16);
         root.addView(collectionProgress, collectionProgressParams);
 
-        cancelCollectionButton = new Button(activity);
-        cancelCollectionButton.setText("CANCEL CAPTURE");
-        cancelCollectionButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                Color.parseColor("#C49A00")));
-        cancelCollectionButton.setTextColor(Color.WHITE);
+        pauseCollectionButton = iconButton(android.R.drawable.ic_media_pause, Color.parseColor("#37474F"));
+        pauseCollectionButton.setContentDescription("Pause capture");
+        pauseCollectionButton.setVisibility(View.GONE);
+        pauseCollectionButton.setOnClickListener(v -> listener.onPauseCollection());
+        FrameLayout.LayoutParams pauseCollectionParams =
+                wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 16);
+        pauseCollectionParams.width = dp(84);
+        pauseCollectionParams.height = dp(84);
+        root.addView(pauseCollectionButton, pauseCollectionParams);
+
+        cancelCollectionButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
+                Color.parseColor("#C49A00"));
+        cancelCollectionButton.setContentDescription("Cancel capture");
         cancelCollectionButton.setVisibility(View.GONE);
         cancelCollectionButton.setOnClickListener(v -> listener.onCancelCollection());
         FrameLayout.LayoutParams cancelCollectionParams =
-                wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 16);
-        cancelCollectionParams.width = buttonWidth;
+                wrap(Gravity.TOP | Gravity.END, 16, 16);
+        cancelCollectionParams.width = dp(84);
+        cancelCollectionParams.height = dp(84);
         root.addView(cancelCollectionButton, cancelCollectionParams);
 
         expandableLayout = new LinearLayout(activity);
@@ -287,7 +298,15 @@ public final class MainScreenView {
         highQualityOnlyButton.setEnabled(!collecting);
         startCollectionButton.setText(collecting ? "COLLECTING..." : "START CAPTURE");
         collectionProgress.setVisibility(collecting ? View.VISIBLE : View.GONE);
+        pauseCollectionButton.setVisibility(collecting ? View.VISIBLE : View.GONE);
         cancelCollectionButton.setVisibility(collecting ? View.VISIBLE : View.GONE);
+    }
+
+    public void setCollectionPaused(boolean paused) {
+        pauseCollectionButton.setImageResource(paused
+                ? android.R.drawable.ic_media_play
+                : android.R.drawable.ic_media_pause);
+        pauseCollectionButton.setContentDescription(paused ? "Resume capture" : "Pause capture");
     }
 
     public void setPreviewFace(Bitmap bitmap) {
@@ -322,6 +341,16 @@ public final class MainScreenView {
         return view;
     }
 
+    private ImageButton iconButton(int imageResource, int backgroundColor) {
+        ImageButton button = new ImageButton(activity);
+        button.setImageResource(imageResource);
+        button.setColorFilter(Color.WHITE);
+        button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(backgroundColor));
+        button.setScaleType(ImageView.ScaleType.CENTER);
+        button.setPadding(dp(21), dp(21), dp(21), dp(21));
+        return button;
+    }
+
     private void updateHighQualityOnlyButton() {
         if (highQualityOnlyButton == null) return;
         highQualityOnlyButton.setText("HIGH QUALITY");
@@ -349,6 +378,7 @@ public final class MainScreenView {
     }
 
     public interface Listener {
+        void onPauseCollection();
         void onCancelCollection();
         void onHighQualityOnlyChanged(boolean highQualityOnly);
         void onStartCollection(String className);
