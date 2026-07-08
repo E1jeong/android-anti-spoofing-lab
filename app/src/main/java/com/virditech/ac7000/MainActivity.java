@@ -7,6 +7,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.media.AudioManager;
+import android.media.ToneGenerator;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -152,6 +154,7 @@ public final class MainActivity extends Activity {
     private long lastUiUpdateTimeMs;
     private long lastPreviewUpdateTimeMs;
     private long lastIrCropCopyTimeMs;
+    private ToneGenerator captureTone;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -162,6 +165,7 @@ public final class MainActivity extends Activity {
         windowAttributes.screenBrightness = 1f;
         getWindow().setAttributes(windowAttributes);
         appWatchdog.start();
+        initializeCaptureTone();
         buildUi();
         initializeEngines();
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
@@ -647,6 +651,7 @@ public final class MainActivity extends Activity {
                 
                 ioExecutor.execute(() -> {
                     boolean saved = false;
+                    boolean sectorCompleted = false;
                     try {
                         if (!isActiveCollection(sessionId, className, subjectId)) {
                             CaptureStorage.recycleBitmaps(fullRGB, cropRGB, fullIR, cropIR);
@@ -684,12 +689,15 @@ public final class MainActivity extends Activity {
                             collectionCount = currentCount;
                             CaptureStep captureStep = currentCollectionStep();
                             collectionStepCount++;
-                            if (collectionStepCount >= captureStep.targetCount && currentCount < COLLECTION_TARGET_COUNT) {
-                                collectionStepIndex = Math.min(collectionStepIndex + 1,
-                                        CaptureSchedule.DEFAULT_STEPS.length - 1);
-                                collectionStepCount = 0;
-                                collectionCountdownEndMs = SystemClock.elapsedRealtime()
-                                        + CaptureSchedule.STEP_COUNTDOWN_MS;
+                            if (collectionStepCount >= captureStep.targetCount) {
+                                sectorCompleted = true;
+                                if (currentCount < COLLECTION_TARGET_COUNT) {
+                                    collectionStepIndex = Math.min(collectionStepIndex + 1,
+                                            CaptureSchedule.DEFAULT_STEPS.length - 1);
+                                    collectionStepCount = 0;
+                                    collectionCountdownEndMs = SystemClock.elapsedRealtime()
+                                            + CaptureSchedule.STEP_COUNTDOWN_MS;
+                                }
                             }
                             saved = true;
                             android.util.Log.i(TAG, "Saved collection sample: " + displayDir);
@@ -698,9 +706,15 @@ public final class MainActivity extends Activity {
                         ioBusy = false;
                     }
                     final boolean savedSample = saved;
+                    final boolean completedSector = sectorCompleted;
                     runOnUiThread(() -> {
                         if (!isCollecting) return;
                         updateCollectionUi(SystemClock.elapsedRealtime());
+                        if (savedSample && completedSector) {
+                            playCollectionFinishedTone();
+                        } else if (savedSample) {
+                            playCaptureSavedTone();
+                        }
                         if (savedSample && currentCount == COLLECTION_TARGET_COUNT) {
                             finishDataCollection();
                         }
@@ -1106,6 +1120,24 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void initializeCaptureTone() {
+        try {
+            captureTone = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80);
+        } catch (RuntimeException e) {
+            android.util.Log.w(TAG, "Unable to initialize capture tone", e);
+        }
+    }
+
+    private void playCaptureSavedTone() {
+        ToneGenerator tone = captureTone;
+        if (tone != null) tone.startTone(ToneGenerator.TONE_PROP_BEEP, 100);
+    }
+
+    private void playCollectionFinishedTone() {
+        ToneGenerator tone = captureTone;
+        if (tone != null) tone.startTone(ToneGenerator.TONE_PROP_ACK, 350);
+    }
+
     private void clearPendingWork() {
         TrackingFrame tracking = pendingTracking.getAndSet(null);
         if (tracking != null) tracking.recycle();
@@ -1143,6 +1175,10 @@ public final class MainActivity extends Activity {
             classifiers.clear();
         }
         if (faceDetector != null) faceDetector.close();
+        if (captureTone != null) {
+            captureTone.release();
+            captureTone = null;
+        }
         clearPreviewFace();
         appWatchdog.close();
         super.onDestroy();
