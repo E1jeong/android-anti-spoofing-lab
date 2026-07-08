@@ -11,11 +11,15 @@ public final class SampleMetadataTest {
         String json = SampleMetadata.build(
                 768, 432, new RectValue(1, 2, 3, 4), new RectValue(5, 6, 7, 8),
                 768, 432, new RectValue(9, 10, 11, 12), new RectValue(13, 14, 15, 16),
-                0.1f);
+                0.1f, "high", 2, 2, 0.95f);
 
         JSONObject root = new JSONObject(json);
         assertEquals(1, root.getInt("schemaVersion"));
         assertEquals(0.1, root.getDouble("cropMarginRatio"), 0.0001);
+        assertEquals("high", root.getString("qualityMode"));
+        assertEquals(2, root.getInt("minQualityLevel"));
+        assertEquals(2, root.getInt("actualQualityLevel"));
+        assertEquals(0.95, root.getDouble("qualityScore"), 0.0001);
 
         JSONObject rgb = root.getJSONObject("rgb");
         assertEquals(768, rgb.getInt("width"));

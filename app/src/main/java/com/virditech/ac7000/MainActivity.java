@@ -63,6 +63,7 @@ public final class MainActivity extends Activity {
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
     private static final int COLLECTION_TARGET_COUNT = CaptureSchedule.TARGET_COUNT;
     private static final int IR_RESULT_COLOR = Color.rgb(64, 196, 255);
+    private static final int COLLECTION_MEDIUM_QUALITY_LEVEL = 1;
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -120,7 +121,8 @@ public final class MainActivity extends Activity {
     private volatile int collectionStepIndex;
     private volatile int collectionStepCount;
     private volatile long collectionCountdownEndMs;
-    private volatile int collectionMinQualityLevel = FaceQualityLevel.NOT_RECOMMEND;
+    private volatile int collectionMinQualityLevel = COLLECTION_MEDIUM_QUALITY_LEVEL;
+    private volatile String collectionQualityMode;
     private volatile FaceDetector.FaceQualityCheckResult lastCollectionQuality;
     private File collectionRawRoot;
     private int collectionStartSubjectId;
@@ -573,8 +575,10 @@ public final class MainActivity extends Activity {
             final int sessionId = collectionSessionId;
             final String className = collectionClassName;
             final int subjectId = collectionStartSubjectId;
+            final String qualityMode = collectionQualityMode;
             long nowMs = SystemClock.elapsedRealtime();
             if (getCollectionCountdownSeconds(nowMs) > 0) return;
+            FaceDetector.FaceQualityCheckResult sampleQuality = null;
             if (shouldCheckCollectionQuality(className)) {
                 FaceDetector.FaceQualityCheckResult quality =
                         faceDetector.checkFaceQuality(frame.rgb.bitmap, collectionMinQualityLevel);
@@ -586,6 +590,7 @@ public final class MainActivity extends Activity {
                     });
                     return;
                 }
+                sampleQuality = quality;
             }
             if (!isActiveCollection(sessionId, className, subjectId)) return;
             ioBusy = true;
@@ -610,13 +615,17 @@ public final class MainActivity extends Activity {
                 
                 final Bitmap fullRGB = frame.rgb.bitmap.copy(frame.rgb.bitmap.getConfig(), false);
                 final Bitmap fullIR = frame.ir.bitmap.copy(frame.ir.bitmap.getConfig(), false);
+                final int minQualityLevel = shouldCheckCollectionQuality(className) ? collectionMinQualityLevel : -1;
+                final int actualQualityLevel = sampleQuality != null ? sampleQuality.actualLevel : -1;
+                final float qualityScore = sampleQuality != null ? sampleQuality.score : 0f;
                 final String metadataJson = CaptureStorage.buildSampleMetadataJson(
                         frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(), detected, rgbR,
-                        frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight(), irDetected, irR, margin);
+                        frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight(), irDetected, irR, margin,
+                        qualityMode, minQualityLevel, actualQualityLevel, qualityScore);
 
                 final File root = collectionRawRoot != null ? collectionRawRoot : resolveRawRoot();
-                final File sampleDir = new File(root,
-                        className + "/" + subjectDirName + "/" + currentCount);
+                final File sampleDir = CaptureStorage.sampleDir(root, className, qualityMode,
+                        subjectDirName, currentCount);
                 final String displayDir = sampleDir.getAbsolutePath();
 
                 if (!isActiveCollection(sessionId, className, subjectId)) {
@@ -828,6 +837,7 @@ public final class MainActivity extends Activity {
     private void cancelDataCollection() {
         if (!isCollecting) return;
         final String canceledClassName = collectionClassName;
+        final String canceledQualityMode = collectionQualityMode;
         final String canceledSubjectDirName = collectionClassName + "_" + collectionStartSubjectId;
         isCollecting = false;
         collectionSessionId++;
@@ -843,7 +853,7 @@ public final class MainActivity extends Activity {
         if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.GONE);
         showTransientStatus("Capture canceled");
         ioExecutor.execute(() -> {
-            deleteCollectionSubject(canceledClassName, canceledSubjectDirName);
+            deleteCollectionSubject(canceledClassName, canceledQualityMode, canceledSubjectDirName);
             runOnUiThread(() -> {
                 if (!isCollecting) {
                     FaceDetector detector = faceDetector;
@@ -862,7 +872,8 @@ public final class MainActivity extends Activity {
     }
 
     private int getNextSubjectNumber(String className) {
-        return CaptureStorage.getNextSubjectNumber(resolveRawRoot(), className);
+        return CaptureStorage.getNextSubjectNumber(resolveRawRoot(), className,
+                captureQualityMode(className, highQualityOnly));
     }
 
     private boolean prepareRawRoot(File rawRoot) {
@@ -902,13 +913,14 @@ public final class MainActivity extends Activity {
         if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.VISIBLE);
 
         collectionClassName = className;
+        collectionQualityMode = captureQualityMode(className, highQualityOnly);
         collectionStartSubjectId = subjectNum;
         collectionCount = 0;
         collectionSessionId++;
         collectionStepIndex = 0;
         collectionStepCount = 0;
         collectionCountdownEndMs = SystemClock.elapsedRealtime() + CaptureSchedule.STEP_COUNTDOWN_MS;
-        collectionMinQualityLevel = highQualityOnly ? FaceQualityLevel.HIGH : FaceQualityLevel.NOT_RECOMMEND;
+        collectionMinQualityLevel = highQualityOnly ? FaceQualityLevel.HIGH : COLLECTION_MEDIUM_QUALITY_LEVEL;
         lastCollectionQuality = null;
         ioBusy = false;
         isCollecting = true;
@@ -917,10 +929,17 @@ public final class MainActivity extends Activity {
         setCollectionChromeVisible(false);
     }
 
-    private void deleteCollectionSubject(String className, String subjectDirName) {
-        boolean deletedFiles = CaptureStorage.deleteSubject(resolveRawRoot(), className, subjectDirName);
+    private void deleteCollectionSubject(String className, String qualityMode, String subjectDirName) {
+        boolean deletedFiles = CaptureStorage.deleteSubject(resolveRawRoot(), className,
+                qualityMode, subjectDirName);
         android.util.Log.i(TAG, "Deleted canceled collection subject "
-                + className + "/" + subjectDirName + " files=" + deletedFiles);
+                + className + "/" + (qualityMode == null ? "" : qualityMode + "/")
+                + subjectDirName + " files=" + deletedFiles);
+    }
+
+    private String captureQualityMode(String className, boolean highQuality) {
+        if (!shouldCheckCollectionQuality(className)) return null;
+        return highQuality ? CaptureStorage.QUALITY_HIGH : CaptureStorage.QUALITY_MEDIUM;
     }
 
     private boolean saveBitmapAsBmp(Bitmap bitmap, File file) {

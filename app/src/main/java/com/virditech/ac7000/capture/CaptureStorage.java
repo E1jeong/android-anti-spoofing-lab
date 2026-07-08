@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 
 public final class CaptureStorage {
     private static final String TAG = "CaptureStorage";
+    public static final String QUALITY_HIGH = "high";
+    public static final String QUALITY_MEDIUM = "medium";
 
     private CaptureStorage() {}
 
@@ -20,7 +22,11 @@ public final class CaptureStorage {
     }
 
     public static int getNextSubjectNumber(File rawRoot, String className) {
-        File baseDir = new File(rawRoot, className);
+        return getNextSubjectNumber(rawRoot, className, null);
+    }
+
+    public static int getNextSubjectNumber(File rawRoot, String className, String qualityMode) {
+        File baseDir = collectionBaseDir(rawRoot, className, qualityMode);
         if (!baseDir.exists()) {
             return 1;
         }
@@ -71,7 +77,12 @@ public final class CaptureStorage {
     }
 
     public static boolean deleteSubject(File rawRoot, String className, String subjectDirName) {
-        File classDir = new File(rawRoot, className);
+        return deleteSubject(rawRoot, className, null, subjectDirName);
+    }
+
+    public static boolean deleteSubject(File rawRoot, String className, String qualityMode,
+                                        String subjectDirName) {
+        File classDir = collectionBaseDir(rawRoot, className, qualityMode);
         File subjectDir = new File(classDir, subjectDirName);
         try {
             String classPath = classDir.getCanonicalPath();
@@ -117,11 +128,24 @@ public final class CaptureStorage {
 
     public static String buildSampleMetadataJson(int rgbWidth, int rgbHeight, Rect rgbFaceRect, Rect rgbCropRect,
                                                  int irWidth, int irHeight, Rect irMappedFaceRect, Rect irCropRect,
-                                                 float cropMarginRatio) {
+                                                 float cropMarginRatio, String qualityMode, int minQualityLevel,
+                                                 int actualQualityLevel, float qualityScore) {
         return SampleMetadata.build(
                 rgbWidth, rgbHeight, RectValue.from(rgbFaceRect), RectValue.from(rgbCropRect),
                 irWidth, irHeight, RectValue.from(irMappedFaceRect), RectValue.from(irCropRect),
-                cropMarginRatio);
+                cropMarginRatio, qualityMode, minQualityLevel, actualQualityLevel, qualityScore);
+    }
+
+    public static File sampleDir(File rawRoot, String className, String qualityMode,
+                                 String subjectDirName, int sampleIndex) {
+        return new File(new File(collectionBaseDir(rawRoot, className, qualityMode), subjectDirName),
+                String.valueOf(sampleIndex));
+    }
+
+    private static File collectionBaseDir(File rawRoot, String className, String qualityMode) {
+        File classDir = new File(rawRoot, className);
+        if (qualityMode == null || qualityMode.isEmpty()) return classDir;
+        return new File(classDir, qualityMode);
     }
 
     private static boolean deleteRecursively(File file) {
