@@ -34,7 +34,7 @@ The application performs the following pipeline:
   - `heatmap` (Face bounding box heatmap, 1 channel)
 - Supported input types are `FLOAT32`, `UINT8`, and `INT8`.
 - The model must have one `FLOAT32` or `INT8` output with shape `[1,6]`.
-- Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `Pmask` (must match `ClassificationResult.LABELS`).
+- Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `PMASK` (must match `ClassificationResult.LABELS`). Internal class identifiers and capture paths use lowercase `pmask`.
 - Spec JSONs control channel order (RGB/BGR), normalization values, delegate backend (`cpu`/`nnapi`), whether the output contains logits, and the crop margin ratio.
 - Do not change preprocessing, output ordering, or tensor assumptions without updating the model contract and verifying them against the exported model.
 - **Current deployment supports float and full INT8 models.** The standard model runs on CPU/XNNPACK, while the NPU model tries Android NNAPI first for NPU evaluation and falls back to CPU/XNNPACK if NNAPI model preparation fails. Do not report NPU acceleration as working until the on-device UI shows `Backend NNAPI` and latency is measured. Full history/decision: `docs/project_status.md` section 3 in the model repository (`E1jeong/access-liveness-model`).
