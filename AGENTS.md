@@ -16,9 +16,9 @@ The application performs the following pipeline:
 4. Map the RGB face region to IR coordinates using the device calibration file, then expand crops according to the model specification.
 5. Run the matched crops (RGB crop, IR crop, Full RGB, Full IR, Heatmap) through the TensorFlow Lite anti-spoofing model.
 6. Update the diagnostic crop preview (top-right) independently of pairing success using a copied frame buffer, throttled to a minimum interval of 66ms (~15 FPS).
-7. Display the five-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
+7. Display the six-class probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
 8. **Pre-warming & Hot Swapping**: On startup, the standard model, NPU model, and FaceMe quality detector are initialized in the loading phase. The loading spinner stays visible until the model warmups finish **and** the quality detector reports available, because NNAPI compilation of the NPU model monopolizes the VSI NPU driver that FaceMe detection also uses (see Troubleshooting section 4). The "Switch Model" button is enabled once the NPU model finishes loading. Switching swaps a `volatile` classifier reference without taking a lock around inference, so the toggle never waits for an in-flight inference and never reloads or leaks a model.
-9. **Data Capture Collection**: The `START CAPTURE` flow writes exactly 100 valid samples per selected class. For `live` only, every candidate frame is checked with FaceMe quality before saving; low-quality frames are skipped without incrementing the saved count or sector count. Non-live classes (`display`, `picture`, `print`, `mask`) bypass quality checking and save the next synchronized frame. The collection can be stopped with the top-center `CANCEL CAPTURE` button; canceling stops future captures but does not delete samples already written.
+9. **Data Capture Collection**: The `START CAPTURE` flow writes exactly 100 valid samples per selected class. For `live` only, every candidate frame is checked with FaceMe quality before saving; low-quality frames are skipped without incrementing the saved count or sector count. Non-live classes (`display`, `picture`, `print`, `mask`, `pmask`) bypass quality checking and save the next synchronized frame. The collection can be stopped with the top-center `CANCEL CAPTURE` button; canceling stops future captures but does not delete samples already written.
 
 ## Model Contract
 
@@ -33,8 +33,8 @@ The application performs the following pipeline:
   - `fullIr` (Full IR image, 1 channel)
   - `heatmap` (Face bounding box heatmap, 1 channel)
 - Supported input types are `FLOAT32`, `UINT8`, and `INT8`.
-- The model must have one `FLOAT32` or `INT8` output with shape `[1,5]`.
-- Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY` (must match `ClassificationResult.LABELS`).
+- The model must have one `FLOAT32` or `INT8` output with shape `[1,6]`.
+- Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `Pmask` (must match `ClassificationResult.LABELS`).
 - Spec JSONs control channel order (RGB/BGR), normalization values, delegate backend (`cpu`/`nnapi`), whether the output contains logits, and the crop margin ratio.
 - Do not change preprocessing, output ordering, or tensor assumptions without updating the model contract and verifying them against the exported model.
 - **Current deployment supports float and full INT8 models.** The standard model runs on CPU/XNNPACK, while the NPU model tries Android NNAPI first for NPU evaluation and falls back to CPU/XNNPACK if NNAPI model preparation fails. Do not report NPU acceleration as working until the on-device UI shows `Backend NNAPI` and latency is measured. Full history/decision: `docs/project_status.md` section 3 in the model repository (`E1jeong/access-liveness-model`).
@@ -79,7 +79,7 @@ Default compile validation:
 - Run the default compile validation after code or build changes. Use a narrower check only when it fully covers the changed behavior.
 - If the model changes, verify that the model loads and that its input/output tensors match the documented contract.
 - For NNAPI/NPU changes, verify the on-device backend label. With the NPU model selected, `Backend CPU` means NNAPI preparation failed and measurements are CPU/XNNPACK, not NPU.
-- Hardware-dependent changes require manual verification on the target device. At minimum, check RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, all five output probabilities, inference timing, and cleanup/restart across pause and resume.
+- Hardware-dependent changes require manual verification on the target device. At minimum, check RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, all six output probabilities, inference timing, and cleanup/restart across pause and resume.
 - Calibration changes must also verify hidden-mode entry, single-face validation for both cameras, cancel-without-save, persisted alignment after restart, and compatibility with the production RGB-to-IR mapping formula.
 - If hardware validation cannot be performed, state which checks remain unverified and the resulting risk.
 

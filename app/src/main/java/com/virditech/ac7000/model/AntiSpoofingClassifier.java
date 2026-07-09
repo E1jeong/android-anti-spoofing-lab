@@ -44,8 +44,8 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     private final Object[] inputs;
     private final DataType outputDataType;
     private final Tensor.QuantizationParams outputQuantization;
-    private final float[][] outputFloat = new float[1][5];
-    private final byte[][] outputInt8 = new byte[1][5];
+    private final float[][] outputFloat = new float[1][6];
+    private final byte[][] outputInt8 = new byte[1][6];
     private final Map<Integer, Object> outputs = new HashMap<>();
 
     public AntiSpoofingClassifier(Context context) throws Exception {
@@ -103,8 +103,8 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         outputQuantization = outputTensor.quantizationParams();
         int[] outputShape = outputTensor.shape();
         if ((outputDataType != DataType.FLOAT32 && outputDataType != DataType.INT8)
-                || outputShape.length != 2 || outputShape[0] != 1 || outputShape[1] != 5) {
-            throw new IllegalArgumentException("Output must be FLOAT32/INT8 [1,5], actual="
+                || outputShape.length != 2 || outputShape[0] != 1 || outputShape[1] != 6) {
+            throw new IllegalArgumentException("Output must be FLOAT32/INT8 [1,6], actual="
                     + outputDataType + " " + Arrays.toString(outputShape));
         }
         if (outputDataType == DataType.INT8 && outputQuantization.getScale() <= 0f) {

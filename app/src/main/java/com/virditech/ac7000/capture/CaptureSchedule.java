@@ -1,7 +1,7 @@
 package com.virditech.ac7000.capture;
 
 public final class CaptureSchedule {
-    public static final long STEP_COUNTDOWN_MS = 5_000L;
+    public static final long STEP_COUNTDOWN_MS = 4_000L;
     public static final CaptureStep[] DEFAULT_STEPS = {
             new CaptureStep(5, "CENTER", 20),
             new CaptureStep(1, "LEFT TOP", 10),

@@ -167,7 +167,7 @@ public final class MainScreenView {
         highQualityLp.bottomMargin = dp(4);
         expandableLayout.addView(highQualityOnlyContainer, highQualityLp);
 
-        String[] classes = {"live", "display", "picture", "print", "mask"};
+        String[] classes = {"live", "display", "picture", "print", "mask", "pmask"};
         for (String c : classes) {
             Button btn = new Button(activity);
             btn.setText(c);
