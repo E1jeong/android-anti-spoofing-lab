@@ -65,11 +65,19 @@ public final class MainScreenView {
         loadingSpinner.setIndeterminate(true);
         root.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
-        performance = label(22f);
-        FrameLayout.LayoutParams perfParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 56);
-        root.addView(performance, perfParams);
-
         int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
+
+        LinearLayout diagnosticsLayout = new LinearLayout(activity);
+        diagnosticsLayout.setOrientation(LinearLayout.VERTICAL);
+        diagnosticsLayout.setGravity(Gravity.START | Gravity.BOTTOM);
+        FrameLayout.LayoutParams diagnosticsParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START);
+        diagnosticsParams.setMargins(dp(16), dp(16), buttonWidth + dp(32), dp(16));
+
+        performance = label(22f);
+        diagnosticsLayout.addView(performance, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         resultsLabel = label(32f);
         resultsLabel.setTextColor(Color.WHITE);
@@ -82,8 +90,9 @@ public final class MainScreenView {
 
         status = label(22f);
         status.setText("Initializing...");
-        FrameLayout.LayoutParams statusParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
-        root.addView(status, statusParams);
+        diagnosticsLayout.addView(status, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        root.addView(diagnosticsLayout, diagnosticsParams);
 
         irCropContainer = new FrameLayout(activity);
         FrameLayout.LayoutParams irCropParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
