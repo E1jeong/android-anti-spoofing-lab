@@ -1,43 +1,59 @@
 # Anti-Spoofing Viewer
 
-Minimal Android shell for RGB/IR anti-spoofing model evaluation.
+Minimal Android test application for evaluating RGB/IR anti-spoofing TFLite models on UBio-N Face Pro hardware.
 
-## Required local inputs
+## Current model setup
 
-1. Put the standard model at `app/src/main/assets/anti_spoofing.tflite` (five-input contract: `cropRgb`, `cropIr`, `fullRgb`, `fullIr`, `heatmap`). Optionally put an NPU-friendly model at `app/src/main/assets/anti_spoofing_npu.tflite`; if it is absent, the NPU slot reuses the standard model file.
-2. Update `app/src/main/assets/model_spec.json` (standard) and `app/src/main/assets/model_spec_npu.json` (NPU) to match the training preprocessing contract.
-3. Supply the private Maven repository URL, Face SDK license, and platform-signing values through user-level Gradle properties or the ignored root `local.properties` file. Do not commit them.
-4. Ensure `/sdcard/devlocal/CalibConfig.dat` exists on the device, or create it with the built-in calibration flow.
+Model slots are declared in `app/src/main/assets/model_manifest.json`. The loader supports:
 
-Required Gradle property names:
+- `paired_1_input`: separate one-input RGB and IR models.
+- `dual_2_input`: one model receiving RGB and IR crops.
+- `five_input`: one model receiving RGB crop, IR crop, full RGB, full IR, and heatmap.
+
+The current manifest contains one `paired_1_input` slot:
+
+- RGB: `best_crop_rgb_fold3_npu_int8.tflite` with `model_spec_rgb.json`.
+- IR: `best_crop_ir_fold4_npu_int8.tflite` with `model_spec_ir.json`.
+
+Both models use NNAPI-first INT8 specs and run sequentially on the single inference executor, RGB followed by IR. The UI displays separate RGB/IR six-class probabilities and inference latency, plus paired processing FPS. On the target device, both assets have been verified to load with `Backend RGB NNAPI / IR NNAPI` and produce the six outputs `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `PMASK`.
+
+The runtime accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Every model must have one `FLOAT32` or `INT8` output with shape `[1,6]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
+
+NNAPI compilation caching must remain disabled because the target board's VSI NPU driver fails models with caching enabled. Treat the on-screen backend label as authoritative when measuring NPU performance.
+
+## Required local configuration
+
+Supply proprietary dependencies, the FaceMe license, and optional platform-signing values through user-level Gradle properties or the ignored root `local.properties`. Do not commit their values.
 
 ```properties
-PRIVATE_MAVEN_URL=...
-KEYSTORE_PATH=...
-KEY_ALIAS=...
-KEY_PASSWORD=...
-STORE_PASSWORD=...
+UBIO_MAVEN_URL=...
+FACEME_LICENSE_KEY=...
+UBIO_KEYSTORE_PATH=...
+UBIO_KEY_ALIAS=...
+UBIO_KEY_PASSWORD=...
+UBIO_STORE_PASSWORD=...
 ```
 
-`PRIVATE_MAVEN_URL` must point to a repository containing the proprietary face detection dependency. Without repository access and the target hardware inputs, a public checkout cannot perform a complete device build or runtime test.
+`UBIO_MAVEN_URL` must contain the proprietary FaceMe dependency. A public checkout without the repository, license, signing inputs, calibration data, and target hardware cannot perform a complete device validation.
 
-## Model runtime status
+## Data capture
 
-The app supports float and full INT8 TFLite models. The standard spec runs CPU/XNNPACK directly because the current standard full-INT8 export is known to fail NNAPI preparation on the target board. The NPU spec tries Android NNAPI first and falls back to CPU/XNNPACK if NNAPI preparation fails. The on-screen backend label is authoritative:
+Capture sessions save 100 valid samples. Files are written directly under `/sdcard/Pictures/raw` as `RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, and `meta.json`.
 
-- `Backend NNAPI`: NNAPI delegate was prepared.
-- `Backend CPU`: inference is running on CPU/XNNPACK, either by spec request or NNAPI fallback.
-
-Both the standard and NPU models are loaded and warmed up in parallel at startup. The loading spinner stays visible until both warmups finish (NNAPI compilation of the NPU model occupies the NPU driver that face detection also uses). The `MODEL: Standard / NPU` button is enabled once the NPU model finishes loading and switches the active model instantly.
-
-Current NPU experiment status: the NPU-friendly INT8 export compiles on NNAPI on the target board, but vendor compilation takes about 165 seconds at startup (performed in the background). The standard full-INT8 export is kept on CPU to avoid the known `ANEURALNETWORKS_BAD_DATA ... while adding operation` delegate failure. NNAPI compilation caching must stay disabled because the board's VSI NPU driver fails compilation when caching is enabled.
+- `live` uses `/live/high/live_<subject>/...` or `/live/medium/live_<subject>/...` and applies the selected FaceMe quality threshold.
+- `display`, `picture`, `print`, `mask`, and `pmask` use `/<class>/<class>_<subject>/...` and bypass quality checks.
+- Capture can be paused and resumed. Cancel invalidates queued work and deletes the current subject directory.
 
 ## Camera calibration
 
-Tap the invisible upper-left hotspot five times within two seconds to open camera calibration. Place exactly one face inside the guide and press `CONFIRM`. The app detects the face in synchronized RGB and IR frames, then writes the device-specific 64-byte `CalibConfig.dat`. Use `CANCEL` to exit without changing the saved calibration.
+Tap the invisible upper-left hotspot five times within two seconds to open calibration. Place exactly one face inside the guide and press `CONFIRM`. The app detects the face in synchronized RGB and IR frames and writes the device-specific 64-byte `CalibConfig.dat`. `CANCEL` exits without changing the saved calibration.
+
+The preferred path is `/sdcard/devlocal/CalibConfig.dat`; internal app storage is used as a fallback when the external path cannot be accessed.
 
 ## Build
 
 ```powershell
 ./gradlew.bat :app:compileDebugJavaWithJavac
 ```
+
+Hardware-dependent behavior still requires manual verification on the target device. The latest overlay draw-order and background change has compiled, but its final visual and touch/UI regression check remains pending.
