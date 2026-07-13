@@ -15,6 +15,7 @@ public final class OverlayView extends View {
     private final Paint boxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint irTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint textBackgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint guidePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint collectionGridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint collectionFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -40,6 +41,7 @@ public final class OverlayView extends View {
         irTextPaint.setColor(Color.rgb(64, 196, 255));
         irTextPaint.setTextSize(28f);
         irTextPaint.setShadowLayer(5f, 1f, 1f, Color.BLACK);
+        textBackgroundPaint.setColor(Color.argb(176, 0, 0, 0));
         guidePaint.setColor(Color.WHITE);
         guidePaint.setStyle(Paint.Style.STROKE);
         guidePaint.setStrokeWidth(6f);
@@ -128,20 +130,31 @@ public final class OverlayView extends View {
 
         float titleY = Math.max(32f, box.top - 10f);
         if (result == null) {
-            canvas.drawText("FACE", box.left, titleY, textPaint);
+            textPaint.setColor(Color.WHITE);
+            drawLabel(canvas, "FACE", box.left, titleY, textPaint);
             return;
         }
+        textPaint.setColor(color);
         if (irResult == null) {
-            canvas.drawText(formatResult(result), box.left, titleY, textPaint);
+            drawLabel(canvas, formatResult(result), box.left, titleY, textPaint);
             return;
         }
 
         String rgbText = formatResult(result);
         String irText = formatResult(irResult);
         float topLineY = Math.max(32f, box.top - 42f);
-        canvas.drawText(rgbText, box.left, topLineY, textPaint);
-        canvas.drawText(irText, box.left, Math.max(64f, box.top - 10f), irTextPaint);
+        drawLabel(canvas, rgbText, box.left, topLineY, textPaint);
+        drawLabel(canvas, irText, box.left, Math.max(64f, box.top - 10f), irTextPaint);
 
+    }
+
+    private void drawLabel(Canvas canvas, String text, float x, float baseline, Paint paint) {
+        float padding = 5f;
+        Paint.FontMetrics metrics = paint.getFontMetrics();
+        canvas.drawRect(x - padding, baseline + metrics.ascent - padding,
+                x + paint.measureText(text) + padding, baseline + metrics.descent + padding,
+                textBackgroundPaint);
+        canvas.drawText(text, x, baseline, paint);
     }
 
     private static String formatResult(ClassificationResult result) {

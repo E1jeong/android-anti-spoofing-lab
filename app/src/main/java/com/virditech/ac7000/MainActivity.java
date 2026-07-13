@@ -149,6 +149,8 @@ public final class MainActivity extends Activity {
     private volatile long irConversionMs;
     private volatile long detectionMs;
     private volatile long inferenceMs;
+    private volatile long rgbInferenceMs = -1L;
+    private volatile long irInferenceMs = -1L;
     private volatile float trackingFps;
     private volatile float inferenceFps;
     private long lastUiUpdateTimeMs;
@@ -771,6 +773,8 @@ public final class MainActivity extends Activity {
         SlotClassificationResult result = activeClassifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
                 task.pair.ir.bitmap, task.irCrop);
         inferenceMs = result.inferenceMs;
+        rgbInferenceMs = result.rgbResult != null ? result.rgbResult.inferenceMs : -1L;
+        irInferenceMs = result.irResult != null ? result.irResult.inferenceMs : -1L;
         updateInferenceFps();
 
         runOnUiThread(() -> {
@@ -1038,7 +1042,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private String formatPerformance() {
+    private CharSequence formatPerformance() {
         if (enginesWarmedUp && qualityWarmedUp && loadingSpinner.getVisibility() == View.VISIBLE) {
             loadingSpinner.setVisibility(View.GONE);
             irLoadingSpinner.setVisibility(View.GONE);
@@ -1049,6 +1053,17 @@ public final class MainActivity extends Activity {
             }
         }
         String backend = classifier != null ? classifier.inferenceBackend() : "MODEL";
+        if (rgbInferenceMs >= 0L && irInferenceMs >= 0L) {
+            String prefix = String.format(Locale.US,
+                    "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference RGB %d ms  %.1f FPS\n",
+                    rgbConversionMs, irConversionMs, detectionMs, trackingFps, rgbInferenceMs, inferenceFps);
+            String irText = String.format(Locale.US, "Inference IR %d ms", irInferenceMs);
+            String suffix = String.format(Locale.US, "\nBackend %s", backend);
+            SpannableString text = new SpannableString(prefix + irText + suffix);
+            text.setSpan(new ForegroundColorSpan(IR_RESULT_COLOR), prefix.length(),
+                    prefix.length() + irText.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            return text;
+        }
         return String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS\nBackend %s",
                 rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps, backend);
     }

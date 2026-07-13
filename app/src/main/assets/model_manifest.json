@@ -1,17 +1,11 @@
 {
   "models": [
     {
-      "label": "MODEL 1 (Dual)",
-      "type": "dual_2_input",
-      "model": "anti_spoofing.tflite",
-      "spec": "model_spec.json"
-    },
-    {
-      "label": "MODEL 2 (Paired 1-Input)",
+      "label": "MODEL 1 (Paired 1-Input)",
       "type": "paired_1_input",
-      "rgbModel": "best_crop_rgb_fold0_npu_int8.tflite",
+      "rgbModel": "best_crop_rgb_fold3_npu_int8.tflite",
       "rgbSpec": "model_spec_rgb.json",
-      "irModel": "best_crop_ir_fold0_npu_int8.tflite",
+      "irModel": "best_crop_ir_fold4_npu_int8.tflite",
       "irSpec": "model_spec_ir.json"
     }
   ]

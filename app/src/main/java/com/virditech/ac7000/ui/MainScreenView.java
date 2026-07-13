@@ -59,11 +59,9 @@ public final class MainScreenView {
         overlay = new OverlayView(activity);
         root.addView(rgbView, match());
         root.addView(irView, match());
-        root.addView(overlay, match());
 
         loadingSpinner = new ProgressBar(activity);
         loadingSpinner.setIndeterminate(true);
-        root.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
         int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
 
@@ -87,6 +85,8 @@ public final class MainScreenView {
                 Gravity.TOP | Gravity.START);
         resultsParams.setMargins(dp(16), dp(16), buttonWidth + dp(16), dp(16));
         root.addView(resultsLabel, resultsParams);
+        root.addView(overlay, match());
+        root.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
         status = label(22f);
         status.setText("Initializing...");
