@@ -25,12 +25,13 @@ The application performs the following pipeline:
 - Model slots and their model/spec assets are declared in `app/src/main/assets/model_manifest.json`.
 - Supported slot types are `paired_1_input`, `dual_2_input`, and `five_input`. A 1-input spec must declare `inputKind` as `rgb` or `ir`; 5-input specs map `cropRgb`, `cropIr`, `fullRgb`, `fullIr`, and `heatmap` by configured tensor-name substring.
 - The current manifest contains one `paired_1_input` slot using `best_crop_rgb_fixed_npu_int8.tflite`/`model_spec_rgb.json` and `best_crop_ir_fixed_npu_int8.tflite`/`model_spec_ir.json`.
-- Supported input types are `FLOAT32`, `UINT8`, and `INT8`.
+- The parser accepts `FLOAT32`, `UINT8`, and `INT8` inputs, but current deployment verification covers float and full INT8 only. UINT8 normalization/quantization semantics are not yet verified against an exported model.
 - The model must have one `FLOAT32` or `INT8` output with shape `[1,6]`.
 - Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `PMASK` (must match `ClassificationResult.LABELS`). Internal class identifiers and capture paths use lowercase `pmask`.
 - Spec JSONs control channel order (RGB/BGR), normalization values, delegate backend (`cpu`/`nnapi`), whether the output contains logits, and the crop margin ratio.
 - Do not change preprocessing, output ordering, or tensor assumptions without updating the model contract and verifying them against the exported model.
-- **Current deployment supports float and full INT8 models.** Each spec chooses `cpu` or `nnapi`; NNAPI failure falls back to CPU/XNNPACK. Do not report acceleration until the on-device backend label and latency are checked.
+- **Current deployment supports float and full INT8 models.** Each spec chooses `cpu` or `nnapi`. A CPU spec uses CPU/XNNPACK; an NNAPI setup failure currently fails that manifest slot instead of falling back to CPU. The desired long-term fallback policy is still open. Do not report acceleration until model warmup, the on-device backend label, logcat, and latency are checked.
+- Model warmup invocation failures are currently logged without rejecting the loaded slot. Treat this as a known diagnostic gap: `Backend NNAPI` shows the requested interpreter path, not proof that every operation executed on the NPU.
 - The previous paired RGB fold3 and IR fold4 INT8 configuration was observed on the target device with `Backend RGB NNAPI / IR NNAPI` and six-class output. The current manifest selects the fixed-split RGB/IR artifacts; this exact fixed/fixed pairing still requires target-device model-load, backend-label, probability-output, and latency/FPS verification. The latest overlay readability change also needs final visual verification.
 - **Do not enable NNAPI compilation caching** (`NnApiDelegate.Options.setCacheDir`/`setModelToken`): the VSI NPU driver on this board fails compilation with `File ... couldn't be opened for reading` + `ANEURALNETWORKS_OP_FAILED` when caching is set, breaking models that otherwise compile fine.
 - The current RGB and IR paired specs use `[0.5]` mean/std normalization and `delegate: nnapi`. Always verify preprocessing against the exact exported model assigned in the manifest.
@@ -71,7 +72,7 @@ Default compile validation:
 
 - Run the default compile validation after code or build changes. Use a narrower check only when it fully covers the changed behavior.
 - If the model changes, verify that the model loads and that its input/output tensors match the documented contract.
-- For NNAPI/NPU changes, verify the on-device backend label. With the NPU model selected, `Backend CPU` means NNAPI preparation failed and measurements are CPU/XNNPACK, not NPU.
+- For NNAPI/NPU changes, verify model warmup, the on-device backend label, logcat, and latency. In the current runtime, `Backend CPU` means the spec explicitly requested CPU/XNNPACK; NNAPI preparation failure rejects the slot. `Backend NNAPI` alone does not prove that every operation was delegated to the NPU.
 - Hardware-dependent changes require manual verification on the target device. At minimum, check RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, all six output probabilities, inference timing, and cleanup/restart across pause and resume.
 - Calibration changes must also verify hidden-mode entry, single-face validation for both cameras, cancel-without-save, persisted alignment after restart, and compatibility with the production RGB-to-IR mapping formula.
 - If hardware validation cannot be performed, state which checks remain unverified and the resulting risk.

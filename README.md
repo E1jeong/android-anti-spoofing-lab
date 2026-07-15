@@ -17,9 +17,9 @@ The current manifest contains one `paired_1_input` slot:
 
 Both models use NNAPI-first INT8 specs and run sequentially on the single inference executor, RGB followed by IR. The UI displays separate RGB/IR six-class probabilities and inference latency, plus paired processing FPS. The previous RGB fold3/IR fold4 pair was verified on the target device with `Backend RGB NNAPI / IR NNAPI` and six outputs. The current fixed/fixed pair still requires target-device model-load, backend-label, probability-output, and latency/FPS verification.
 
-The runtime accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Every model must have one `FLOAT32` or `INT8` output with shape `[1,6]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
+The runtime parser accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Current deployment verification covers float and full INT8; UINT8 normalization/quantization semantics have not yet been verified against an exported model. Every model must have one `FLOAT32` or `INT8` output with shape `[1,6]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
 
-NNAPI compilation caching must remain disabled because the target board's VSI NPU driver fails models with caching enabled. Treat the on-screen backend label as authoritative when measuring NPU performance.
+NNAPI compilation caching must remain disabled because the target board's VSI NPU driver fails models with caching enabled. A `cpu` spec uses CPU/XNNPACK, while NNAPI setup failure currently rejects that manifest slot instead of falling back. Verify model warmup, the on-screen backend label, logcat, and latency together; `Backend NNAPI` alone does not prove that every operation ran on the NPU.
 
 ## Required local configuration
 
