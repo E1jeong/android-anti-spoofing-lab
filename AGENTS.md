@@ -24,14 +24,14 @@ The application performs the following pipeline:
 
 - Model slots and their model/spec assets are declared in `app/src/main/assets/model_manifest.json`.
 - Supported slot types are `paired_1_input`, `dual_2_input`, and `five_input`. A 1-input spec must declare `inputKind` as `rgb` or `ir`; 5-input specs map `cropRgb`, `cropIr`, `fullRgb`, `fullIr`, and `heatmap` by configured tensor-name substring.
-- The current manifest contains one `paired_1_input` slot using `best_crop_rgb_fold4_npu_int8.tflite`/`model_spec_rgb.json` and `best_crop_ir_fold4_npu_int8.tflite`/`model_spec_ir.json`.
+- The current manifest contains one `paired_1_input` slot using `best_crop_rgb_fixed_npu_int8.tflite`/`model_spec_rgb.json` and `best_crop_ir_fixed_npu_int8.tflite`/`model_spec_ir.json`.
 - Supported input types are `FLOAT32`, `UINT8`, and `INT8`.
 - The model must have one `FLOAT32` or `INT8` output with shape `[1,6]`.
 - Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `PMASK` (must match `ClassificationResult.LABELS`). Internal class identifiers and capture paths use lowercase `pmask`.
 - Spec JSONs control channel order (RGB/BGR), normalization values, delegate backend (`cpu`/`nnapi`), whether the output contains logits, and the crop margin ratio.
 - Do not change preprocessing, output ordering, or tensor assumptions without updating the model contract and verifying them against the exported model.
 - **Current deployment supports float and full INT8 models.** Each spec chooses `cpu` or `nnapi`; NNAPI failure falls back to CPU/XNNPACK. Do not report acceleration until the on-device backend label and latency are checked.
-- The previous paired RGB fold3 and IR fold4 INT8 configuration was observed on the target device with `Backend RGB NNAPI / IR NNAPI` and six-class output. The current manifest changes RGB to fold4; this exact fold4/fold4 pairing still requires target-device model-load, backend-label, probability-output, and latency/FPS verification. The latest overlay readability change also needs final visual verification.
+- The previous paired RGB fold3 and IR fold4 INT8 configuration was observed on the target device with `Backend RGB NNAPI / IR NNAPI` and six-class output. The current manifest selects the fixed-split RGB/IR artifacts; this exact fixed/fixed pairing still requires target-device model-load, backend-label, probability-output, and latency/FPS verification. The latest overlay readability change also needs final visual verification.
 - **Do not enable NNAPI compilation caching** (`NnApiDelegate.Options.setCacheDir`/`setModelToken`): the VSI NPU driver on this board fails compilation with `File ... couldn't be opened for reading` + `ANEURALNETWORKS_OP_FAILED` when caching is set, breaking models that otherwise compile fine.
 - The current RGB and IR paired specs use `[0.5]` mean/std normalization and `delegate: nnapi`. Always verify preprocessing against the exact exported model assigned in the manifest.
 
@@ -84,7 +84,7 @@ Default compile validation:
 - The numbers above were measured on 2026-07-01. On 2026-07-02 the preprocessing lookup tables (LUT), heatmap buffer caching, NV21 buffer reuse, chroma row bulk copy, and lock-free inference optimizations were applied, so re-measure on the target device before quoting them.
 
 ### 2. Evaluation Branch Management
-- **`master` Branch**: Current manifest-based evaluator supporting paired 1-input, dual 2-input, and 5-input slots. The checked-in manifest currently selects only the paired RGB fold4/IR fold4 slot; this exact pairing is not yet verified on the target device.
+- **`master` Branch**: Current manifest-based evaluator supporting paired 1-input, dual 2-input, and 5-input slots. The checked-in manifest currently selects only the paired fixed-split RGB/IR slot; this exact pairing is not yet verified on the target device.
 - **`codex/keras-5-input-tflite` Branch**: Earlier experimental branch for the standard/NPU hot-swap and 5-input path. Do not copy its slot assumptions into `master` documentation.
 
 ### 3. Tracking failed Debugging

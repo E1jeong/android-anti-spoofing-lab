@@ -12,10 +12,10 @@ Model slots are declared in `app/src/main/assets/model_manifest.json`. The loade
 
 The current manifest contains one `paired_1_input` slot:
 
-- RGB: `best_crop_rgb_fold3_npu_int8.tflite` with `model_spec_rgb.json`.
-- IR: `best_crop_ir_fold4_npu_int8.tflite` with `model_spec_ir.json`.
+- RGB: `best_crop_rgb_fixed_npu_int8.tflite` with `model_spec_rgb.json`.
+- IR: `best_crop_ir_fixed_npu_int8.tflite` with `model_spec_ir.json`.
 
-Both models use NNAPI-first INT8 specs and run sequentially on the single inference executor, RGB followed by IR. The UI displays separate RGB/IR six-class probabilities and inference latency, plus paired processing FPS. On the target device, both assets have been verified to load with `Backend RGB NNAPI / IR NNAPI` and produce the six outputs `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `PMASK`.
+Both models use NNAPI-first INT8 specs and run sequentially on the single inference executor, RGB followed by IR. The UI displays separate RGB/IR six-class probabilities and inference latency, plus paired processing FPS. The previous RGB fold3/IR fold4 pair was verified on the target device with `Backend RGB NNAPI / IR NNAPI` and six outputs. The current fixed/fixed pair still requires target-device model-load, backend-label, probability-output, and latency/FPS verification.
 
 The runtime accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Every model must have one `FLOAT32` or `INT8` output with shape `[1,6]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
 

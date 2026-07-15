@@ -3,9 +3,9 @@
     {
       "label": "MODEL 1 (Paired 1-Input)",
       "type": "paired_1_input",
-      "rgbModel": "best_crop_rgb_fold4_npu_int8.tflite",
+      "rgbModel": "best_crop_rgb_fixed_npu_int8.tflite",
       "rgbSpec": "model_spec_rgb.json",
-      "irModel": "best_crop_ir_fold4_npu_int8.tflite",
+      "irModel": "best_crop_ir_fixed_npu_int8.tflite",
       "irSpec": "model_spec_ir.json"
     }
   ]
