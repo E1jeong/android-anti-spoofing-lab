@@ -19,7 +19,7 @@ Both models use NNAPI-first INT8 specs and run sequentially on the single infere
 
 The runtime parser accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Current deployment verification covers float and full INT8; UINT8 normalization/quantization semantics have not yet been verified against an exported model. Every model must have one `FLOAT32` or `INT8` output with shape `[1,6]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
 
-NNAPI compilation caching must remain disabled because the target board's VSI NPU driver fails models with caching enabled. A `cpu` spec uses CPU/XNNPACK, while NNAPI setup failure currently rejects that manifest slot instead of falling back. Verify model warmup, the on-screen backend label, logcat, and latency together; `Backend NNAPI` alone does not prove that every operation ran on the NPU.
+NNAPI compilation caching must remain disabled because the target board's VSI NPU driver fails models with caching enabled. A `cpu` spec uses CPU/XNNPACK, while NNAPI setup or model warmup failure rejects that manifest slot instead of falling back. This no-fallback behavior is intentional for NPU evaluation. Verify model warmup, the on-screen backend label, logcat, and latency together; `Backend NNAPI` alone does not prove that every operation ran on the NPU.
 
 ## Required local configuration
 

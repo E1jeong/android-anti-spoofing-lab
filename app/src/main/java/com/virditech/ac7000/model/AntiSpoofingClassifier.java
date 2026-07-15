@@ -126,6 +126,8 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             Log.i(TAG, "Model warmup completed in " + warmupDuration + " ms using " + inferenceBackend);
         } catch (Exception e) {
             Log.e(TAG, "Failed to warmup model: " + e.getMessage(), e);
+            try { close(); } catch (Exception closeError) { e.addSuppressed(closeError); }
+            throw new IllegalStateException("Model warmup failed for " + modelName + " with " + specName, e);
         }
     }
 

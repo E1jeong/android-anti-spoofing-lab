@@ -20,6 +20,8 @@ import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
 
+import com.virditech.ac7000.concurrent.GenerationGuard;
+
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,6 +42,7 @@ final class CameraStream {
     private final YuvConverter converter;
     private final ExecutorService conversionExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean conversionBusy = new AtomicBoolean(false);
+    private final GenerationGuard generationGuard = new GenerationGuard();
     private CameraDevice device;
     private CameraCaptureSession session;
     private ImageReader reader;
@@ -59,9 +62,12 @@ final class CameraStream {
 
     void start(Handler handler) {
         this.handler = handler;
-        if (textureView.isAvailable()) open();
+        int generation = generationGuard.advance();
+        if (textureView.isAvailable()) open(generation);
         else textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
-            @Override public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) { open(); }
+            @Override public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+                open(generation);
+            }
             @Override public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {}
             @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) { return true; }
             @Override public void onSurfaceTextureUpdated(SurfaceTexture surface) {}
@@ -73,7 +79,8 @@ final class CameraStream {
     }
 
     @SuppressLint("MissingPermission")
-    private void open() {
+    private void open(int generation) {
+        if (!generationGuard.isCurrent(generation)) return;
         if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             listener.onError("CAMERA permission is missing");
             return;
@@ -84,12 +91,25 @@ final class CameraStream {
             if (cameraId == null) throw new IllegalStateException(color ? "RGB camera not found" : "IR camera not found");
             rotatePreview();
             manager.openCamera(cameraId, new CameraDevice.StateCallback() {
-                @Override public void onOpened(CameraDevice camera) { device = camera; createSession(); }
-                @Override public void onDisconnected(CameraDevice camera) { camera.close(); listener.onError("Camera disconnected"); }
-                @Override public void onError(CameraDevice camera, int error) { camera.close(); listener.onError("Camera error " + error); }
+                @Override public void onOpened(CameraDevice camera) {
+                    if (!generationGuard.isCurrent(generation)) {
+                        camera.close();
+                        return;
+                    }
+                    device = camera;
+                    createSession(generation, camera);
+                }
+                @Override public void onDisconnected(CameraDevice camera) {
+                    camera.close();
+                    if (generationGuard.isCurrent(generation)) listener.onError("Camera disconnected");
+                }
+                @Override public void onError(CameraDevice camera, int error) {
+                    camera.close();
+                    if (generationGuard.isCurrent(generation)) listener.onError("Camera error " + error);
+                }
             }, handler);
         } catch (Exception e) {
-            listener.onError(e.getMessage());
+            if (generationGuard.isCurrent(generation)) listener.onError(e.getMessage());
         }
     }
 
@@ -101,16 +121,22 @@ final class CameraStream {
         return null;
     }
 
-    private void createSession() {
+    private void createSession(int generation, CameraDevice camera) {
         try {
             SurfaceTexture texture = textureView.getSurfaceTexture();
-            if (texture == null || device == null) return;
+            if (texture == null || !generationGuard.isCurrent(generation)) {
+                camera.close();
+                return;
+            }
             texture.setDefaultBufferSize(FRAME_SIZE.getWidth(), FRAME_SIZE.getHeight());
             Surface preview = new Surface(texture);
-            reader = ImageReader.newInstance(FRAME_SIZE.getWidth(), FRAME_SIZE.getHeight(), ImageFormat.YUV_420_888, 3);
-            reader.setOnImageAvailableListener(r -> {
+            ImageReader generationReader = ImageReader.newInstance(
+                    FRAME_SIZE.getWidth(), FRAME_SIZE.getHeight(), ImageFormat.YUV_420_888, 3);
+            reader = generationReader;
+            generationReader.setOnImageAvailableListener(r -> {
                 try (Image image = r.acquireLatestImage()) {
                     if (image == null) return;
+                    if (!generationGuard.isCurrent(generation)) return;
                     if (!frameDeliveryEnabled) return;
                     if (conversionBusy.get()) return;
 
@@ -128,33 +154,49 @@ final class CameraStream {
                     conversionExecutor.execute(() -> {
                         try {
                             FrameData frame = converter.toPortraitFrame(nv21Data, w, h, timestamp, !color, mirrorHorizontally());
-                            listener.onFrame(frame);
+                            if (generationGuard.isCurrent(generation)) listener.onFrame(frame);
+                            else frame.recycle();
                         } catch (Exception e) {
-                            listener.onError("Frame conversion failed: " + e.getMessage());
+                            if (generationGuard.isCurrent(generation)) {
+                                listener.onError("Frame conversion failed: " + e.getMessage());
+                            }
                         } finally {
                             conversionBusy.set(false);
                         }
                     });
                 } catch (Exception e) {
-                    listener.onError("Frame acquisition failed: " + e.getMessage());
-                }
-            }, handler);
-            device.createCaptureSession(Arrays.asList(preview, reader.getSurface()), new CameraCaptureSession.StateCallback() {
-                @Override public void onConfigured(CameraCaptureSession configured) {
-                    session = configured;
-                    try {
-                        CaptureRequest.Builder request = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                        request.addTarget(preview);
-                        request.addTarget(reader.getSurface());
-                        session.setRepeatingRequest(request.build(), null, handler);
-                    } catch (CameraAccessException e) {
-                        listener.onError(e.getMessage());
+                    if (generationGuard.isCurrent(generation)) {
+                        listener.onError("Frame acquisition failed: " + e.getMessage());
                     }
                 }
-                @Override public void onConfigureFailed(CameraCaptureSession failed) { listener.onError("Camera session configuration failed"); }
+            }, handler);
+            camera.createCaptureSession(Arrays.asList(preview, generationReader.getSurface()), new CameraCaptureSession.StateCallback() {
+                @Override public void onConfigured(CameraCaptureSession configured) {
+                    if (!generationGuard.isCurrent(generation)) {
+                        configured.close();
+                        generationReader.close();
+                        return;
+                    }
+                    session = configured;
+                    try {
+                        CaptureRequest.Builder request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                        request.addTarget(preview);
+                        request.addTarget(generationReader.getSurface());
+                        configured.setRepeatingRequest(request.build(), null, handler);
+                    } catch (CameraAccessException e) {
+                        if (generationGuard.isCurrent(generation)) listener.onError(e.getMessage());
+                    }
+                }
+                @Override public void onConfigureFailed(CameraCaptureSession failed) {
+                    failed.close();
+                    generationReader.close();
+                    if (generationGuard.isCurrent(generation)) {
+                        listener.onError("Camera session configuration failed");
+                    }
+                }
             }, handler);
         } catch (CameraAccessException e) {
-            listener.onError(e.getMessage());
+            if (generationGuard.isCurrent(generation)) listener.onError(e.getMessage());
         }
     }
 
@@ -175,6 +217,7 @@ final class CameraStream {
     }
 
     void stop() {
+        generationGuard.advance();
         textureView.setSurfaceTextureListener(null);
         if (session != null) {
             try { session.stopRepeating(); } catch (Exception ignored) {}

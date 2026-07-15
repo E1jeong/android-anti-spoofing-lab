@@ -38,6 +38,7 @@ import com.virditech.ac7000.capture.CaptureProgressText;
 import com.virditech.ac7000.capture.CaptureSchedule;
 import com.virditech.ac7000.capture.CaptureStep;
 import com.virditech.ac7000.capture.CaptureStorage;
+import com.virditech.ac7000.concurrent.GenerationGuard;
 import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.device.HardwareControls;
 import com.virditech.ac7000.device.IrCameraExposureController;
@@ -77,6 +78,7 @@ public final class MainActivity extends Activity {
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
     private final AtomicBoolean inferenceWorkerRunning = new AtomicBoolean();
     private final AtomicBoolean calibrationRequested = new AtomicBoolean();
+    private final GenerationGuard pipelineGeneration = new GenerationGuard();
     private final Object irLock = new Object();
     private FrameData latestIr;
     private final Object irPreviewLock = new Object();
@@ -100,7 +102,7 @@ public final class MainActivity extends Activity {
     private final AtomicInteger pendingEngineLoads = new AtomicInteger(2);
     private final ArrayList<ModelSlotClassifier> classifiers = new ArrayList<>();
     private int activeClassifierIndex;
-    private boolean enginesShutDown;
+    private volatile boolean enginesShutDown;
     // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
     // detection also uses, so tracking stalls until every warmup finishes. Keep the
     // loading spinner up until then instead of pretending the camera is usable.
@@ -287,7 +289,13 @@ public final class MainActivity extends Activity {
             }
             try {
                 FaceDetector detector = new FaceDetector(getApplicationContext());
-                faceDetector = detector;
+                synchronized (classifierLock) {
+                    if (enginesShutDown) {
+                        detector.close();
+                        return;
+                    }
+                    faceDetector = detector;
+                }
                 if (!detector.isQualityAvailable()) {
                     String message = detector.qualityError();
                     reportEngineError(message.isEmpty() ? "Face quality unavailable" : message);
@@ -343,6 +351,7 @@ public final class MainActivity extends Activity {
 
     private void onEngineLoadFinished() {
         if (pendingEngineLoads.decrementAndGet() != 0) return;
+        if (enginesShutDown) return;
         enginesWarmedUp = true;
         runOnUiThread(() -> {
             if (!resumed) return;
@@ -351,7 +360,7 @@ public final class MainActivity extends Activity {
     }
 
     private void reportEngineError(String message) {
-        if (message == null) return;
+        if (message == null || enginesShutDown) return;
         synchronized (engineErrors) {
             append(engineErrors, message);
         }
@@ -359,6 +368,7 @@ public final class MainActivity extends Activity {
     }
 
     private void updateEngineStatus() {
+        if (enginesShutDown) return;
         String errors;
         synchronized (engineErrors) {
             errors = engineErrors.toString();
@@ -373,13 +383,16 @@ public final class MainActivity extends Activity {
 
     private void startCameras() {
         if (!resumed || cameras != null || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
+        final int generation = pipelineGeneration.advance();
         HardwareControls.setLcdBrightness(90);
         HardwareControls.setIrLed(true);
         IrCameraExposureController.applyFullAutoExposure();
         cameras = new DualCameraController(this, rgbView, irView, new DualCameraController.Listener() {
-            @Override public void onRgb(FrameData frame) { submitTracking(frame); }
-            @Override public void onIr(FrameData frame) { offerIr(frame); }
-            @Override public void onError(String message) { showTransientStatus(message); }
+            @Override public void onRgb(FrameData frame) { submitTracking(frame, generation); }
+            @Override public void onIr(FrameData frame) { offerIr(frame, generation); }
+            @Override public void onError(String message) {
+                if (isPipelineCurrent(generation)) showTransientStatus(message);
+            }
         });
         cameras.setIrFramesEnabled(true);
         cameras.start();
@@ -395,6 +408,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPause() {
         if (calibrationMode) exitCalibrationMode();
         resumed = false;
+        pipelineGeneration.advance();
         if (cameras != null) {
             cameras.stop();
             cameras = null;
@@ -411,7 +425,15 @@ public final class MainActivity extends Activity {
         super.onPause();
     }
 
-    private void offerIr(FrameData frame) {
+    private boolean isPipelineCurrent(int generation) {
+        return resumed && pipelineGeneration.isCurrent(generation);
+    }
+
+    private void offerIr(FrameData frame, int generation) {
+        if (!isPipelineCurrent(generation)) {
+            frame.recycle();
+            return;
+        }
         if (!showIr) {
             long now = SystemClock.elapsedRealtime();
             if (now - lastIrCropCopyTimeMs >= 66L) {
@@ -431,7 +453,11 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void submitTracking(FrameData rgb) {
+    private void submitTracking(FrameData rgb, int generation) {
+        if (!isPipelineCurrent(generation)) {
+            rgb.recycle();
+            return;
+        }
         FrameData ir = null;
         synchronized (irLock) {
             if (latestIr != null) {
@@ -445,7 +471,7 @@ public final class MainActivity extends Activity {
                 }
             }
         }
-        TrackingFrame replaced = pendingTracking.getAndSet(new TrackingFrame(rgb, ir));
+        TrackingFrame replaced = pendingTracking.getAndSet(new TrackingFrame(rgb, ir, generation));
         if (replaced != null) replaced.recycle();
         if (trackingWorkerRunning.compareAndSet(false, true)) trackingExecutor.execute(this::drainTracking);
     }
@@ -457,7 +483,7 @@ public final class MainActivity extends Activity {
                 try { processTracking(frame); }
                 catch (Exception e) {
                     android.util.Log.e("MainActivity", "Tracking failed in drainTracking", e);
-                    showTransientStatus("Tracking failed");
+                    if (isPipelineCurrent(frame.generation)) showTransientStatus("Tracking failed");
                 }
                 finally { frame.recycle(); }
             }
@@ -466,23 +492,26 @@ public final class MainActivity extends Activity {
             if (pendingTracking.get() != null && trackingWorkerRunning.compareAndSet(false, true)) {
                 trackingExecutor.execute(this::drainTracking);
             }
+            if (enginesShutDown) closeFaceDetector();
         }
     }
 
     private void processTracking(TrackingFrame frame) {
+        if (!isPipelineCurrent(frame.generation)) return;
         if (faceDetector == null || calibration == null) return;
         boolean captureCalibration = calibrationMode && calibrationRequested.getAndSet(false);
         long start = SystemClock.elapsedRealtimeNanos();
         Rect detected = captureCalibration
                 ? faceDetector.detectSingle(frame.rgb.bitmap)
                 : faceDetector.detectLargest(frame.rgb.bitmap);
+        if (!isPipelineCurrent(frame.generation)) return;
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         rgbConversionMs = frame.rgb.conversionMs;
         if (frame.ir != null) irConversionMs = frame.ir.conversionMs;
         updateTrackingFps();
         if (detected == null) {
             runOnUiThread(() -> {
-                if (!resumed) return;
+                if (!isPipelineCurrent(frame.generation)) return;
                 overlay.clearResult();
                 clearPreviewFace();
                 faceCropView.setScaleX(1f);
@@ -514,12 +543,20 @@ public final class MainActivity extends Activity {
         if (captureCalibration) {
             if (frame.ir == null) {
                 calibrationRequested.set(true);
-                runOnUiThread(() -> calibrationInstruction.setText("Waiting for a synchronized IR frame. Hold still..."));
+                runOnUiThread(() -> {
+                    if (isPipelineCurrent(frame.generation)) {
+                        calibrationInstruction.setText("Waiting for a synchronized IR frame. Hold still...");
+                    }
+                });
                 return;
             }
             Rect detectedIr = faceDetector.detectSingle(frame.ir.bitmap);
             if (detectedIr == null) {
-                runOnUiThread(() -> calibrationInstruction.setText("Exactly one IR face is required. Try again."));
+                runOnUiThread(() -> {
+                    if (isPipelineCurrent(frame.generation)) {
+                        calibrationInstruction.setText("Exactly one IR face is required. Try again.");
+                    }
+                });
                 return;
             }
             if (!calibrationMode) return;
@@ -529,12 +566,16 @@ public final class MainActivity extends Activity {
                 calibration = measured;
                 normalStatusMessage = "Calibration saved";
                 runOnUiThread(() -> {
-                    if (!resumed) return;
+                    if (!isPipelineCurrent(frame.generation)) return;
                     exitCalibrationMode();
                     status.setText("Calibration saved");
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> calibrationInstruction.setText("Unable to save calibration: " + e.getMessage()));
+                runOnUiThread(() -> {
+                    if (isPipelineCurrent(frame.generation)) {
+                        calibrationInstruction.setText("Unable to save calibration: " + e.getMessage());
+                    }
+                });
             }
             return;
         }
@@ -567,7 +608,7 @@ public final class MainActivity extends Activity {
         final boolean finalPreviewRgb = previewRgb;
 
         runOnUiThread(() -> {
-            if (!resumed) {
+            if (!isPipelineCurrent(frame.generation)) {
                 if (finalPreviewFace != null) finalPreviewFace.recycle();
                 return;
             }
@@ -602,12 +643,15 @@ public final class MainActivity extends Activity {
                 if (!quality.passed) {
                     android.util.Log.i(TAG, "Collection quality skipped: " + quality.reason);
                     runOnUiThread(() -> {
-                        if (resumed && isCollecting) updateCollectionUi(SystemClock.elapsedRealtime());
+                        if (isPipelineCurrent(frame.generation) && isCollecting) {
+                            updateCollectionUi(SystemClock.elapsedRealtime());
+                        }
                     });
                     return;
                 }
                 sampleQuality = quality;
             }
+            if (!isPipelineCurrent(frame.generation)) return;
             if (collectionPaused) return;
             if (!isActiveCollection(sessionId, className, subjectId)) return;
             ioBusy = true;
@@ -655,7 +699,8 @@ public final class MainActivity extends Activity {
                     boolean saved = false;
                     boolean sectorCompleted = false;
                     try {
-                        if (!isActiveCollection(sessionId, className, subjectId)) {
+                        if (!isPipelineCurrent(frame.generation)
+                                || !isActiveCollection(sessionId, className, subjectId)) {
                             CaptureStorage.recycleBitmaps(fullRGB, cropRGB, fullIR, cropIR);
                             return;
                         }
@@ -687,7 +732,8 @@ public final class MainActivity extends Activity {
                             cropIR.recycle();
                         }
                         if (savedAll) savedAll = saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
-                        if (savedAll && isActiveCollection(sessionId, className, subjectId)) {
+                        if (savedAll && isPipelineCurrent(frame.generation)
+                                && isActiveCollection(sessionId, className, subjectId)) {
                             collectionCount = currentCount;
                             CaptureStep captureStep = currentCollectionStep();
                             collectionStepCount++;
@@ -710,7 +756,7 @@ public final class MainActivity extends Activity {
                     final boolean savedSample = saved;
                     final boolean completedSector = sectorCompleted;
                     runOnUiThread(() -> {
-                        if (!isCollecting) return;
+                        if (!isPipelineCurrent(frame.generation) || !isCollecting) return;
                         updateCollectionUi(SystemClock.elapsedRealtime());
                         if (savedSample && completedSector) {
                             playCollectionFinishedTone();
@@ -729,7 +775,8 @@ public final class MainActivity extends Activity {
         }
 
         if (isCollecting || rgbCrop == null || irCrop == null || frame.ir == null) return;
-        submitInference(new InferenceTask(frame.detachPair(), rgbCrop, irCrop));
+        submitInference(new InferenceTask(frame.detachPair(), rgbCrop, irCrop,
+                frame.generation, activeClassifier));
     }
 
     private static Bitmap createCropPreviewBitmap(Bitmap source, Rect crop) {
@@ -755,7 +802,7 @@ public final class MainActivity extends Activity {
                 try { processInference(task); }
                 catch (Exception e) {
                     android.util.Log.e("MainActivity", "Inference failed in drainInference", e);
-                    showTransientStatus("Inference failed");
+                    if (isPipelineCurrent(task.generation)) showTransientStatus("Inference failed");
                 }
                 finally { task.recycle(); }
             }
@@ -764,21 +811,22 @@ public final class MainActivity extends Activity {
             if (pendingInference.get() != null && inferenceWorkerRunning.compareAndSet(false, true)) {
                 inferenceExecutor.execute(this::drainInference);
             }
+            if (enginesShutDown) closeClassifiers();
         }
     }
 
     private void processInference(InferenceTask task) {
-        ModelSlotClassifier activeClassifier = classifier;
-        if (activeClassifier == null) return;
-        SlotClassificationResult result = activeClassifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
+        if (!isPipelineCurrent(task.generation) || task.classifier == null) return;
+        SlotClassificationResult result = task.classifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
                 task.pair.ir.bitmap, task.irCrop);
+        if (!isPipelineCurrent(task.generation)) return;
         inferenceMs = result.inferenceMs;
         rgbInferenceMs = result.rgbResult != null ? result.rgbResult.inferenceMs : -1L;
         irInferenceMs = result.irResult != null ? result.irResult.inferenceMs : -1L;
         updateInferenceFps();
 
         runOnUiThread(() -> {
-            if (!resumed) return;
+            if (!isPipelineCurrent(task.generation)) return;
             overlay.showResult(result.primaryResult(), result.irResult);
             resultsLabel.setText(formatClassificationResults(result));
             
@@ -1171,6 +1219,10 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        synchronized (classifierLock) {
+            enginesShutDown = true;
+        }
+        pipelineGeneration.advance();
         if (cameras != null) cameras.stop();
         HardwareControls.setIrLed(false);
         clearPendingWork();
@@ -1178,18 +1230,12 @@ public final class MainActivity extends Activity {
         inferenceExecutor.shutdownNow();
         ioExecutor.shutdownNow();
         modelInitExecutor.shutdownNow();
-        awaitExecutorTermination(inferenceExecutor);
-        awaitExecutorTermination(trackingExecutor);
+        boolean inferenceTerminated = awaitExecutorTermination(inferenceExecutor);
+        boolean trackingTerminated = awaitExecutorTermination(trackingExecutor);
+        awaitExecutorTermination(ioExecutor);
         awaitExecutorTermination(modelInitExecutor);
-        synchronized (classifierLock) {
-            enginesShutDown = true;
-            for (ModelSlotClassifier slot : classifiers) {
-                try { slot.close(); } catch (Exception e) {}
-            }
-            classifier = null;
-            classifiers.clear();
-        }
-        if (faceDetector != null) faceDetector.close();
+        if (inferenceTerminated) closeClassifiers();
+        if (trackingTerminated) closeFaceDetector();
         if (captureTone != null) {
             captureTone.release();
             captureTone = null;
@@ -1206,10 +1252,12 @@ public final class MainActivity extends Activity {
     private static final class TrackingFrame {
         private FrameData rgb;
         private FrameData ir;
+        final int generation;
 
-        TrackingFrame(FrameData rgb, FrameData ir) {
+        TrackingFrame(FrameData rgb, FrameData ir, int generation) {
             this.rgb = rgb;
             this.ir = ir;
+            this.generation = generation;
         }
 
         FramePair detachPair() {
@@ -1231,11 +1279,16 @@ public final class MainActivity extends Activity {
         final FramePair pair;
         final Rect rgbCrop;
         final Rect irCrop;
+        final int generation;
+        final ModelSlotClassifier classifier;
 
-        InferenceTask(FramePair pair, Rect rgbCrop, Rect irCrop) {
+        InferenceTask(FramePair pair, Rect rgbCrop, Rect irCrop, int generation,
+                      ModelSlotClassifier classifier) {
             this.pair = pair;
             this.rgbCrop = rgbCrop;
             this.irCrop = irCrop;
+            this.generation = generation;
+            this.classifier = classifier;
         }
 
         void recycle() {
@@ -1256,13 +1309,35 @@ public final class MainActivity extends Activity {
         builder.append(message);
     }
 
-    private static void awaitExecutorTermination(ExecutorService executor) {
+    private void closeClassifiers() {
+        synchronized (classifierLock) {
+            for (ModelSlotClassifier slot : classifiers) {
+                try { slot.close(); } catch (Exception ignored) {}
+            }
+            classifier = null;
+            classifiers.clear();
+        }
+    }
+
+    private void closeFaceDetector() {
+        FaceDetector detector;
+        synchronized (classifierLock) {
+            detector = faceDetector;
+            faceDetector = null;
+        }
+        if (detector != null) detector.close();
+    }
+
+    private static boolean awaitExecutorTermination(ExecutorService executor) {
         try {
             if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
                 android.util.Log.w("MainActivity", "Executor did not terminate in time");
+                return false;
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            return false;
         }
+        return true;
     }
 }
