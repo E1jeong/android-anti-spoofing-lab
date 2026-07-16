@@ -520,10 +520,16 @@ public final class MainActivity extends Activity {
         if (!isPipelineCurrent(frame.generation)) return;
         if (faceDetector == null || calibration == null) return;
         boolean captureCalibration = calibrationMode && calibrationRequested.getAndSet(false);
+        boolean prepareCollectionQuality = !captureCalibration
+                && isCollecting && !collectionPaused && frame.ir != null && !ioBusy
+                && shouldCheckCollectionQuality(collectionClassName)
+                && getCollectionCountdownSeconds(SystemClock.elapsedRealtime()) <= 0;
         long start = SystemClock.elapsedRealtimeNanos();
         Rect detected = captureCalibration
                 ? faceDetector.detectSingle(frame.rgb.bitmap)
-                : faceDetector.detectLargest(frame.rgb.bitmap);
+                : prepareCollectionQuality
+                        ? faceDetector.detectLargestWithQualityData(frame.rgb.bitmap)
+                        : faceDetector.detectLargest(frame.rgb.bitmap);
         if (!isPipelineCurrent(frame.generation)) return;
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         rgbConversionMs = frame.rgb.conversionMs;
@@ -657,6 +663,7 @@ public final class MainActivity extends Activity {
             if (getCollectionCountdownSeconds(nowMs) > 0) return;
             FaceDetector.FaceQualityCheckResult sampleQuality = null;
             if (shouldCheckCollectionQuality(className)) {
+                if (!prepareCollectionQuality) return;
                 FaceDetector.FaceQualityCheckResult quality =
                         faceDetector.checkFaceQuality(frame.rgb.bitmap, collectionMinQualityLevel);
                 lastCollectionQuality = quality;

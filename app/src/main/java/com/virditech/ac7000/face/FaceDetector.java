@@ -40,7 +40,7 @@ public final class FaceDetector implements AutoCloseable {
     private QualityDetector qualityDetector;
     private final ExtractConfig extractConfig = new ExtractConfig();
     private final ExtractConfig qualityExtractConfig = new ExtractConfig();
-    private FaceInfo lastLargestFaceInfo;
+    private QualityFaceData lastQualityFaceData;
     private String qualityError;
 
     public FaceDetector(Context context) {
@@ -106,10 +106,19 @@ public final class FaceDetector implements AutoCloseable {
     }
 
     public Rect detectLargest(Bitmap rgb) {
-        lastLargestFaceInfo = null;
-        List<Integer> counts = recognizer.extractFaceEx(extractConfig, Collections.singletonList(rgb));
+        return detectLargest(rgb, extractConfig, false);
+    }
+
+    public Rect detectLargestWithQualityData(Bitmap rgb) {
+        return detectLargest(rgb, qualityExtractConfig, true);
+    }
+
+    private Rect detectLargest(Bitmap rgb, ExtractConfig config, boolean captureQualityData) {
+        lastQualityFaceData = null;
+        List<Integer> counts = recognizer.extractFaceEx(config, Collections.singletonList(rgb));
         if (counts.isEmpty() || counts.get(0) == 0) return null;
         Rect largest = null;
+        int largestIndex = -1;
         FaceInfo largestInfo = null;
         long largestArea = -1;
         for (int i = 0; i < counts.get(0); i++) {
@@ -120,10 +129,18 @@ public final class FaceDetector implements AutoCloseable {
             if (area > largestArea) {
                 largestArea = area;
                 largest = box;
+                largestIndex = i;
                 largestInfo = info;
             }
         }
-        lastLargestFaceInfo = copyFaceInfo(largestInfo);
+        if (captureQualityData && largestIndex >= 0 && largestInfo != null) {
+            FaceLandmark landmark = recognizer.getFaceLandmark(0, largestIndex);
+            FaceAttribute attribute = recognizer.getFaceAttribute(0, largestIndex);
+            Pose pose = attribute == null ? null : attribute.pose;
+            if (landmark != null && pose != null) {
+                lastQualityFaceData = new QualityFaceData(copyFaceInfo(largestInfo), landmark, pose);
+            }
+        }
         return largest;
     }
 
@@ -140,11 +157,8 @@ public final class FaceDetector implements AutoCloseable {
             return FaceQualityCheckResult.failed(minLevel, -1, 0f,
                     qualityError != null ? qualityError : "Face quality unavailable");
         }
-        if (lastLargestFaceInfo == null) {
-            return FaceQualityCheckResult.failed(minLevel, -1, 0f, "No detected face");
-        }
-
-        QualityFaceData faceData = detectLargestForQuality(rgb);
+        QualityFaceData faceData = lastQualityFaceData;
+        lastQualityFaceData = null;
         if (faceData == null) {
             return FaceQualityCheckResult.failed(minLevel, -1, 0f, "No quality face data");
         }
@@ -188,33 +202,6 @@ public final class FaceDetector implements AutoCloseable {
         boolean passed = quality.level >= minLevel;
         String reason = passed ? "" : "Face quality below " + levelName(minLevel);
         return new FaceQualityCheckResult(passed, minLevel, quality.level, quality.score, reason);
-    }
-
-    private QualityFaceData detectLargestForQuality(Bitmap rgb) {
-        List<Integer> counts = recognizer.extractFaceEx(qualityExtractConfig, Collections.singletonList(rgb));
-        if (counts.isEmpty() || counts.get(0) == 0) return null;
-
-        int largestIndex = -1;
-        FaceInfo largestInfo = null;
-        long largestArea = -1;
-        for (int i = 0; i < counts.get(0); i++) {
-            FaceInfo info = recognizer.getFaceInfo(0, i);
-            if (info == null || info.boundingBox == null) continue;
-            long area = (long) info.boundingBox.width() * info.boundingBox.height();
-            if (area > largestArea) {
-                largestArea = area;
-                largestIndex = i;
-                largestInfo = info;
-            }
-        }
-        if (largestIndex < 0 || largestInfo == null) return null;
-
-        FaceLandmark landmark = recognizer.getFaceLandmark(0, largestIndex);
-        FaceAttribute attribute = recognizer.getFaceAttribute(0, largestIndex);
-        Pose pose = attribute == null ? null : attribute.pose;
-        if (landmark == null || pose == null) return null;
-
-        return new QualityFaceData(copyFaceInfo(largestInfo), landmark, pose);
     }
 
     public Rect detectSingle(Bitmap image) {
