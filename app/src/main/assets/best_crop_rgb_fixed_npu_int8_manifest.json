@@ -1,0 +1,61 @@
+{
+  "model_type": "crop_rgb",
+  "file_name": "best_crop_rgb_fixed_npu_int8.tflite",
+  "delegate": "nnapi",
+  "inputs": [
+    {
+      "name": "serving_default_a_crop_rgb:0",
+      "index": 0,
+      "shape": [
+        1,
+        224,
+        224,
+        3
+      ],
+      "dtype": "int8",
+      "input_kind": "rgb",
+      "quantization": {
+        "scale": 0.007843137718737125,
+        "zero_point": -1
+      },
+      "normalization": {
+        "mean": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "std": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "range": "[-1, 1]"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "StatefulPartitionedCall_1:0",
+      "index": 0,
+      "shape": [
+        1,
+        6
+      ],
+      "dtype": "int8",
+      "quantization": {
+        "scale": 0.2170320749282837,
+        "zero_point": -31
+      },
+      "output_is_logits": true
+    }
+  ],
+  "class_order": [
+    "live",
+    "print",
+    "picture",
+    "mask",
+    "display",
+    "pmask"
+  ],
+  "crop_margin_ratio": 0.1
+}

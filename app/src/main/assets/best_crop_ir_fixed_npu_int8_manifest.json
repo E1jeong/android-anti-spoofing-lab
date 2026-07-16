@@ -1,0 +1,57 @@
+{
+  "model_type": "crop_ir",
+  "file_name": "best_crop_ir_fixed_npu_int8.tflite",
+  "delegate": "nnapi",
+  "inputs": [
+    {
+      "name": "serving_default_b_crop_ir:0",
+      "index": 0,
+      "shape": [
+        1,
+        224,
+        224,
+        1
+      ],
+      "dtype": "int8",
+      "input_kind": "ir",
+      "quantization": {
+        "scale": 0.007843137718737125,
+        "zero_point": -1
+      },
+      "normalization": {
+        "mean": [
+          0.5
+        ],
+        "std": [
+          0.5
+        ],
+        "range": "[-1, 1]"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "StatefulPartitionedCall_1:0",
+      "index": 0,
+      "shape": [
+        1,
+        6
+      ],
+      "dtype": "int8",
+      "quantization": {
+        "scale": 0.1017397791147232,
+        "zero_point": -48
+      },
+      "output_is_logits": true
+    }
+  ],
+  "class_order": [
+    "live",
+    "print",
+    "picture",
+    "mask",
+    "display",
+    "pmask"
+  ],
+  "crop_margin_ratio": 0.1
+}
