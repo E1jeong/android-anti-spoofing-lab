@@ -12,8 +12,12 @@ public final class BmpWriter {
     private BmpWriter() {}
 
     public static void write(Bitmap bitmap, OutputStream out) throws IOException {
-        int width = bitmap.getWidth();
-        int height = bitmap.getHeight();
+        write(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), out);
+    }
+
+    public static void write(Bitmap bitmap, int left, int top, int width, int height,
+                             OutputStream out) throws IOException {
+        validateRegion(bitmap.getWidth(), bitmap.getHeight(), left, top, width, height);
         int rowSize = rowSize(width);
         writeHeader(width, height, rowSize, out);
         Buffers buffers = BUFFERS.get();
@@ -21,7 +25,7 @@ public final class BmpWriter {
         for (int bottom = height; bottom > 0; bottom -= STRIPE_ROWS) {
             int stripeHeight = Math.min(STRIPE_ROWS, bottom);
             int startY = bottom - stripeHeight;
-            bitmap.getPixels(buffers.pixels, 0, width, 0, startY, width, stripeHeight);
+            bitmap.getPixels(buffers.pixels, 0, width, left, top + startY, width, stripeHeight);
             int byteCount = encodeBottomUp(width, stripeHeight, rowSize,
                     buffers.pixels, buffers.bytes);
             out.write(buffers.bytes, 0, byteCount);
@@ -30,6 +34,16 @@ public final class BmpWriter {
 
     public static void writeArgbPixels(int width, int height, int[] pixels, OutputStream out)
             throws IOException {
+        writeArgbPixels(width, height, pixels, 0, 0, width, height, out);
+    }
+
+    static void writeArgbPixels(int sourceWidth, int sourceHeight, int[] pixels,
+                                int left, int top, int width, int height, OutputStream out)
+            throws IOException {
+        validateRegion(sourceWidth, sourceHeight, left, top, width, height);
+        if (pixels.length < sourceWidth * sourceHeight) {
+            throw new IllegalArgumentException("Pixel buffer is too small");
+        }
         int rowSize = rowSize(width);
         writeHeader(width, height, rowSize, out);
         Buffers buffers = BUFFERS.get();
@@ -37,10 +51,21 @@ public final class BmpWriter {
         for (int bottom = height; bottom > 0; bottom -= STRIPE_ROWS) {
             int stripeHeight = Math.min(STRIPE_ROWS, bottom);
             int startY = bottom - stripeHeight;
-            System.arraycopy(pixels, startY * width, buffers.pixels, 0, stripeHeight * width);
+            for (int y = 0; y < stripeHeight; y++) {
+                System.arraycopy(pixels, (top + startY + y) * sourceWidth + left,
+                        buffers.pixels, y * width, width);
+            }
             int byteCount = encodeBottomUp(width, stripeHeight, rowSize,
                     buffers.pixels, buffers.bytes);
             out.write(buffers.bytes, 0, byteCount);
+        }
+    }
+
+    private static void validateRegion(int sourceWidth, int sourceHeight,
+                                       int left, int top, int width, int height) {
+        if (left < 0 || top < 0 || width <= 0 || height <= 0
+                || left + width > sourceWidth || top + height > sourceHeight) {
+            throw new IllegalArgumentException("Bitmap region is out of bounds");
         }
     }
 

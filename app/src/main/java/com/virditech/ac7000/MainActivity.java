@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -688,21 +689,7 @@ public final class MainActivity extends Activity {
                 ModelSlotClassifier collectionClassifier = classifier;
                 float margin = collectionClassifier != null ? collectionClassifier.cropMarginRatio() : 0.10f;
                 Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-                int rL = Math.max(0, rgbR.left);
-                int rT = Math.max(0, rgbR.top);
-                int rW = Math.min(frame.rgb.bitmap.getWidth() - rL, rgbR.width());
-                int rH = Math.min(frame.rgb.bitmap.getHeight() - rT, rgbR.height());
-                final Bitmap cropRGB = rW > 0 && rH > 0 ? Bitmap.createBitmap(frame.rgb.bitmap, rL, rT, rW, rH) : null;
-                
                 Rect irR = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
-                int iL = Math.max(0, irR.left);
-                int iT = Math.max(0, irR.top);
-                int iW = Math.min(frame.ir.bitmap.getWidth() - iL, irR.width());
-                int iH = Math.min(frame.ir.bitmap.getHeight() - iT, irR.height());
-                final Bitmap cropIR = iW > 0 && iH > 0 ? Bitmap.createBitmap(frame.ir.bitmap, iL, iT, iW, iH) : null;
-                
-                final Bitmap fullRGB = frame.rgb.bitmap.copy(frame.rgb.bitmap.getConfig(), false);
-                final Bitmap fullIR = frame.ir.bitmap.copy(frame.ir.bitmap.getConfig(), false);
                 final int minQualityLevel = shouldCheckCollectionQuality(className) ? collectionMinQualityLevel : -1;
                 final int actualQualityLevel = sampleQuality != null ? sampleQuality.actualLevel : -1;
                 final float qualityScore = sampleQuality != null ? sampleQuality.score : 0f;
@@ -717,49 +704,35 @@ public final class MainActivity extends Activity {
                 final String displayDir = sampleDir.getAbsolutePath();
 
                 if (!isActiveCollection(sessionId, className, subjectId)) {
-                    CaptureStorage.recycleBitmaps(fullRGB, cropRGB, fullIR, cropIR);
                     ioBusy = false;
                     return;
                 }
-                
-                ioExecutor.execute(() -> {
+
+                final FramePair capturePair = frame.detachPair();
+                OwnedFrameTask saveTask = new OwnedFrameTask(capturePair, () -> {
                     boolean saved = false;
                     boolean sectorCompleted = false;
                     long saveStartNs = 0L;
                     try {
                         if (!isPipelineCurrent(frame.generation)
                                 || !isActiveCollection(sessionId, className, subjectId)) {
-                            CaptureStorage.recycleBitmaps(fullRGB, cropRGB, fullIR, cropIR);
                             return;
                         }
                         saveStartNs = SystemClock.elapsedRealtimeNanos();
                         boolean dirReady = sampleDir.isDirectory() || sampleDir.mkdirs();
-                        boolean hasAllBitmaps = fullRGB != null && cropRGB != null
-                                && fullIR != null && cropIR != null;
-                        boolean savedAll = dirReady && hasAllBitmaps;
+                        boolean savedAll = dirReady;
                         if (!dirReady) {
                             showTransientStatus("Save failed: unable to create " + displayDir);
                             android.util.Log.e(TAG, "Unable to create collection sample folder: " + displayDir);
-                        } else if (!hasAllBitmaps) {
-                            showTransientStatus("Save failed: incomplete capture frame");
-                            android.util.Log.e(TAG, "Incomplete collection sample frame: " + displayDir);
                         }
-                        if (fullRGB != null) {
-                            if (savedAll) savedAll = saveBitmapAsBmp(fullRGB, new File(sampleDir, "RGB.bmp"));
-                            fullRGB.recycle();
-                        }
-                        if (cropRGB != null) {
-                            if (savedAll) savedAll = saveBitmapAsBmp(cropRGB, new File(sampleDir, "cropRGB.bmp"));
-                            cropRGB.recycle();
-                        }
-                        if (fullIR != null) {
-                            if (savedAll) savedAll = saveBitmapAsBmp(fullIR, new File(sampleDir, "IR.bmp"));
-                            fullIR.recycle();
-                        }
-                        if (cropIR != null) {
-                            if (savedAll) savedAll = saveBitmapAsBmp(cropIR, new File(sampleDir, "cropIR.bmp"));
-                            cropIR.recycle();
-                        }
+                        if (savedAll) savedAll = saveBitmapAsBmp(capturePair.rgb.bitmap,
+                                new File(sampleDir, "RGB.bmp"));
+                        if (savedAll) savedAll = saveBitmapRegionAsBmp(capturePair.rgb.bitmap, rgbR,
+                                new File(sampleDir, "cropRGB.bmp"));
+                        if (savedAll) savedAll = saveBitmapAsBmp(capturePair.ir.bitmap,
+                                new File(sampleDir, "IR.bmp"));
+                        if (savedAll) savedAll = saveBitmapRegionAsBmp(capturePair.ir.bitmap, irR,
+                                new File(sampleDir, "cropIR.bmp"));
                         if (savedAll) savedAll = saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
                         if (savedAll && isPipelineCurrent(frame.generation)
                                 && isActiveCollection(sessionId, className, subjectId)) {
@@ -801,6 +774,13 @@ public final class MainActivity extends Activity {
                         }
                     });
                 });
+                try {
+                    ioExecutor.execute(saveTask);
+                } catch (RejectedExecutionException e) {
+                    saveTask.discard();
+                    ioBusy = false;
+                    android.util.Log.w(TAG, "Capture save rejected during shutdown", e);
+                }
             } else {
                 ioBusy = false;
                 runOnUiThread(this::finishDataCollection);
@@ -1097,6 +1077,12 @@ public final class MainActivity extends Activity {
         return result.saved;
     }
 
+    private boolean saveBitmapRegionAsBmp(Bitmap bitmap, Rect region, File file) {
+        CaptureStorage.SaveResult result = CaptureStorage.saveBitmapRegionAsBmp(bitmap, region, file);
+        if (!result.saved) showTransientStatus("Save failed: " + result.errorMessage);
+        return result.saved;
+    }
+
     private boolean saveTextFile(String text, File file) {
         CaptureStorage.SaveResult result = CaptureStorage.saveTextFile(text, file);
         if (!result.saved) showTransientStatus("Save failed: " + result.errorMessage);
@@ -1293,7 +1279,10 @@ public final class MainActivity extends Activity {
         clearPendingWork();
         trackingExecutor.shutdownNow();
         inferenceExecutor.shutdownNow();
-        ioExecutor.shutdownNow();
+        List<Runnable> discardedIoWork = ioExecutor.shutdownNow();
+        for (Runnable task : discardedIoWork) {
+            if (task instanceof OwnedFrameTask) ((OwnedFrameTask) task).discard();
+        }
         modelInitExecutor.shutdownNow();
         boolean inferenceTerminated = awaitExecutorTermination(inferenceExecutor);
         boolean trackingTerminated = awaitExecutorTermination(trackingExecutor);
@@ -1363,6 +1352,28 @@ public final class MainActivity extends Activity {
         }
 
         void recycle() {
+            pair.recycle();
+        }
+    }
+
+    private static final class OwnedFrameTask implements Runnable {
+        private final FramePair pair;
+        private final Runnable action;
+
+        OwnedFrameTask(FramePair pair, Runnable action) {
+            this.pair = pair;
+            this.action = action;
+        }
+
+        @Override public void run() {
+            try {
+                action.run();
+            } finally {
+                discard();
+            }
+        }
+
+        void discard() {
             pair.recycle();
         }
     }

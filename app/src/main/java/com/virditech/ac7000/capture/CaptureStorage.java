@@ -99,19 +99,21 @@ public final class CaptureStorage {
         }
     }
 
-    public static void recycleBitmaps(Bitmap... bitmaps) {
-        for (Bitmap bitmap : bitmaps) {
-            if (bitmap != null && !bitmap.isRecycled()) {
-                bitmap.recycle();
-            }
-        }
-    }
-
     public static SaveResult saveBitmapAsBmp(Bitmap bitmap, File file) {
         try (OutputStream out = new BufferedOutputStream(new FileOutputStream(file))) {
             BmpWriter.write(bitmap, out);
             return SaveResult.success();
         } catch (IOException e) {
+            Log.e(TAG, "Unable to save " + file.getAbsolutePath(), e);
+            return SaveResult.failure(e.getMessage());
+        }
+    }
+
+    public static SaveResult saveBitmapRegionAsBmp(Bitmap bitmap, Rect region, File file) {
+        try (OutputStream out = new BufferedOutputStream(new FileOutputStream(file))) {
+            BmpWriter.write(bitmap, region.left, region.top, region.width(), region.height(), out);
+            return SaveResult.success();
+        } catch (IOException | IllegalArgumentException e) {
             Log.e(TAG, "Unable to save " + file.getAbsolutePath(), e);
             return SaveResult.failure(e.getMessage());
         }

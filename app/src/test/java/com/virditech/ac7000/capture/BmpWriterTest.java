@@ -59,6 +59,25 @@ public final class BmpWriterTest {
         assertEquals(0, bytes[54 + rowSize * (height - 1)]);
     }
 
+    @Test public void writesSelectedRegionWithoutCreatingCroppedPixels() throws Exception {
+        int[] pixels = {
+                0xFF000001, 0xFF000002, 0xFF000003, 0xFF000004,
+                0xFF000005, 0xFF000006, 0xFF000007, 0xFF000008,
+                0xFF000009, 0xFF00000A, 0xFF00000B, 0xFF00000C
+        };
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        BmpWriter.writeArgbPixels(4, 3, pixels, 1, 1, 2, 2, out);
+
+        byte[] bytes = out.toByteArray();
+        assertEquals(2, readIntLE(bytes, 18));
+        assertEquals(2, readIntLE(bytes, 22));
+        assertEquals(0x0A, bytes[54]);
+        assertEquals(0x0B, bytes[57]);
+        assertEquals(0x06, bytes[62]);
+        assertEquals(0x07, bytes[65]);
+    }
+
     private static int readIntLE(byte[] bytes, int offset) {
         return (bytes[offset] & 0xFF)
                 | ((bytes[offset + 1] & 0xFF) << 8)
