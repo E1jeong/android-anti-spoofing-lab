@@ -152,6 +152,7 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     }
 
     public ClassificationResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
+        long preprocessStart = SystemClock.elapsedRealtimeNanos();
         if (cropRgbInput != null) inputs[inputMapping.cropRgbIndex] = cropRgbInput.fillImage(rgb, rgbBox);
         if (cropIrInput != null) inputs[inputMapping.cropIrIndex] = cropIrInput.fillImage(ir, irBox);
         if (inputMapping.hasFiveInputs()) {
@@ -159,13 +160,14 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             inputs[inputMapping.fullIrIndex] = fullIrInput.fillImage(ir, null);
             inputs[inputMapping.heatmapIndex] = heatmapInput.fillHeatmap(rgbBox, rgb.getWidth(), rgb.getHeight());
         }
+        long preprocessMs = (SystemClock.elapsedRealtimeNanos() - preprocessStart) / 1_000_000L;
         long start = SystemClock.elapsedRealtimeNanos();
         interpreter.runForMultipleInputsOutputs(inputs, outputs);
         long inferenceMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         float[] modelOutput = readModelOutput();
         float[] probabilities = spec.outputIsLogits ? softmax(modelOutput) : validateProbabilities(modelOutput);
 
-        return new ClassificationResult(probabilities, inferenceMs);
+        return new ClassificationResult(probabilities, preprocessMs, inferenceMs);
     }
 
     private void logModelIo() {

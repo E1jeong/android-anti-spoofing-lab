@@ -48,6 +48,7 @@ import com.virditech.ac7000.model.ClassificationResult;
 import com.virditech.ac7000.model.FaceCrop;
 import com.virditech.ac7000.model.ModelSlotClassifier;
 import com.virditech.ac7000.model.SlotClassificationResult;
+import com.virditech.ac7000.performance.LatencyWindow;
 import com.virditech.ac7000.ui.MainScreenView;
 import com.virditech.ac7000.ui.OverlayView;
 
@@ -68,6 +69,7 @@ public final class MainActivity extends Activity {
     private static final int COLLECTION_TARGET_COUNT = CaptureSchedule.TARGET_COUNT;
     private static final int IR_RESULT_COLOR = Color.rgb(64, 196, 255);
     private static final int COLLECTION_MEDIUM_QUALITY_LEVEL = 1;
+    private static final int LATENCY_WINDOW_SIZE = 120;
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -153,6 +155,11 @@ public final class MainActivity extends Activity {
     private volatile long inferenceMs;
     private volatile long rgbInferenceMs = -1L;
     private volatile long irInferenceMs = -1L;
+    private final LatencyWindow preprocessLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
+    private final LatencyWindow invokeLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
+    private final LatencyWindow inferenceQueueLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
+    private final LatencyWindow inferenceEndToEndLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
+    private final LatencyWindow captureSaveLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
     private volatile float trackingFps;
     private volatile float inferenceFps;
     private long lastUiUpdateTimeMs;
@@ -471,7 +478,8 @@ public final class MainActivity extends Activity {
                 }
             }
         }
-        TrackingFrame replaced = pendingTracking.getAndSet(new TrackingFrame(rgb, ir, generation));
+        TrackingFrame replaced = pendingTracking.getAndSet(new TrackingFrame(rgb, ir, generation,
+                SystemClock.elapsedRealtimeNanos()));
         if (replaced != null) replaced.recycle();
         if (trackingWorkerRunning.compareAndSet(false, true)) trackingExecutor.execute(this::drainTracking);
     }
@@ -698,12 +706,14 @@ public final class MainActivity extends Activity {
                 ioExecutor.execute(() -> {
                     boolean saved = false;
                     boolean sectorCompleted = false;
+                    long saveStartNs = 0L;
                     try {
                         if (!isPipelineCurrent(frame.generation)
                                 || !isActiveCollection(sessionId, className, subjectId)) {
                             CaptureStorage.recycleBitmaps(fullRGB, cropRGB, fullIR, cropIR);
                             return;
                         }
+                        saveStartNs = SystemClock.elapsedRealtimeNanos();
                         boolean dirReady = sampleDir.isDirectory() || sampleDir.mkdirs();
                         boolean hasAllBitmaps = fullRGB != null && cropRGB != null
                                 && fullIR != null && cropIR != null;
@@ -751,6 +761,10 @@ public final class MainActivity extends Activity {
                             android.util.Log.i(TAG, "Saved collection sample: " + displayDir);
                         }
                     } finally {
+                        if (saveStartNs != 0L) {
+                            recordCaptureSaveLatency((SystemClock.elapsedRealtimeNanos() - saveStartNs)
+                                    / 1_000_000L);
+                        }
                         ioBusy = false;
                     }
                     final boolean savedSample = saved;
@@ -776,7 +790,7 @@ public final class MainActivity extends Activity {
 
         if (isCollecting || rgbCrop == null || irCrop == null || frame.ir == null) return;
         submitInference(new InferenceTask(frame.detachPair(), rgbCrop, irCrop,
-                frame.generation, activeClassifier));
+                frame.generation, activeClassifier, frame.receivedNs));
     }
 
     private static Bitmap createCropPreviewBitmap(Bitmap source, Rect crop) {
@@ -817,12 +831,16 @@ public final class MainActivity extends Activity {
 
     private void processInference(InferenceTask task) {
         if (!isPipelineCurrent(task.generation) || task.classifier == null) return;
+        long startNs = SystemClock.elapsedRealtimeNanos();
+        long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
         SlotClassificationResult result = task.classifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
                 task.pair.ir.bitmap, task.irCrop);
+        long endToEndMs = (SystemClock.elapsedRealtimeNanos() - task.receivedNs) / 1_000_000L;
         if (!isPipelineCurrent(task.generation)) return;
         inferenceMs = result.inferenceMs;
         rgbInferenceMs = result.rgbResult != null ? result.rgbResult.inferenceMs : -1L;
         irInferenceMs = result.irResult != null ? result.irResult.inferenceMs : -1L;
+        recordInferenceMetrics(result.preprocessMs, result.inferenceMs, queueMs, endToEndMs);
         updateInferenceFps();
 
         runOnUiThread(() -> {
@@ -1116,6 +1134,34 @@ public final class MainActivity extends Activity {
                 rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps, backend);
     }
 
+    private void recordInferenceMetrics(long preprocess, long invoke, long queue, long endToEnd) {
+        preprocessLatency.add(preprocess);
+        long sampleCount = invokeLatency.add(invoke);
+        inferenceQueueLatency.add(queue);
+        inferenceEndToEndLatency.add(endToEnd);
+        if (sampleCount % 30L == 0L) {
+            LatencyWindow.Snapshot preprocessStats = preprocessLatency.snapshot();
+            LatencyWindow.Snapshot invokeStats = invokeLatency.snapshot();
+            LatencyWindow.Snapshot queueStats = inferenceQueueLatency.snapshot();
+            LatencyWindow.Snapshot endToEndStats = inferenceEndToEndLatency.snapshot();
+            android.util.Log.i(TAG, String.format(Locale.US,
+                    "Latency samples=%d P50/P95 ms preprocess=%d/%d invoke=%d/%d queue=%d/%d endToEnd=%d/%d",
+                    invokeStats.count, preprocessStats.p50Ms, preprocessStats.p95Ms,
+                    invokeStats.p50Ms, invokeStats.p95Ms, queueStats.p50Ms, queueStats.p95Ms,
+                    endToEndStats.p50Ms, endToEndStats.p95Ms));
+        }
+    }
+
+    private void recordCaptureSaveLatency(long durationMs) {
+        long sampleCount = captureSaveLatency.add(durationMs);
+        if (sampleCount % 10L == 0L) {
+            LatencyWindow.Snapshot stats = captureSaveLatency.snapshot();
+            android.util.Log.i(TAG, String.format(Locale.US,
+                    "Capture save samples=%d P50/P95 ms=%d/%d",
+                    stats.count, stats.p50Ms, stats.p95Ms));
+        }
+    }
+
     private CharSequence formatClassificationResults(SlotClassificationResult result) {
         if (result.hasPairedResults()) {
             StringBuilder sb = new StringBuilder();
@@ -1253,11 +1299,13 @@ public final class MainActivity extends Activity {
         private FrameData rgb;
         private FrameData ir;
         final int generation;
+        final long receivedNs;
 
-        TrackingFrame(FrameData rgb, FrameData ir, int generation) {
+        TrackingFrame(FrameData rgb, FrameData ir, int generation, long receivedNs) {
             this.rgb = rgb;
             this.ir = ir;
             this.generation = generation;
+            this.receivedNs = receivedNs;
         }
 
         FramePair detachPair() {
@@ -1281,14 +1329,18 @@ public final class MainActivity extends Activity {
         final Rect irCrop;
         final int generation;
         final ModelSlotClassifier classifier;
+        final long receivedNs;
+        final long enqueuedNs;
 
         InferenceTask(FramePair pair, Rect rgbCrop, Rect irCrop, int generation,
-                      ModelSlotClassifier classifier) {
+                      ModelSlotClassifier classifier, long receivedNs) {
             this.pair = pair;
             this.rgbCrop = rgbCrop;
             this.irCrop = irCrop;
             this.generation = generation;
             this.classifier = classifier;
+            this.receivedNs = receivedNs;
+            this.enqueuedNs = SystemClock.elapsedRealtimeNanos();
         }
 
         void recycle() {

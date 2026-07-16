@@ -4,6 +4,7 @@ public final class SlotClassificationResult {
     public final ClassificationResult result;
     public final ClassificationResult rgbResult;
     public final ClassificationResult irResult;
+    public final long preprocessMs;
     public final long inferenceMs;
 
     SlotClassificationResult(ClassificationResult result, ClassificationResult rgbResult,
@@ -11,11 +12,22 @@ public final class SlotClassificationResult {
         this.result = result;
         this.rgbResult = rgbResult;
         this.irResult = irResult;
-        long total = 0L;
-        if (result != null) total += result.inferenceMs;
-        if (rgbResult != null) total += rgbResult.inferenceMs;
-        if (irResult != null) total += irResult.inferenceMs;
-        inferenceMs = total;
+        long preprocessTotal = 0L;
+        long inferenceTotal = 0L;
+        if (result != null) {
+            preprocessTotal += result.preprocessMs;
+            inferenceTotal += result.inferenceMs;
+        }
+        if (rgbResult != null) {
+            preprocessTotal += rgbResult.preprocessMs;
+            inferenceTotal += rgbResult.inferenceMs;
+        }
+        if (irResult != null) {
+            preprocessTotal += irResult.preprocessMs;
+            inferenceTotal += irResult.inferenceMs;
+        }
+        preprocessMs = preprocessTotal;
+        inferenceMs = inferenceTotal;
     }
 
     public ClassificationResult primaryResult() {
