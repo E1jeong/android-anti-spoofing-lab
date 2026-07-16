@@ -4,6 +4,7 @@ import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.util.Log;
 
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -107,7 +108,7 @@ public final class CaptureStorage {
     }
 
     public static SaveResult saveBitmapAsBmp(Bitmap bitmap, File file) {
-        try (OutputStream out = new FileOutputStream(file)) {
+        try (OutputStream out = new BufferedOutputStream(new FileOutputStream(file))) {
             BmpWriter.write(bitmap, out);
             return SaveResult.success();
         } catch (IOException e) {

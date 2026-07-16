@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.media.AudioManager;
@@ -85,6 +86,7 @@ public final class MainActivity extends Activity {
     private FrameData latestIr;
     private final Object irPreviewLock = new Object();
     private Bitmap latestIrBitmapForCrop;
+    private final Canvas irPreviewCanvas = new Canvas();
     private TextureView rgbView;
     private TextureView irView;
     private OverlayView overlay;
@@ -241,10 +243,7 @@ public final class MainActivity extends Activity {
         screen.setIrVisible(showIr);
         if (showIr) {
             synchronized (irPreviewLock) {
-                if (latestIrBitmapForCrop != null) {
-                    latestIrBitmapForCrop.recycle();
-                    latestIrBitmapForCrop = null;
-                }
+                releaseIrPreviewBufferLocked();
             }
         }
     }
@@ -424,10 +423,7 @@ public final class MainActivity extends Activity {
         clearPendingWork();
         overlay.clearResult();
         synchronized (irPreviewLock) {
-            if (latestIrBitmapForCrop != null) {
-                latestIrBitmapForCrop.recycle();
-                latestIrBitmapForCrop = null;
-            }
+            releaseIrPreviewBufferLocked();
         }
         super.onPause();
     }
@@ -446,11 +442,7 @@ public final class MainActivity extends Activity {
             if (now - lastIrCropCopyTimeMs >= 66L) {
                 lastIrCropCopyTimeMs = now;
                 synchronized (irPreviewLock) {
-                    if (latestIrBitmapForCrop != null) {
-                        latestIrBitmapForCrop.recycle();
-                    }
-                    Bitmap.Config config = frame.bitmap.getConfig();
-                    latestIrBitmapForCrop = frame.bitmap.copy(config == null ? Bitmap.Config.ARGB_8888 : config, false);
+                    copyToIrPreviewBufferLocked(frame.bitmap);
                 }
             }
         }
@@ -458,6 +450,26 @@ public final class MainActivity extends Activity {
             if (latestIr != null) latestIr.recycle();
             latestIr = frame;
         }
+    }
+
+    private void copyToIrPreviewBufferLocked(Bitmap source) {
+        if (latestIrBitmapForCrop == null || latestIrBitmapForCrop.isRecycled()
+                || latestIrBitmapForCrop.getWidth() != source.getWidth()
+                || latestIrBitmapForCrop.getHeight() != source.getHeight()) {
+            releaseIrPreviewBufferLocked();
+            latestIrBitmapForCrop = Bitmap.createBitmap(source.getWidth(), source.getHeight(),
+                    Bitmap.Config.ARGB_8888);
+            irPreviewCanvas.setBitmap(latestIrBitmapForCrop);
+        }
+        irPreviewCanvas.drawBitmap(source, 0f, 0f, null);
+    }
+
+    private void releaseIrPreviewBufferLocked() {
+        irPreviewCanvas.setBitmap(null);
+        if (latestIrBitmapForCrop != null && !latestIrBitmapForCrop.isRecycled()) {
+            latestIrBitmapForCrop.recycle();
+        }
+        latestIrBitmapForCrop = null;
     }
 
     private void submitTracking(FrameData rgb, int generation) {

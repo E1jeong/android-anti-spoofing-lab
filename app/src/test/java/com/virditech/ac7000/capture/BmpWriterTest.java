@@ -41,6 +41,24 @@ public final class BmpWriterTest {
         assertEquals(12, BmpWriter.rowSize(3));
     }
 
+    @Test public void preservesBottomUpOrderAcrossStripeBoundary() throws Exception {
+        int width = 2;
+        int height = 20;
+        int[] pixels = new int[width * height];
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) pixels[y * width + x] = y;
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        BmpWriter.writeArgbPixels(width, height, pixels, out);
+
+        byte[] bytes = out.toByteArray();
+        int rowSize = BmpWriter.rowSize(width);
+        assertEquals(54 + rowSize * height, bytes.length);
+        assertEquals(19, bytes[54]);
+        assertEquals(0, bytes[54 + rowSize * (height - 1)]);
+    }
+
     private static int readIntLE(byte[] bytes, int offset) {
         return (bytes[offset] & 0xFF)
                 | ((bytes[offset + 1] & 0xFF) << 8)
