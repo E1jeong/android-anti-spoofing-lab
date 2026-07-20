@@ -31,7 +31,7 @@ adb logcat -s MainActivity:I
 ## Optimization Boundaries
 
 - FaceMe detection and model NNAPI share the same NPU. Parallel execution can be slower; compare on hardware before changing executor topology.
-- `Inference RGB/IR ms` covers only TFLite invoke, excluding preprocessing, detection, pairing, queue wait, and UI work.
+- On-screen `Inference` timing covers only TFLite invoke, excluding preprocessing, detection, pairing, queue wait, and UI work.
 - Holding source frames during capture reduces allocation but occupies one entry from each four-bitmap portrait pool until I/O completes. Verify pool pressure and frame drops.
 - Do not enable NNAPI compilation caching; see `model-contract.md`.
 - Preserve latest-wins ownership and recycle behavior when modifying concurrency.
@@ -39,5 +39,5 @@ adb logcat -s MainActivity:I
 ## Required Device Baseline
 
 - Collect preprocess, invoke, inference queue, tracking-to-result, capture-save P50/P95, processing FPS, Java/native heap, and GC.
-- Include fixed/fixed model loading, six-class output, RGB/IR preview and crop, overlay/UI, camera-open termination, at least 20 pause/resume cycles, warmup termination, and a 100-sample capture with pause/resume/cancel.
+- Include fixed IR standalone model loading, six-class output, RGB/IR preview and crop, overlay/UI, camera-open termination, at least 20 pause/resume cycles, warmup termination, and a 100-sample capture with pause/resume/cancel.
 - Verify live HIGH/MEDIUM acceptance, non-live bypass, BMP output, metadata, portrait-pool pressure, and stale-directory prevention.

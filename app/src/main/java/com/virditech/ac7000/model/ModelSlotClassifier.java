@@ -18,6 +18,7 @@ public final class ModelSlotClassifier implements AutoCloseable {
     private static final String MANIFEST_NAME = "model_manifest.json";
     private static final String TYPE_DUAL_2_INPUT = "dual_2_input";
     private static final String TYPE_PAIRED_1_INPUT = "paired_1_input";
+    private static final String TYPE_SINGLE_1_INPUT = "single_1_input";
     private static final String TYPE_FIVE_INPUT = "five_input";
 
     private final String label;
@@ -159,14 +160,17 @@ public final class ModelSlotClassifier implements AutoCloseable {
             }
             return new ModelSlotClassifier(label, type, null, rgb, ir);
         }
-        if (!TYPE_DUAL_2_INPUT.equals(type) && !TYPE_FIVE_INPUT.equals(type)) {
+        if (!TYPE_SINGLE_1_INPUT.equals(type)
+                && !TYPE_DUAL_2_INPUT.equals(type)
+                && !TYPE_FIVE_INPUT.equals(type)) {
             throw new IllegalArgumentException("Unsupported model type: " + type);
         }
 
         AntiSpoofingClassifier classifier = new AntiSpoofingClassifier(context,
                 json.getString("model"), json.getString("spec"));
         int inputCount = classifier.inputTensorCount();
-        if ((TYPE_DUAL_2_INPUT.equals(type) && inputCount != 2)
+        if ((TYPE_SINGLE_1_INPUT.equals(type) && inputCount != 1)
+                || (TYPE_DUAL_2_INPUT.equals(type) && inputCount != 2)
                 || (TYPE_FIVE_INPUT.equals(type) && inputCount != 5)) {
             closeQuietly(classifier);
             throw new IllegalArgumentException(type + " model has " + inputCount + " inputs");

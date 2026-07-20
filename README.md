@@ -6,16 +6,16 @@ Minimal Android test application for evaluating RGB/IR anti-spoofing TFLite mode
 
 Model slots are declared in `app/src/main/assets/model_manifest.json`. The loader supports:
 
+- `single_1_input`: one RGB or IR crop model, selected by the spec's `inputKind`.
 - `paired_1_input`: separate one-input RGB and IR models.
 - `dual_2_input`: one model receiving RGB and IR crops.
 - `five_input`: one model receiving RGB crop, IR crop, full RGB, full IR, and heatmap.
 
-The current manifest contains one `paired_1_input` slot:
+The current manifest contains one `single_1_input` IR slot:
 
-- RGB: `best_crop_rgb_fixed_npu_int8.tflite` with `model_spec_rgb.json`.
-- IR: `best_crop_ir_fixed_npu_int8.tflite` with `model_spec_ir.json`.
+- IR: `best_crop_ir_fixed_npu_int8.tflite` with `best_crop_ir_fixed_npu_int8_manifest.json`.
 
-Both models use NNAPI-first INT8 specs and run sequentially on the single inference executor, RGB followed by IR. The UI displays separate RGB/IR six-class probabilities and inference latency, plus paired processing FPS. The previous RGB fold3/IR fold4 pair was verified on the target device with `Backend RGB NNAPI / IR NNAPI` and six outputs. The current fixed/fixed pair still requires target-device model-load, backend-label, probability-output, and latency/FPS verification.
+The model uses an NNAPI-first INT8 spec and runs on the single inference executor. The UI displays its six-class probabilities, inference latency, and processing FPS. The current fixed IR model still requires target-device model-load, backend-label, probability-output, and latency/FPS verification.
 
 The runtime parser accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Current deployment verification covers float and full INT8; UINT8 normalization/quantization semantics have not yet been verified against an exported model. Every model must have one `FLOAT32` or `INT8` output with shape `[1,6]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
 

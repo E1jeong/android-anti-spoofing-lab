@@ -1,12 +1,10 @@
 {
   "models": [
     {
-      "label": "MODEL 1 (Paired 1-Input)",
-      "type": "paired_1_input",
-      "rgbModel": "best_crop_rgb_fixed_npu_int8.tflite",
-      "rgbSpec": "best_crop_rgb_fixed_npu_int8_manifest.json",
-      "irModel": "best_crop_ir_fixed_npu_int8.tflite",
-      "irSpec": "best_crop_ir_fixed_npu_int8_manifest.json"
+      "label": "MODEL 1 (IR 1-Input)",
+      "type": "single_1_input",
+      "model": "best_crop_ir_fixed_npu_int8.tflite",
+      "spec": "best_crop_ir_fixed_npu_int8_manifest.json"
     }
   ]
 }
