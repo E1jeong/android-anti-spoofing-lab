@@ -10,6 +10,14 @@ Read this document before changing cameras, RGB/IR pairing, calibration, FaceMe 
 - The diagnostic crop preview updates independently of pairing success through a copied frame buffer and is throttled to a minimum 66ms interval (~15 FPS).
 - The UI displays probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
 
+## Known Camera Teardown Blocker
+
+- Target-device testing on 2026-07-20 reproduced a native crash after repeated transitions to Android Settings and back. Android DropBox recorded `SIGSEGV` on `rgb-camera` in `__memcpy -> JNI SetByteArrayRegion`, copying `0x300` (768) bytes from an unmapped address.
+- The copy length and thread identify the Y-plane row bulk copy in `YuvConverter.copyToNv21()`. An `onImageAvailable` callback can pass its generation check and enter `ByteBuffer.get()` while `CameraStream.stop()` concurrently closes the `ImageReader` on the main thread, invalidating the native image-plane buffer.
+- Generation checks do not make an already-running image copy safe. Before further lifecycle optimization, serialize camera teardown with the camera handler: stop new delivery, let the active callback finish, then close the capture session/device/reader in a deterministic order.
+- Retain and explicitly release each preview `Surface`. Close the converter only after conversion work has terminated, then quit and join the camera handler thread. The current implementation also emitted `BufferQueue has been abandoned`, `CameraDeviceImpl.close()` contention, and resource-release warnings before the crash.
+- Do not continue repeated pause/resume stress on the affected APK. After the teardown fix, verify Settings transitions without abandoned-buffer errors, release warnings, stale frames, or native crashes.
+
 ## Device Contract
 
 - RGB-to-IR mapping requires `/sdcard/devlocal/CalibConfig.dat`.
@@ -30,6 +38,7 @@ Read this document before changing cameras, RGB/IR pairing, calibration, FaceMe 
 - Hardware-dependent changes must verify RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, inference output, timing, and cleanup/restart across pause and resume.
 - Calibration changes must also verify hidden-mode entry, single-face validation for both cameras, cancel-without-save, persisted alignment after restart, and production mapping-formula compatibility.
 - Test camera-open termination, repeated pause/resume, and termination during model/FaceMe warmup when lifecycle behavior changes.
+- Treat any `SIGSEGV`, abandoned BufferQueue during normal pause/resume, or unreleased camera resource warning as a failed lifecycle regression even if the app process later restarts successfully.
 - A `Tracking failed` message means an asynchronous exception escaped `processTracking`. Inspect the stack trace with:
 
 ```bash

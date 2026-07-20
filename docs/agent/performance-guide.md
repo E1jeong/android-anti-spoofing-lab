@@ -26,7 +26,15 @@ adb logcat -s MainActivity:I
 - Live save candidates share one FaceMe extraction between tracking and quality data.
 - Capture I/O owns detached source frames and writes full/crop BMPs with a reusable 16-row buffer, removing two full-frame copies and two crop bitmap creations per save attempt.
 - The throttled IR diagnostic preview reuses one ARGB bitmap/Canvas while dimensions remain stable, but still performs a full-frame copy.
-- These changes passed 17 JVM tests and Java compilation. Target-device quality acceptance, BMP/cancel regression, camera-pool pressure, latency, and GC remain unverified.
+- These changes passed 17 JVM tests and Java compilation. Target-device UI, image acquisition, fixed IR inference latency, and GC behavior were partially verified on 2026-07-20; quality acceptance, capture-save timing, a documented 100-sample file audit, and comparable before/after memory remain open.
+
+## 2026-07-20 Target-Device Observation
+
+- The fixed IR `single_1_input` slot reached `Ready`, rendered six-class output, and logged one NNAPI delegate partition replacing all 66 TFLite nodes. Warmup completed in 11,372 ms.
+- From inference sample 3,150 to 7,320, the app completed 4,170 results in eight minutes (about 8.7/s). Recent-120-sample ranges were preprocess P50 4-5 ms/P95 12-17 ms, invoke P50 10-11 ms/P95 17-22 ms, inference queue P50 0 ms/P95 0-2 ms, and tracking-to-result P50 73-79 ms/P95 101-122 ms.
+- The observation showed no sustained queue growth or time-dependent latency degradation. It is not a speedup claim because no pre-optimization APK was measured under the same conditions.
+- GC pauses were short and reclaimed allocations normally. One post-restart sample showed Java Heap PSS 12,856 KiB, Native Heap PSS 185,124 KiB, and Total PSS 245,254 KiB; one point cannot establish leak behavior.
+- Repeated Settings transitions failed with the camera teardown `SIGSEGV` documented in `device-runtime.md`. Fix that P0 lifecycle race before collecting more lifecycle or long-duration memory evidence from the affected APK.
 
 ## Optimization Boundaries
 
@@ -41,3 +49,4 @@ adb logcat -s MainActivity:I
 - Collect preprocess, invoke, inference queue, tracking-to-result, capture-save P50/P95, processing FPS, Java/native heap, and GC.
 - Include fixed IR standalone model loading, six-class output, RGB/IR preview and crop, overlay/UI, camera-open termination, at least 20 pause/resume cycles, warmup termination, and a 100-sample capture with pause/resume/cancel.
 - Verify live HIGH/MEDIUM acceptance, non-live bypass, BMP output, metadata, portrait-pool pressure, and stale-directory prevention.
+- The 2026-07-20 fixed IR latency observation and user-confirmed image acquisition satisfy only part of this baseline. Do not infer capture-save performance, quality-gate correctness, 100-sample file integrity, memory stability, or lifecycle safety from those results.
