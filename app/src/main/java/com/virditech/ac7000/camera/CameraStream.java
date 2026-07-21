@@ -23,6 +23,7 @@ import android.view.TextureView;
 import com.virditech.ac7000.concurrent.GenerationGuard;
 
 import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -46,6 +47,7 @@ final class CameraStream {
     private CameraDevice device;
     private CameraCaptureSession session;
     private ImageReader reader;
+    private Surface preview;
     private Handler handler;
     private volatile boolean frameDeliveryEnabled = true;
     // Reused NV21 buffer; safe because frames are dropped while a conversion is in flight,
@@ -129,7 +131,8 @@ final class CameraStream {
                 return;
             }
             texture.setDefaultBufferSize(FRAME_SIZE.getWidth(), FRAME_SIZE.getHeight());
-            Surface preview = new Surface(texture);
+            Surface generationPreview = new Surface(texture);
+            preview = generationPreview;
             ImageReader generationReader = ImageReader.newInstance(
                     FRAME_SIZE.getWidth(), FRAME_SIZE.getHeight(), ImageFormat.YUV_420_888, 3);
             reader = generationReader;
@@ -170,7 +173,7 @@ final class CameraStream {
                     }
                 }
             }, handler);
-            camera.createCaptureSession(Arrays.asList(preview, generationReader.getSurface()), new CameraCaptureSession.StateCallback() {
+            camera.createCaptureSession(Arrays.asList(generationPreview, generationReader.getSurface()), new CameraCaptureSession.StateCallback() {
                 @Override public void onConfigured(CameraCaptureSession configured) {
                     if (!generationGuard.isCurrent(generation)) {
                         configured.close();
@@ -180,7 +183,7 @@ final class CameraStream {
                     session = configured;
                     try {
                         CaptureRequest.Builder request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                        request.addTarget(preview);
+                        request.addTarget(generationPreview);
                         request.addTarget(generationReader.getSurface());
                         configured.setRepeatingRequest(request.build(), null, handler);
                     } catch (CameraAccessException e) {
@@ -218,14 +221,9 @@ final class CameraStream {
 
     void stop() {
         generationGuard.advance();
+        frameDeliveryEnabled = false;
         textureView.setSurfaceTextureListener(null);
-        if (session != null) {
-            try { session.stopRepeating(); } catch (Exception ignored) {}
-            try { session.abortCaptures(); } catch (Exception ignored) {}
-        }
-        if (reader != null) { reader.close(); reader = null; }
-        if (session != null) { session.close(); session = null; }
-        if (device != null) { device.close(); device = null; }
+        closeCameraOnHandler();
 
         conversionExecutor.shutdown();
         try {
@@ -236,11 +234,46 @@ final class CameraStream {
             conversionExecutor.shutdownNow();
         }
 
-        if (handler != null) {
-            handler.post(converter::close);
-            handler = null;
-        } else {
-            converter.close();
+        converter.close();
+    }
+
+    private void closeCameraOnHandler() {
+        Handler cameraHandler = handler;
+        if (cameraHandler == null) {
+            closeCameraResources();
+            return;
         }
+        CountDownLatch closed = new CountDownLatch(1);
+        if (!cameraHandler.post(() -> {
+            closeCameraResources();
+            closed.countDown();
+        })) return;
+        try {
+            closed.await(500, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void closeCameraResources() {
+        if (session != null) {
+            try { session.stopRepeating(); } catch (Exception ignored) {}
+            try { session.abortCaptures(); } catch (Exception ignored) {}
+            session.close();
+            session = null;
+        }
+        if (reader != null) {
+            reader.close();
+            reader = null;
+        }
+        if (device != null) {
+            device.close();
+            device = null;
+        }
+        if (preview != null) {
+            preview.release();
+            preview = null;
+        }
+        handler = null;
     }
 }

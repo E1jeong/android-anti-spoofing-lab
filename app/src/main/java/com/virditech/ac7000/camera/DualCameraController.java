@@ -44,9 +44,19 @@ public final class DualCameraController {
     public void stop() {
         rgb.stop();
         ir.stop();
-        if (rgbThread != null) rgbThread.quitSafely();
-        if (irThread != null) irThread.quitSafely();
+        stopThread(rgbThread);
+        stopThread(irThread);
         rgbThread = null;
         irThread = null;
+    }
+
+    private void stopThread(HandlerThread thread) {
+        if (thread == null) return;
+        thread.quitSafely();
+        try {
+            thread.join(500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }
