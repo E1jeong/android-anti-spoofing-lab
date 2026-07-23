@@ -39,8 +39,8 @@
       ],
       "dtype": "int8",
       "quantization": {
-        "scale": 0.1017397791147232,
-        "zero_point": -48
+        "scale": 0.2338576316833496,
+        "zero_point": -55
       },
       "output_is_logits": true
     }

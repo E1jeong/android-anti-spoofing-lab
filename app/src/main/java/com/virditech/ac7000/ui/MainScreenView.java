@@ -4,12 +4,10 @@ import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -36,8 +34,9 @@ public final class MainScreenView {
     public final Button startCollectionButton;
     public final ImageButton pauseCollectionButton;
     public final ImageButton cancelCollectionButton;
+    public final ImageButton stopAttackLiveCaptureButton;
     public final FrameLayout highQualityOnlyContainer;
-    public final CheckBox highQualityOnlyButton;
+    public final Button highQualityOnlyButton;
     public final TextView collectionProgress;
     public final LinearLayout controlsLayout;
     public final Button calibrationConfirm;
@@ -147,34 +146,51 @@ public final class MainScreenView {
         cancelCollectionParams.height = dp(84);
         root.addView(cancelCollectionButton, cancelCollectionParams);
 
+        stopAttackLiveCaptureButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
+                Color.parseColor("#B71C1C"));
+        stopAttackLiveCaptureButton.setContentDescription("Stop attack Live capture");
+        stopAttackLiveCaptureButton.setVisibility(View.GONE);
+        stopAttackLiveCaptureButton.setOnClickListener(v -> listener.onStopAttackLiveCapture());
+        FrameLayout.LayoutParams stopAttackLiveCaptureParams =
+                wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 16);
+        stopAttackLiveCaptureParams.width = dp(84);
+        stopAttackLiveCaptureParams.height = dp(84);
+        root.addView(stopAttackLiveCaptureButton, stopAttackLiveCaptureParams);
+
         expandableLayout = new LinearLayout(activity);
         expandableLayout.setOrientation(LinearLayout.VERTICAL);
         expandableLayout.setGravity(Gravity.END);
         expandableLayout.setVisibility(View.GONE);
 
         highQualityOnlyContainer = new FrameLayout(activity);
-        GradientDrawable highQualityBackground = new GradientDrawable();
-        highQualityBackground.setColor(Color.parseColor("#C49A00"));
-        highQualityBackground.setCornerRadius(0f);
-        highQualityOnlyContainer.setBackground(highQualityBackground);
-
-        highQualityOnlyButton = new CheckBox(activity);
+        highQualityOnlyButton = new Button(activity);
         highQualityOnlyButton.setGravity(Gravity.CENTER);
-        highQualityOnlyButton.setMinHeight(dp(48));
-        highQualityOnlyButton.setMinimumHeight(dp(48));
-        highQualityOnlyButton.setIncludeFontPadding(false);
-        highQualityOnlyButton.setPadding(0, 0, 0, 0);
         updateHighQualityOnlyButton();
         highQualityOnlyButton.setOnClickListener(v -> {
-            highQualityOnly = highQualityOnlyButton.isChecked();
+            highQualityOnly = !highQualityOnly;
             updateHighQualityOnlyButton();
             listener.onHighQualityOnlyChanged(highQualityOnly);
         });
         highQualityOnlyContainer.setOnClickListener(v -> highQualityOnlyButton.performClick());
         highQualityOnlyContainer.addView(highQualityOnlyButton, match());
-        LinearLayout.LayoutParams highQualityLp = new LinearLayout.LayoutParams(buttonWidth, dp(48));
+        LinearLayout.LayoutParams highQualityLp = new LinearLayout.LayoutParams(
+                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
         highQualityLp.bottomMargin = dp(4);
         expandableLayout.addView(highQualityOnlyContainer, highQualityLp);
+
+        Button attackLiveCaptureButton = new Button(activity);
+        attackLiveCaptureButton.setText("ATTACK");
+        attackLiveCaptureButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#B71C1C")));
+        attackLiveCaptureButton.setTextColor(Color.WHITE);
+        attackLiveCaptureButton.setOnClickListener(v -> {
+            listener.onStartAttackLiveCapture();
+            expandableLayout.setVisibility(View.GONE);
+        });
+        LinearLayout.LayoutParams attackLiveCaptureLp = new LinearLayout.LayoutParams(
+                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
+        attackLiveCaptureLp.bottomMargin = dp(4);
+        expandableLayout.addView(attackLiveCaptureButton, attackLiveCaptureLp);
 
         String[] classes = {"live", "display", "picture", "print", "mask", "pmask"};
         for (String c : classes) {
@@ -363,11 +379,13 @@ public final class MainScreenView {
     private void updateHighQualityOnlyButton() {
         if (highQualityOnlyButton == null) return;
         highQualityOnlyButton.setText("HIGH QUALITY");
-        highQualityOnlyButton.setChecked(highQualityOnly);
         highQualityOnlyButton.setTextColor(Color.WHITE);
         highQualityOnlyButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        highQualityOnlyButton.setBackgroundColor(Color.TRANSPARENT);
-        highQualityOnlyButton.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
+        highQualityOnlyButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#C49A00")));
+        highQualityOnlyButton.setCompoundDrawablesWithIntrinsicBounds(highQualityOnly
+                ? android.R.drawable.checkbox_on_background
+                : android.R.drawable.checkbox_off_background, 0, 0, 0);
     }
 
     private static FrameLayout.LayoutParams match() {
@@ -389,6 +407,8 @@ public final class MainScreenView {
     public interface Listener {
         void onPauseCollection();
         void onCancelCollection();
+        void onStartAttackLiveCapture();
+        void onStopAttackLiveCapture();
         void onHighQualityOnlyChanged(boolean highQualityOnly);
         void onStartCollection(String className);
         void onSwitchPreview();

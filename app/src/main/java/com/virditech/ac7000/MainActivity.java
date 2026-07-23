@@ -22,7 +22,6 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -35,6 +34,7 @@ import com.virditech.ac7000.calibration.Calibration;
 import com.virditech.ac7000.camera.DualCameraController;
 import com.virditech.ac7000.camera.FrameData;
 import com.virditech.ac7000.camera.FramePair;
+import com.virditech.ac7000.capture.AttackLiveCaptureGate;
 import com.virditech.ac7000.capture.CaptureProgressText;
 import com.virditech.ac7000.capture.CaptureSchedule;
 import com.virditech.ac7000.capture.CaptureStep;
@@ -76,6 +76,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService attackCaptureExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService modelInitExecutor = Executors.newSingleThreadExecutor();
     private final AtomicReference<TrackingFrame> pendingTracking = new AtomicReference<>();
     private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
@@ -83,6 +84,7 @@ public final class MainActivity extends Activity {
     private final AtomicBoolean inferenceWorkerRunning = new AtomicBoolean();
     private final AtomicBoolean calibrationRequested = new AtomicBoolean();
     private final GenerationGuard pipelineGeneration = new GenerationGuard();
+    private final Object attackCaptureLock = new Object();
     private final Object irLock = new Object();
     private FrameData latestIr;
     private final Object irPreviewLock = new Object();
@@ -116,8 +118,9 @@ public final class MainActivity extends Activity {
     private Button startCollectionButton;
     private ImageButton pauseCollectionButton;
     private ImageButton cancelCollectionButton;
+    private ImageButton stopAttackLiveCaptureButton;
     private FrameLayout highQualityOnlyContainer;
-    private CheckBox highQualityOnlyButton;
+    private Button highQualityOnlyButton;
     private boolean highQualityOnly;
     private TextView collectionProgress;
     private DualCameraController cameras;
@@ -126,7 +129,9 @@ public final class MainActivity extends Activity {
     private volatile Calibration calibration;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private volatile boolean isCollecting;
+    private volatile boolean isAttackLiveCapturing;
     private volatile boolean ioBusy;
+    private volatile boolean attackCaptureSaveBusy;
     private volatile int collectionCount;
     private volatile int collectionSessionId;
     private volatile int collectionStepIndex;
@@ -140,6 +145,9 @@ public final class MainActivity extends Activity {
     private File collectionRawRoot;
     private int collectionStartSubjectId;
     private String collectionClassName = "live";
+    private File attackCaptureRawRoot;
+    private int attackCaptureSubjectId;
+    private volatile int attackCaptureCount;
     private volatile boolean showIr;
     private boolean showIrBeforeCalibration;
     private volatile boolean calibrationMode;
@@ -194,6 +202,10 @@ public final class MainActivity extends Activity {
 
             @Override public void onCancelCollection() { cancelDataCollection(); }
 
+            @Override public void onStartAttackLiveCapture() { startAttackLiveCapture(); }
+
+            @Override public void onStopAttackLiveCapture() { stopAttackLiveCapture(); }
+
             @Override public void onHighQualityOnlyChanged(boolean checked) {
                 highQualityOnly = checked;
             }
@@ -232,6 +244,7 @@ public final class MainActivity extends Activity {
         startCollectionButton = screen.startCollectionButton;
         pauseCollectionButton = screen.pauseCollectionButton;
         cancelCollectionButton = screen.cancelCollectionButton;
+        stopAttackLiveCaptureButton = screen.stopAttackLiveCaptureButton;
         highQualityOnlyContainer = screen.highQualityOnlyContainer;
         highQualityOnlyButton = screen.highQualityOnlyButton;
         collectionProgress = screen.collectionProgress;
@@ -788,7 +801,7 @@ public final class MainActivity extends Activity {
         }
 
         if (isCollecting || rgbCrop == null || irCrop == null || frame.ir == null) return;
-        submitInference(new InferenceTask(frame.detachPair(), rgbCrop, irCrop,
+        submitInference(new InferenceTask(frame.detachPair(), detected, irDetected, rgbCrop, irCrop,
                 frame.generation, activeClassifier, frame.receivedNs));
     }
 
@@ -841,6 +854,8 @@ public final class MainActivity extends Activity {
         irInferenceMs = result.irResult != null ? result.irResult.inferenceMs : -1L;
         recordInferenceMetrics(result.preprocessMs, result.inferenceMs, queueMs, endToEndMs);
         updateInferenceFps();
+
+        maybeSaveAttackLiveCapture(task, result);
 
         runOnUiThread(() -> {
             if (!isPipelineCurrent(task.generation)) return;
@@ -1003,7 +1018,7 @@ public final class MainActivity extends Activity {
     }
 
     private void startDataCollection(String className, int subjectNum) {
-        if (isCollecting) return;
+        if (isCollecting || isAttackLiveCapturing) return;
         FaceDetector detector = faceDetector;
         if ("live".equals(className) && (detector == null || !detector.isQualityAvailable())) {
             String message = detector == null ? "Face detector unavailable" : detector.qualityError();
@@ -1056,6 +1071,111 @@ public final class MainActivity extends Activity {
         screen.setCollectionPaused(false);
         updateCollectionUi(SystemClock.elapsedRealtime());
         setCollectionChromeVisible(false);
+    }
+
+    private void startAttackLiveCapture() {
+        if (isCollecting || isAttackLiveCapturing) return;
+        synchronized (attackCaptureLock) {
+            if (attackCaptureSaveBusy) {
+                showTransientStatus("Previous attack Live save is still finishing");
+                return;
+            }
+        }
+        if (!Environment.isExternalStorageManager()) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+            showTransientStatus("Please grant All Files Access and try again.");
+            return;
+        }
+        attackCaptureRawRoot = resolveRawRoot();
+        if (!prepareRawRoot(attackCaptureRawRoot)) {
+            showTransientStatus("Save failed: unable to write "
+                    + attackCaptureRawRoot.getAbsolutePath());
+            return;
+        }
+        attackCaptureSubjectId = CaptureStorage.getNextSubjectNumber(attackCaptureRawRoot,
+                "attack_live");
+        attackCaptureCount = 0;
+        attackCaptureSaveBusy = false;
+        isAttackLiveCapturing = true;
+        startCollectionButton.setEnabled(false);
+        startCollectionButton.setText("START CAPTURE");
+        stopAttackLiveCaptureButton.setVisibility(View.VISIBLE);
+        showTransientStatus("Attack Live capture started");
+        android.util.Log.i(TAG, "Attack Live capture started: "
+                + attackCaptureRawRoot.getAbsolutePath() + "/attack_live/attack_live_"
+                + attackCaptureSubjectId);
+    }
+
+    private void stopAttackLiveCapture() {
+        synchronized (attackCaptureLock) {
+            if (!isAttackLiveCapturing) return;
+            isAttackLiveCapturing = false;
+        }
+        stopAttackLiveCaptureButton.setVisibility(View.GONE);
+        FaceDetector detector = faceDetector;
+        startCollectionButton.setEnabled(detector != null);
+        startCollectionButton.setText("START CAPTURE");
+        showTransientStatus("Attack Live capture stopped: " + attackCaptureCount + " saved");
+    }
+
+    private void maybeSaveAttackLiveCapture(InferenceTask task, SlotClassificationResult result) {
+        ClassificationResult primary = result.primaryResult();
+        if (primary == null || !AttackLiveCaptureGate.shouldSave(primary.probabilities)) {
+            return;
+        }
+        FramePair pair;
+        synchronized (attackCaptureLock) {
+            if (!isAttackLiveCapturing || attackCaptureSaveBusy) return;
+            pair = task.detachPair();
+            if (pair == null) return;
+            attackCaptureSaveBusy = true;
+        }
+        if (pair == null) return;
+        final int sampleIndex = attackCaptureCount + 1;
+        final File root = attackCaptureRawRoot != null ? attackCaptureRawRoot : resolveRawRoot();
+        final String subjectDirName = "attack_live_" + attackCaptureSubjectId;
+        final File sampleDir = CaptureStorage.sampleDir(root, "attack_live", null,
+                subjectDirName, sampleIndex);
+        final String metadataJson = CaptureStorage.buildSampleMetadataJson(
+                pair.rgb.bitmap.getWidth(), pair.rgb.bitmap.getHeight(), task.rgbFace, task.rgbCrop,
+                pair.ir.bitmap.getWidth(), pair.ir.bitmap.getHeight(), task.irFace, task.irCrop,
+                task.classifier.cropMarginRatio(), "attack_live", -1, -1, 0f);
+        OwnedFrameTask saveTask = new OwnedFrameTask(pair, () -> {
+            boolean saved = false;
+            try {
+                boolean dirReady = sampleDir.isDirectory() || sampleDir.mkdirs();
+                if (!dirReady) {
+                    showTransientStatus("Save failed: unable to create " + sampleDir.getAbsolutePath());
+                    return;
+                }
+                saved = saveBitmapAsBmp(pair.rgb.bitmap, new File(sampleDir, "RGB.bmp"))
+                        && saveBitmapRegionAsBmp(pair.rgb.bitmap, task.rgbCrop,
+                        new File(sampleDir, "cropRGB.bmp"))
+                        && saveBitmapAsBmp(pair.ir.bitmap, new File(sampleDir, "IR.bmp"))
+                        && saveBitmapRegionAsBmp(pair.ir.bitmap, task.irCrop,
+                        new File(sampleDir, "cropIR.bmp"))
+                        && saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
+                if (saved) {
+                    attackCaptureCount = sampleIndex;
+                    android.util.Log.i(TAG, "Saved attack Live sample: " + sampleDir.getAbsolutePath());
+                }
+            } finally {
+                synchronized (attackCaptureLock) {
+                    attackCaptureSaveBusy = false;
+                }
+            }
+        });
+        try {
+            attackCaptureExecutor.execute(saveTask);
+        } catch (RejectedExecutionException e) {
+            saveTask.discard();
+            synchronized (attackCaptureLock) {
+                attackCaptureSaveBusy = false;
+            }
+            android.util.Log.w(TAG, "Attack Live save rejected during shutdown", e);
+        }
     }
 
     private void deleteCollectionSubject(String className, String qualityMode, String subjectDirName) {
@@ -1283,10 +1403,15 @@ public final class MainActivity extends Activity {
         for (Runnable task : discardedIoWork) {
             if (task instanceof OwnedFrameTask) ((OwnedFrameTask) task).discard();
         }
+        List<Runnable> discardedAttackCaptureWork = attackCaptureExecutor.shutdownNow();
+        for (Runnable task : discardedAttackCaptureWork) {
+            if (task instanceof OwnedFrameTask) ((OwnedFrameTask) task).discard();
+        }
         modelInitExecutor.shutdownNow();
         boolean inferenceTerminated = awaitExecutorTermination(inferenceExecutor);
         boolean trackingTerminated = awaitExecutorTermination(trackingExecutor);
         awaitExecutorTermination(ioExecutor);
+        awaitExecutorTermination(attackCaptureExecutor);
         awaitExecutorTermination(modelInitExecutor);
         if (inferenceTerminated) closeClassifiers();
         if (trackingTerminated) closeFaceDetector();
@@ -1332,7 +1457,9 @@ public final class MainActivity extends Activity {
     }
 
     private static final class InferenceTask {
-        final FramePair pair;
+        private FramePair pair;
+        final Rect rgbFace;
+        final Rect irFace;
         final Rect rgbCrop;
         final Rect irCrop;
         final int generation;
@@ -1340,9 +1467,11 @@ public final class MainActivity extends Activity {
         final long receivedNs;
         final long enqueuedNs;
 
-        InferenceTask(FramePair pair, Rect rgbCrop, Rect irCrop, int generation,
+        InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, int generation,
                       ModelSlotClassifier classifier, long receivedNs) {
             this.pair = pair;
+            this.rgbFace = rgbFace;
+            this.irFace = irFace;
             this.rgbCrop = rgbCrop;
             this.irCrop = irCrop;
             this.generation = generation;
@@ -1352,7 +1481,14 @@ public final class MainActivity extends Activity {
         }
 
         void recycle() {
-            pair.recycle();
+            if (pair != null) pair.recycle();
+            pair = null;
+        }
+
+        FramePair detachPair() {
+            FramePair detached = pair;
+            pair = null;
+            return detached;
         }
     }
 
