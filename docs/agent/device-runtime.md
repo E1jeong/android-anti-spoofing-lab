@@ -9,6 +9,8 @@ Read this document before changing cameras, RGB/IR pairing, calibration, FaceMe 
 - Match the latest IR frame within `MAX_PAIR_DELTA_NS` (150ms), then map the RGB face region into IR coordinates using device calibration.
 - The diagnostic crop preview updates independently of pairing success through a copied frame buffer and is throttled to a minimum 66ms interval (~15 FPS).
 - The UI displays probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
+- On `feat/mediapipe-face-detector-toggle`, FaceMe and MediaPipe Face Detector are initialized together and the UI can select either for tracking and calibration. MediaPipe runs on CPU in the existing tracking executor; do not invoke it from camera callbacks or enable a second accelerator path before target-device measurement. The branch's `live` collection keeps the FaceMe HIGH/MEDIUM quality contract, so it must reject live collection while MediaPipe is selected.
+- The MediaPipe short-range model (`blaze_face_short_range.tflite`) is a local ignored asset, not a manifest slot or checked-in model artifact. Provision it locally for branch builds and verify both RGB and IR detection before considering FaceMe removable.
 
 ## Camera Teardown Status
 

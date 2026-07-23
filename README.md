@@ -21,6 +21,10 @@ The runtime parser accepts one-, two-, or five-input NHWC models with `FLOAT32`,
 
 NNAPI compilation caching must remain disabled because the target board's VSI NPU driver fails models with caching enabled. A `cpu` spec uses CPU/XNNPACK, while NNAPI setup or model warmup failure rejects that manifest slot instead of falling back. This no-fallback behavior is intentional for NPU evaluation. Verify model warmup, the on-screen backend label, logcat, and latency together; `Backend NNAPI` alone does not prove that every operation ran on the NPU.
 
+## Face detector comparison branch
+
+`feat/mediapipe-face-detector-toggle` keeps FaceMe and MediaPipe Face Detector available at startup and adds a detector-toggle button for hardware comparison. The selected detector supplies largest-face tracking and RGB/IR calibration validation; `live` collection remains FaceMe-only because its HIGH/MEDIUM quality contract has not been replaced. MediaPipe uses the CPU delegate and the public `blaze_face_short_range.tflite` asset. The repository ignores `.tflite` files, so provision that model locally before building this branch; do not commit it with the anti-spoofing model artifacts.
+
 ## Required local configuration
 
 Supply proprietary dependencies, the FaceMe license, and optional platform-signing values through user-level Gradle properties or the ignored root `local.properties`. Do not commit their values.

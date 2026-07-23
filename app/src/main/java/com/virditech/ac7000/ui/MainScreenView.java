@@ -31,6 +31,7 @@ public final class MainScreenView {
     public final TextView calibrationInstruction;
     public final Button switchButton;
     public final Button modelSwitchButton;
+    public final Button detectorSwitchButton;
     public final Button startCollectionButton;
     public final ImageButton pauseCollectionButton;
     public final ImageButton cancelCollectionButton;
@@ -230,6 +231,13 @@ public final class MainScreenView {
         controlsLayout.addView(modelSwitchButton, new LinearLayout.LayoutParams(
                 buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        detectorSwitchButton = new Button(activity);
+        detectorSwitchButton.setText("DETECTOR: FACEME");
+        detectorSwitchButton.setEnabled(false);
+        detectorSwitchButton.setOnClickListener(v -> listener.onToggleDetector());
+        controlsLayout.addView(detectorSwitchButton, new LinearLayout.LayoutParams(
+                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         root.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
 
         calibrationInstruction = label(24f);
@@ -413,6 +421,7 @@ public final class MainScreenView {
         void onStartCollection(String className);
         void onSwitchPreview();
         void onToggleModel();
+        void onToggleDetector();
         void onCalibrationConfirm();
         void onCalibrationCancel();
         void onCalibrationTap();

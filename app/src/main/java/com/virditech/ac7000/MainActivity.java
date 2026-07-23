@@ -41,6 +41,8 @@ import com.virditech.ac7000.capture.CaptureStep;
 import com.virditech.ac7000.capture.CaptureStorage;
 import com.virditech.ac7000.concurrent.GenerationGuard;
 import com.virditech.ac7000.face.FaceDetector;
+import com.virditech.ac7000.face.FaceDetectionEngine;
+import com.virditech.ac7000.face.MediaPipeFaceDetector;
 import com.virditech.ac7000.device.HardwareControls;
 import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
@@ -103,6 +105,7 @@ public final class MainActivity extends Activity {
     private TextView calibrationInstruction;
     private Button switchButton;
     private Button modelSwitchButton;
+    private Button detectorSwitchButton;
     private MainScreenView screen;
     private final Object classifierLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
@@ -125,6 +128,8 @@ public final class MainActivity extends Activity {
     private TextView collectionProgress;
     private DualCameraController cameras;
     private volatile FaceDetector faceDetector;
+    private volatile MediaPipeFaceDetector mediaPipeFaceDetector;
+    private volatile FaceDetectionEngine activeFaceDetector;
     private volatile ModelSlotClassifier classifier;
     private volatile Calibration calibration;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
@@ -219,6 +224,8 @@ public final class MainActivity extends Activity {
 
             @Override public void onToggleModel() { toggleModel(); }
 
+            @Override public void onToggleDetector() { toggleFaceDetector(); }
+
             @Override public void onCalibrationConfirm() {
                 calibrationRequested.set(true);
                 calibrationInstruction.setText("Hold still while RGB and IR faces are measured...");
@@ -241,6 +248,7 @@ public final class MainActivity extends Activity {
         calibrationInstruction = screen.calibrationInstruction;
         switchButton = screen.switchButton;
         modelSwitchButton = screen.modelSwitchButton;
+        detectorSwitchButton = screen.detectorSwitchButton;
         startCollectionButton = screen.startCollectionButton;
         pauseCollectionButton = screen.pauseCollectionButton;
         cancelCollectionButton = screen.cancelCollectionButton;
@@ -315,6 +323,7 @@ public final class MainActivity extends Activity {
                         return;
                     }
                     faceDetector = detector;
+                    activeFaceDetector = detector;
                 }
                 if (!detector.isQualityAvailable()) {
                     String message = detector.qualityError();
@@ -326,7 +335,22 @@ public final class MainActivity extends Activity {
             } catch (Exception e) {
                 String message = e.getMessage();
                 reportEngineError(message == null ? "Face detector unavailable" : message);
+            }
+            try {
+                MediaPipeFaceDetector detector = new MediaPipeFaceDetector(getApplicationContext());
+                synchronized (classifierLock) {
+                    if (enginesShutDown) {
+                        detector.close();
+                        return;
+                    }
+                    mediaPipeFaceDetector = detector;
+                    if (activeFaceDetector == null) activeFaceDetector = detector;
+                }
+            } catch (Exception e) {
+                String message = e.getMessage();
+                reportEngineError(message == null ? "MediaPipe detector unavailable" : message);
             } finally {
+                updateFaceDetectorSwitch();
                 onEngineLoadFinished();
             }
         });
@@ -362,6 +386,7 @@ public final class MainActivity extends Activity {
                 ModelSlotClassifier active = classifier;
                 if (active != null) modelSwitchButton.setText(active.label());
             }
+            updateFaceDetectorSwitch();
             if (classifier != null && cameras != null) cameras.setIrFramesEnabled(true);
         });
         if (classifier == null) reportEngineError("No model slots loaded");
@@ -526,24 +551,26 @@ public final class MainActivity extends Activity {
             if (pendingTracking.get() != null && trackingWorkerRunning.compareAndSet(false, true)) {
                 trackingExecutor.execute(this::drainTracking);
             }
-            if (enginesShutDown) closeFaceDetector();
+            if (enginesShutDown) closeFaceDetectors();
         }
     }
 
     private void processTracking(TrackingFrame frame) {
         if (!isPipelineCurrent(frame.generation)) return;
-        if (faceDetector == null || calibration == null) return;
+        FaceDetectionEngine activeDetector = activeFaceDetector;
+        if (activeDetector == null || calibration == null) return;
         boolean captureCalibration = calibrationMode && calibrationRequested.getAndSet(false);
         boolean prepareCollectionQuality = !captureCalibration
                 && isCollecting && !collectionPaused && frame.ir != null && !ioBusy
+                && activeDetector == faceDetector
                 && shouldCheckCollectionQuality(collectionClassName)
                 && getCollectionCountdownSeconds(SystemClock.elapsedRealtime()) <= 0;
         long start = SystemClock.elapsedRealtimeNanos();
         Rect detected = captureCalibration
-                ? faceDetector.detectSingle(frame.rgb.bitmap)
+                ? activeDetector.detectSingle(frame.rgb.bitmap)
                 : prepareCollectionQuality
                         ? faceDetector.detectLargestWithQualityData(frame.rgb.bitmap)
-                        : faceDetector.detectLargest(frame.rgb.bitmap);
+                        : activeDetector.detectLargest(frame.rgb.bitmap);
         if (!isPipelineCurrent(frame.generation)) return;
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         rgbConversionMs = frame.rgb.conversionMs;
@@ -590,7 +617,7 @@ public final class MainActivity extends Activity {
                 });
                 return;
             }
-            Rect detectedIr = faceDetector.detectSingle(frame.ir.bitmap);
+            Rect detectedIr = activeDetector.detectSingle(frame.ir.bitmap);
             if (detectedIr == null) {
                 runOnUiThread(() -> {
                     if (isPipelineCurrent(frame.generation)) {
@@ -935,6 +962,7 @@ public final class MainActivity extends Activity {
         collectionPausedCountdownMs = 0L;
         collectionSessionId++;
         ioBusy = false;
+        updateFaceDetectorSwitch();
         overlay.setCollecting(false);
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
@@ -958,6 +986,7 @@ public final class MainActivity extends Activity {
         collectionPausedCountdownMs = 0L;
         collectionSessionId++;
         ioBusy = false;
+        updateFaceDetectorSwitch();
         overlay.setCollecting(false);
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
@@ -974,7 +1003,7 @@ public final class MainActivity extends Activity {
             deleteCollectionSubject(canceledClassName, canceledQualityMode, canceledSubjectDirName);
             runOnUiThread(() -> {
                 if (!isCollecting) {
-                    FaceDetector detector = faceDetector;
+                    FaceDetectionEngine detector = activeFaceDetector;
                     startCollectionButton.setEnabled(detector != null);
                 }
             });
@@ -1019,9 +1048,20 @@ public final class MainActivity extends Activity {
 
     private void startDataCollection(String className, int subjectNum) {
         if (isCollecting || isAttackLiveCapturing) return;
-        FaceDetector detector = faceDetector;
-        if ("live".equals(className) && (detector == null || !detector.isQualityAvailable())) {
-            String message = detector == null ? "Face detector unavailable" : detector.qualityError();
+        FaceDetectionEngine activeDetector = activeFaceDetector;
+        FaceDetector qualityDetector = faceDetector;
+        if (activeDetector == null) {
+            showTransientStatus("Face detector unavailable");
+            startCollectionButton.setText("START CAPTURE");
+            return;
+        }
+        if ("live".equals(className) && activeDetector != qualityDetector) {
+            showTransientStatus("Live quality capture requires FaceMe");
+            startCollectionButton.setText("START CAPTURE");
+            return;
+        }
+        if ("live".equals(className) && (qualityDetector == null || !qualityDetector.isQualityAvailable())) {
+            String message = qualityDetector == null ? "Face detector unavailable" : qualityDetector.qualityError();
             showTransientStatus(message.isEmpty() ? "Face quality unavailable" : message);
             startCollectionButton.setText("START CAPTURE");
             return;
@@ -1067,6 +1107,7 @@ public final class MainActivity extends Activity {
         lastCollectionQuality = null;
         ioBusy = false;
         isCollecting = true;
+        updateFaceDetectorSwitch();
         overlay.setCollecting(true);
         screen.setCollectionPaused(false);
         updateCollectionUi(SystemClock.elapsedRealtime());
@@ -1099,6 +1140,7 @@ public final class MainActivity extends Activity {
         attackCaptureCount = 0;
         attackCaptureSaveBusy = false;
         isAttackLiveCapturing = true;
+        updateFaceDetectorSwitch();
         startCollectionButton.setEnabled(false);
         startCollectionButton.setText("START CAPTURE");
         stopAttackLiveCaptureButton.setVisibility(View.VISIBLE);
@@ -1114,7 +1156,8 @@ public final class MainActivity extends Activity {
             isAttackLiveCapturing = false;
         }
         stopAttackLiveCaptureButton.setVisibility(View.GONE);
-        FaceDetector detector = faceDetector;
+        updateFaceDetectorSwitch();
+        FaceDetectionEngine detector = activeFaceDetector;
         startCollectionButton.setEnabled(detector != null);
         startCollectionButton.setText("START CAPTURE");
         showTransientStatus("Attack Live capture stopped: " + attackCaptureCount + " saved");
@@ -1238,7 +1281,7 @@ public final class MainActivity extends Activity {
             loadingSpinner.setVisibility(View.GONE);
             irLoadingSpinner.setVisibility(View.GONE);
             if (!isCollecting) {
-                FaceDetector detector = faceDetector;
+                FaceDetectionEngine detector = activeFaceDetector;
                 startCollectionButton.setEnabled(detector != null);
                 switchButton.setEnabled(true);
             }
@@ -1342,6 +1385,35 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void toggleFaceDetector() {
+        if (isCollecting || isAttackLiveCapturing || calibrationMode) return;
+        FaceDetectionEngine next;
+        synchronized (classifierLock) {
+            if (activeFaceDetector == faceDetector && mediaPipeFaceDetector != null) {
+                next = mediaPipeFaceDetector;
+            } else if (faceDetector != null) {
+                next = faceDetector;
+            } else {
+                return;
+            }
+            activeFaceDetector = next;
+        }
+        updateFaceDetectorSwitch();
+        showTransientStatus(next == faceDetector
+                ? "FaceMe detector selected"
+                : "MediaPipe detector selected; live quality capture is unavailable");
+    }
+
+    private void updateFaceDetectorSwitch() {
+        runOnUiThread(() -> {
+            if (detectorSwitchButton == null) return;
+            FaceDetectionEngine active = activeFaceDetector;
+            detectorSwitchButton.setText("DETECTOR: " + (active != null ? active.label() : "UNAVAILABLE"));
+            detectorSwitchButton.setEnabled(faceDetector != null && mediaPipeFaceDetector != null
+                    && !isCollecting && !isAttackLiveCapturing && !calibrationMode);
+        });
+    }
+
     private final Runnable restoreStatusRunnable = () -> {
         status.setText(normalStatusMessage);
     };
@@ -1414,7 +1486,7 @@ public final class MainActivity extends Activity {
         awaitExecutorTermination(attackCaptureExecutor);
         awaitExecutorTermination(modelInitExecutor);
         if (inferenceTerminated) closeClassifiers();
-        if (trackingTerminated) closeFaceDetector();
+        if (trackingTerminated) closeFaceDetectors();
         if (captureTone != null) {
             captureTone.release();
             captureTone = null;
@@ -1537,13 +1609,18 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void closeFaceDetector() {
+    private void closeFaceDetectors() {
         FaceDetector detector;
+        MediaPipeFaceDetector mediaPipeDetector;
         synchronized (classifierLock) {
             detector = faceDetector;
+            mediaPipeDetector = mediaPipeFaceDetector;
             faceDetector = null;
+            mediaPipeFaceDetector = null;
+            activeFaceDetector = null;
         }
         if (detector != null) detector.close();
+        if (mediaPipeDetector != null) mediaPipeDetector.close();
     }
 
     private static boolean awaitExecutorTermination(ExecutorService executor) {

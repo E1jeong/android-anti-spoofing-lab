@@ -35,7 +35,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public final class FaceDetector implements AutoCloseable {
+public final class FaceDetector implements FaceDetectionEngine {
     private FaceMeRecognizer recognizer;
     private QualityDetector qualityDetector;
     private final ExtractConfig extractConfig = new ExtractConfig();
@@ -105,7 +105,11 @@ public final class FaceDetector implements AutoCloseable {
         }
     }
 
-    public Rect detectLargest(Bitmap rgb) {
+    @Override public String label() {
+        return "FACEME";
+    }
+
+    @Override public Rect detectLargest(Bitmap rgb) {
         return detectLargest(rgb, extractConfig, false);
     }
 
@@ -204,7 +208,7 @@ public final class FaceDetector implements AutoCloseable {
         return new FaceQualityCheckResult(passed, minLevel, quality.level, quality.score, reason);
     }
 
-    public Rect detectSingle(Bitmap image) {
+    @Override public Rect detectSingle(Bitmap image) {
         List<Integer> counts = recognizer.extractFaceEx(extractConfig, Collections.singletonList(image));
         if (counts.isEmpty() || counts.get(0) != 1) return null;
         FaceInfo info = recognizer.getFaceInfo(0, 0);
