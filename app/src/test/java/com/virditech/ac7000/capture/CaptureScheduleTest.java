@@ -34,5 +34,9 @@ public final class CaptureScheduleTest {
         assertFalse(CaptureSchedule.shouldCheckQuality("print"));
         assertFalse(CaptureSchedule.shouldCheckQuality("mask"));
         assertFalse(CaptureSchedule.shouldCheckQuality("pmask"));
+        assertFalse(CaptureSchedule.shouldCheckQuality("curved_picture"));
+        assertFalse(CaptureSchedule.shouldCheckQuality("curved_print"));
+        assertFalse(CaptureSchedule.shouldCheckQuality("curved_mask"));
+        assertFalse(CaptureSchedule.shouldCheckQuality("curved_pmask"));
     }
 }

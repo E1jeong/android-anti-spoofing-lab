@@ -218,10 +218,23 @@ public final class MainScreenView {
         });
         expandableLayout.addView(attackLiveCaptureButton, menuLayoutParams(buttonWidth));
 
-        String[] classes = {"live", "display", "picture", "print", "mask", "pmask"};
-        for (String className : classes) {
+        String[][] classes = {
+                {"live", "live"},
+                {"display", "display"},
+                {"picture", "picture"},
+                {"print", "print"},
+                {"mask", "mask"},
+                {"pmask", "pmask"},
+                {"C PICTURE", "curved_picture"},
+                {"C PRINT", "curved_print"},
+                {"C MASK", "curved_mask"},
+                {"C PMASK", "curved_pmask"}
+        };
+        for (String[] classOption : classes) {
+            String buttonText = classOption[0];
+            String className = classOption[1];
             Button button = new Button(activity);
-            button.setText(className);
+            button.setText(buttonText);
             button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     Color.parseColor("#37474F")));
             button.setTextColor(Color.WHITE);

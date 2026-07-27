@@ -6,7 +6,8 @@ Read this document before changing capture collection, FaceMe quality gating, sa
 
 - `START CAPTURE` writes exactly 100 valid samples per selected class.
 - For `live`, each save candidate must meet the selected FaceMe HIGH or MEDIUM quality threshold. Rejected frames do not increment the saved count or sector count.
-- Non-live classes (`display`, `picture`, `print`, `mask`, `pmask`) bypass FaceMe quality checks.
+- Non-live classes (`display`, `picture`, `print`, `mask`, `pmask`, `curved_picture`, `curved_print`, `curved_mask`, `curved_pmask`) bypass FaceMe quality checks.
+- The class menu keeps the original six buttons first, followed by `C PICTURE`, `C PRINT`, `C MASK`, and `C PMASK` in that order.
 - Capture can be paused and resumed. Cancel invalidates queued work and deletes the current subject directory, including samples already saved during that session.
 - A sample count advances only after `RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, and `meta.json` all save successfully.
 
@@ -22,7 +23,7 @@ Read this document before changing capture collection, FaceMe quality gating, sa
 - Capture uses direct filesystem writes under `/sdcard/Pictures/raw`; there is no internal-storage fallback.
 - `live` paths are `live/high/live_<subject>` or `live/medium/live_<subject>`. Other classes use `<class>/<class>_<subject>`.
 - A write probe must succeed before capture starts.
-- Internal class identifiers and paths use lowercase `pmask`.
+- Internal class identifiers and paths use lowercase `pmask`, `curved_picture`, `curved_print`, `curved_mask`, and `curved_pmask`.
 - `meta.json` must remain consistent with the saved BMP coordinate space and the active crop margin.
 
 ## Current Ownership and Writer Behavior
