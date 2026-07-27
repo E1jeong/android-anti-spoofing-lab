@@ -24,6 +24,7 @@ credentials.*
 
 # Private model artifacts
 *.tflite
+/app/src/main/assets/*.json
 
 # Logs and temporary files
 *.log
