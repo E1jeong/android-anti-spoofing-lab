@@ -52,19 +52,53 @@ public final class MainScreenView {
     public MainScreenView(Activity activity, Listener listener) {
         this.activity = activity;
         root = new FrameLayout(activity);
-        root.setBackgroundColor(Color.BLACK);
         rgbView = new TextureView(activity);
         irView = new TextureView(activity);
-        irView.setAlpha(0f);
         overlay = new OverlayView(activity);
-        root.addView(rgbView, match());
-        root.addView(irView, match());
-
         loadingSpinner = new ProgressBar(activity);
-        loadingSpinner.setIndeterminate(true);
+        performance = label(22f);
+        resultsLabel = label(32f);
+        status = label(22f);
+        irCropContainer = new FrameLayout(activity);
+        faceCropView = new ImageView(activity);
+        noFaceLabel = label(20f);
+        irLoadingSpinner = new ProgressBar(activity);
+        controlsLayout = new LinearLayout(activity);
+        collectionProgress = label(32f);
+        pauseCollectionButton = iconButton(android.R.drawable.ic_media_pause, Color.parseColor("#37474F"));
+        cancelCollectionButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
+                Color.parseColor("#C49A00"));
+        stopAttackLiveCaptureButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
+                Color.parseColor("#B71C1C"));
+        expandableLayout = new LinearLayout(activity);
+        highQualityOnlyContainer = new FrameLayout(activity);
+        highQualityOnlyButton = new Button(activity);
+        startCollectionButton = new Button(activity);
+        switchButton = new Button(activity);
+        modelSwitchButton = new Button(activity);
+        detectorSwitchButton = new Button(activity);
+        calibrationInstruction = label(24f);
+        calibrationConfirm = new Button(activity);
+        calibrationCancel = new Button(activity);
+        calibrationHotspot = new View(activity);
 
         int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
+        buildPreview();
+        buildDiagnostics(buttonWidth);
+        buildIrCrop(buttonWidth);
+        buildCaptureIndicators(listener);
+        buildControls(listener, buttonWidth);
+        buildCalibrationControls(listener, buttonWidth);
+    }
 
+    private void buildPreview() {
+        root.setBackgroundColor(Color.BLACK);
+        irView.setAlpha(0f);
+        root.addView(rgbView, match());
+        root.addView(irView, match());
+    }
+
+    private void buildDiagnostics(int buttonWidth) {
         LinearLayout diagnosticsLayout = new LinearLayout(activity);
         diagnosticsLayout.setOrientation(LinearLayout.VERTICAL);
         diagnosticsLayout.setGravity(Gravity.START | Gravity.BOTTOM);
@@ -73,11 +107,9 @@ public final class MainScreenView {
                 Gravity.BOTTOM | Gravity.START);
         diagnosticsParams.setMargins(dp(16), dp(16), buttonWidth + dp(32), dp(16));
 
-        performance = label(22f);
         diagnosticsLayout.addView(performance, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        resultsLabel = label(32f);
         resultsLabel.setTextColor(Color.WHITE);
         resultsLabel.setShadowLayer(5f, 1f, 1f, Color.BLACK);
         FrameLayout.LayoutParams resultsParams = new FrameLayout.LayoutParams(
@@ -86,39 +118,35 @@ public final class MainScreenView {
         resultsParams.setMargins(dp(16), dp(16), buttonWidth + dp(16), dp(16));
         root.addView(resultsLabel, resultsParams);
         root.addView(overlay, match());
+
+        loadingSpinner.setIndeterminate(true);
         root.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
-        status = label(22f);
         status.setText("Initializing...");
         diagnosticsLayout.addView(status, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         root.addView(diagnosticsLayout, diagnosticsParams);
+    }
 
-        irCropContainer = new FrameLayout(activity);
+    private void buildIrCrop(int buttonWidth) {
         FrameLayout.LayoutParams irCropParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
         irCropParams.width = buttonWidth;
         irCropParams.height = buttonWidth;
         root.addView(irCropContainer, irCropParams);
 
-        faceCropView = new ImageView(activity);
         faceCropView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         faceCropView.setBackgroundColor(Color.parseColor("#44000000"));
         irCropContainer.addView(faceCropView, match());
 
-        noFaceLabel = label(20f);
         noFaceLabel.setText("NO FACE");
         noFaceLabel.setVisibility(View.GONE);
         irCropContainer.addView(noFaceLabel, wrap(Gravity.CENTER, 0, 0));
 
-        irLoadingSpinner = new ProgressBar(activity);
         irLoadingSpinner.setIndeterminate(true);
         irCropContainer.addView(irLoadingSpinner, wrap(Gravity.CENTER, 0, 0));
+    }
 
-        controlsLayout = new LinearLayout(activity);
-        controlsLayout.setOrientation(LinearLayout.VERTICAL);
-        controlsLayout.setGravity(Gravity.END | Gravity.BOTTOM);
-
-        collectionProgress = label(32f);
+    private void buildCaptureIndicators(Listener listener) {
         collectionProgress.setText("");
         collectionProgress.setGravity(Gravity.CENTER);
         collectionProgress.setVisibility(View.GONE);
@@ -126,45 +154,48 @@ public final class MainScreenView {
                 wrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 16, 16);
         root.addView(collectionProgress, collectionProgressParams);
 
-        pauseCollectionButton = iconButton(android.R.drawable.ic_media_pause, Color.parseColor("#37474F"));
-        pauseCollectionButton.setContentDescription("Pause capture");
-        pauseCollectionButton.setVisibility(View.GONE);
-        pauseCollectionButton.setOnClickListener(v -> listener.onPauseCollection());
-        FrameLayout.LayoutParams pauseCollectionParams =
-                wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 16);
-        pauseCollectionParams.width = dp(84);
-        pauseCollectionParams.height = dp(84);
-        root.addView(pauseCollectionButton, pauseCollectionParams);
+        configureCaptureButton(pauseCollectionButton, "Pause capture",
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL, listener::onPauseCollection);
+        configureCaptureButton(cancelCollectionButton, "Cancel capture",
+                Gravity.TOP | Gravity.END, listener::onCancelCollection);
+        configureCaptureButton(stopAttackLiveCaptureButton, "Stop attack Live capture",
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL, listener::onStopAttackLiveCapture);
+    }
 
-        cancelCollectionButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
-                Color.parseColor("#C49A00"));
-        cancelCollectionButton.setContentDescription("Cancel capture");
-        cancelCollectionButton.setVisibility(View.GONE);
-        cancelCollectionButton.setOnClickListener(v -> listener.onCancelCollection());
-        FrameLayout.LayoutParams cancelCollectionParams =
-                wrap(Gravity.TOP | Gravity.END, 16, 16);
-        cancelCollectionParams.width = dp(84);
-        cancelCollectionParams.height = dp(84);
-        root.addView(cancelCollectionButton, cancelCollectionParams);
+    private void configureCaptureButton(
+            ImageButton button, String description, int gravity, Runnable action) {
+        button.setContentDescription(description);
+        button.setVisibility(View.GONE);
+        button.setOnClickListener(v -> action.run());
+        FrameLayout.LayoutParams params = wrap(gravity, 16, 16);
+        params.width = dp(84);
+        params.height = dp(84);
+        root.addView(button, params);
+    }
 
-        stopAttackLiveCaptureButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
-                Color.parseColor("#B71C1C"));
-        stopAttackLiveCaptureButton.setContentDescription("Stop attack Live capture");
-        stopAttackLiveCaptureButton.setVisibility(View.GONE);
-        stopAttackLiveCaptureButton.setOnClickListener(v -> listener.onStopAttackLiveCapture());
-        FrameLayout.LayoutParams stopAttackLiveCaptureParams =
-                wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 16);
-        stopAttackLiveCaptureParams.width = dp(84);
-        stopAttackLiveCaptureParams.height = dp(84);
-        root.addView(stopAttackLiveCaptureButton, stopAttackLiveCaptureParams);
+    private void buildControls(Listener listener, int buttonWidth) {
+        controlsLayout.setOrientation(LinearLayout.VERTICAL);
+        controlsLayout.setGravity(Gravity.END | Gravity.BOTTOM);
 
-        expandableLayout = new LinearLayout(activity);
         expandableLayout.setOrientation(LinearLayout.VERTICAL);
         expandableLayout.setGravity(Gravity.END);
         expandableLayout.setVisibility(View.GONE);
+        buildCollectionMenu(listener, buttonWidth);
+        controlsLayout.addView(expandableLayout);
 
-        highQualityOnlyContainer = new FrameLayout(activity);
-        highQualityOnlyButton = new Button(activity);
+        configureControlButton(startCollectionButton, "START CAPTURE", buttonWidth,
+                v -> toggleCollectionClassMenu());
+        configureControlButton(switchButton, "SHOW IR", buttonWidth,
+                v -> listener.onSwitchPreview());
+        configureControlButton(modelSwitchButton, "MODEL 1", buttonWidth,
+                v -> listener.onToggleModel());
+        configureControlButton(detectorSwitchButton, "DETECTOR: FACEME", buttonWidth,
+                v -> listener.onToggleDetector());
+
+        root.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
+    }
+
+    private void buildCollectionMenu(Listener listener, int buttonWidth) {
         highQualityOnlyButton.setGravity(Gravity.CENTER);
         updateHighQualityOnlyButton();
         highQualityOnlyButton.setOnClickListener(v -> {
@@ -174,10 +205,7 @@ public final class MainScreenView {
         });
         highQualityOnlyContainer.setOnClickListener(v -> highQualityOnlyButton.performClick());
         highQualityOnlyContainer.addView(highQualityOnlyButton, match());
-        LinearLayout.LayoutParams highQualityLp = new LinearLayout.LayoutParams(
-                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
-        highQualityLp.bottomMargin = dp(4);
-        expandableLayout.addView(highQualityOnlyContainer, highQualityLp);
+        expandableLayout.addView(highQualityOnlyContainer, menuLayoutParams(buttonWidth));
 
         Button attackLiveCaptureButton = new Button(activity);
         attackLiveCaptureButton.setText("ATTACK");
@@ -188,65 +216,45 @@ public final class MainScreenView {
             listener.onStartAttackLiveCapture();
             expandableLayout.setVisibility(View.GONE);
         });
-        LinearLayout.LayoutParams attackLiveCaptureLp = new LinearLayout.LayoutParams(
-                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
-        attackLiveCaptureLp.bottomMargin = dp(4);
-        expandableLayout.addView(attackLiveCaptureButton, attackLiveCaptureLp);
+        expandableLayout.addView(attackLiveCaptureButton, menuLayoutParams(buttonWidth));
 
         String[] classes = {"live", "display", "picture", "print", "mask", "pmask"};
-        for (String c : classes) {
-            Button btn = new Button(activity);
-            btn.setText(c);
-            btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#37474F")));
-            btn.setTextColor(Color.WHITE);
-            btn.setOnClickListener(v -> {
-                listener.onStartCollection(c);
+        for (String className : classes) {
+            Button button = new Button(activity);
+            button.setText(className);
+            button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    Color.parseColor("#37474F")));
+            button.setTextColor(Color.WHITE);
+            button.setOnClickListener(v -> {
+                listener.onStartCollection(className);
                 expandableLayout.setVisibility(View.GONE);
             });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = dp(4);
-            expandableLayout.addView(btn, lp);
+            expandableLayout.addView(button, menuLayoutParams(buttonWidth));
         }
-        controlsLayout.addView(expandableLayout);
+    }
 
-        startCollectionButton = new Button(activity);
-        startCollectionButton.setText("START CAPTURE");
-        startCollectionButton.setEnabled(false);
-        startCollectionButton.setOnClickListener(v -> toggleCollectionClassMenu());
-        controlsLayout.addView(startCollectionButton, new LinearLayout.LayoutParams(
+    private LinearLayout.LayoutParams menuLayoutParams(int buttonWidth) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = dp(4);
+        return params;
+    }
+
+    private void configureControlButton(
+            Button button, String text, int buttonWidth, View.OnClickListener listener) {
+        button.setText(text);
+        button.setEnabled(false);
+        button.setOnClickListener(listener);
+        controlsLayout.addView(button, new LinearLayout.LayoutParams(
                 buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
+    }
 
-        switchButton = new Button(activity);
-        switchButton.setText("SHOW IR");
-        switchButton.setEnabled(false);
-        switchButton.setOnClickListener(v -> listener.onSwitchPreview());
-        controlsLayout.addView(switchButton, new LinearLayout.LayoutParams(
-                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        modelSwitchButton = new Button(activity);
-        modelSwitchButton.setText("MODEL 1");
-        modelSwitchButton.setEnabled(false);
-        modelSwitchButton.setOnClickListener(v -> listener.onToggleModel());
-        controlsLayout.addView(modelSwitchButton, new LinearLayout.LayoutParams(
-                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        detectorSwitchButton = new Button(activity);
-        detectorSwitchButton.setText("DETECTOR: FACEME");
-        detectorSwitchButton.setEnabled(false);
-        detectorSwitchButton.setOnClickListener(v -> listener.onToggleDetector());
-        controlsLayout.addView(detectorSwitchButton, new LinearLayout.LayoutParams(
-                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        root.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
-
-        calibrationInstruction = label(24f);
+    private void buildCalibrationControls(Listener listener, int buttonWidth) {
         calibrationInstruction.setText("Fit one face inside the guide, then press CONFIRM");
         calibrationInstruction.setGravity(Gravity.CENTER);
         calibrationInstruction.setVisibility(View.GONE);
         root.addView(calibrationInstruction, wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 24));
 
-        calibrationConfirm = new Button(activity);
         calibrationConfirm.setText("CONFIRM");
         calibrationConfirm.setVisibility(View.GONE);
         calibrationConfirm.setOnClickListener(v -> listener.onCalibrationConfirm());
@@ -254,7 +262,6 @@ public final class MainScreenView {
         confirmParams.width = buttonWidth;
         root.addView(calibrationConfirm, confirmParams);
 
-        calibrationCancel = new Button(activity);
         calibrationCancel.setText("CANCEL");
         calibrationCancel.setVisibility(View.GONE);
         calibrationCancel.setOnClickListener(v -> listener.onCalibrationCancel());
@@ -262,7 +269,6 @@ public final class MainScreenView {
         cancelParams.width = buttonWidth;
         root.addView(calibrationCancel, cancelParams);
 
-        calibrationHotspot = new View(activity);
         calibrationHotspot.setOnClickListener(v -> listener.onCalibrationTap());
         root.addView(calibrationHotspot, new FrameLayout.LayoutParams(
                 dp(180), dp(180), Gravity.TOP | Gravity.START));
