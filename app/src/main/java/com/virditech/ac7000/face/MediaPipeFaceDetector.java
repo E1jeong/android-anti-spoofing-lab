@@ -12,34 +12,38 @@ import com.google.mediapipe.tasks.core.BaseOptions;
 import com.google.mediapipe.tasks.core.Delegate;
 import com.google.mediapipe.tasks.vision.core.RunningMode;
 import com.google.mediapipe.tasks.vision.facedetector.FaceDetectorResult;
+import com.google.mediapipe.tasks.vision.facedetector.FaceDetector;
 
 import java.util.List;
 
 public final class MediaPipeFaceDetector implements FaceDetectionEngine {
     private static final String MODEL_FILE = "blaze_face_short_range.tflite";
+    private static final float TOP_EXPANSION_RATIO = 0.25f;
+    private static final float BOTTOM_EXPANSION_RATIO = 0.05f;
 
-    private final com.google.mediapipe.tasks.vision.facedetector.FaceDetector detector;
+    private final FaceDetector detector;
 
     public MediaPipeFaceDetector(Context context) {
         BaseOptions baseOptions = BaseOptions.builder()
                 .setDelegate(Delegate.CPU)
                 .setModelAssetPath(MODEL_FILE)
                 .build();
-        com.google.mediapipe.tasks.vision.facedetector.FaceDetector.FaceDetectorOptions options =
-                com.google.mediapipe.tasks.vision.facedetector.FaceDetector.FaceDetectorOptions.builder()
+        FaceDetector.FaceDetectorOptions options =
+                FaceDetector.FaceDetectorOptions.builder()
                         .setBaseOptions(baseOptions)
                         .setRunningMode(RunningMode.IMAGE)
                         .setMinDetectionConfidence(0.5f)
                         .build();
-        detector = com.google.mediapipe.tasks.vision.facedetector.FaceDetector.createFromOptions(
-                context, options);
+        detector = FaceDetector.createFromOptions(context, options);
     }
 
-    @Override public String label() {
+    @Override
+    public String label() {
         return "MEDIAPIPE";
     }
 
-    @Override public Rect detectLargest(Bitmap bitmap) {
+    @Override
+    public Rect detectLargest(Bitmap bitmap) {
         Rect largest = null;
         long largestArea = -1;
         for (Rect detected : detectAll(bitmap)) {
@@ -52,7 +56,8 @@ public final class MediaPipeFaceDetector implements FaceDetectionEngine {
         return largest;
     }
 
-    @Override public Rect detectSingle(Bitmap bitmap) {
+    @Override
+    public Rect detectSingle(Bitmap bitmap) {
         List<Rect> detected = detectAll(bitmap);
         return detected.size() == 1 ? detected.get(0) : null;
     }
@@ -83,10 +88,15 @@ public final class MediaPipeFaceDetector implements FaceDetectionEngine {
         int top = Math.max(0, (int) Math.floor(source.top));
         int right = Math.min(width, (int) Math.ceil(source.right));
         int bottom = Math.min(height, (int) Math.ceil(source.bottom));
-        return new Rect(left, top, right, bottom);
+        int faceHeight = bottom - top;
+        return new Rect(left,
+                Math.max(0, top - Math.round(faceHeight * TOP_EXPANSION_RATIO)),
+                right,
+                Math.min(height, bottom + Math.round(faceHeight * BOTTOM_EXPANSION_RATIO)));
     }
 
-    @Override public void close() {
+    @Override
+    public void close() {
         detector.close();
     }
 }

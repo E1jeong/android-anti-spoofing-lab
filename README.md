@@ -15,7 +15,7 @@ The current manifest contains one `single_1_input` IR slot:
 
 - IR: `best_crop_ir_fixed_npu_int8.tflite` with `best_crop_ir_fixed_npu_int8_manifest.json`.
 
-The model uses an NNAPI-first INT8 spec and runs on the single inference executor. The UI displays its six-class probabilities, inference latency, and processing FPS. The current fixed IR model still requires target-device model-load, backend-label, probability-output, and latency/FPS verification.
+The model uses an NNAPI-first INT8 spec and runs on the single inference executor. The UI displays its six-class probabilities, inference latency, and processing FPS. On 2026-07-20, the fixed IR model reached `Ready` on the target device with `Backend NNAPI`, six-class output, and continuous latency/FPS observation. Capture and lifecycle verification remain open.
 
 The runtime parser accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Current deployment verification covers float and full INT8; UINT8 normalization/quantization semantics have not yet been verified against an exported model. Every model must have one `FLOAT32` or `INT8` output with shape `[1,6]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
 
@@ -24,6 +24,8 @@ NNAPI compilation caching must remain disabled because the target board's VSI NP
 ## Face detector comparison branch
 
 `feat/mediapipe-face-detector-toggle` keeps FaceMe and MediaPipe Face Detector available at startup and adds a detector-toggle button for hardware comparison. The selected detector supplies largest-face tracking and RGB/IR calibration validation; `live` collection remains FaceMe-only because its HIGH/MEDIUM quality contract has not been replaced. MediaPipe uses the CPU delegate and the public `blaze_face_short_range.tflite` asset. The repository ignores `.tflite` files, so provision that model locally before building this branch; do not commit it with the anti-spoofing model artifacts.
+
+MediaPipe expands its detected box by 25% above and 5% below the original height before limiting it to image bounds. The existing model crop margin remains 0.10. A target-device IR-preview comparison showed the RGB-derived MediaPipe box mapped and overlaid similarly to FaceMe; direct MediaPipe IR detection and MediaPipe calibration-save verification remain open.
 
 ## Required local configuration
 
