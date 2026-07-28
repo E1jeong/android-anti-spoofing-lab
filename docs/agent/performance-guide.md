@@ -34,7 +34,7 @@ adb logcat -s MainActivity:I
 - From inference sample 3,150 to 7,320, the app completed 4,170 results in eight minutes (about 8.7/s). Recent-120-sample ranges were preprocess P50 4-5 ms/P95 12-17 ms, invoke P50 10-11 ms/P95 17-22 ms, inference queue P50 0 ms/P95 0-2 ms, and tracking-to-result P50 73-79 ms/P95 101-122 ms.
 - The observation showed no sustained queue growth or time-dependent latency degradation. It is not a speedup claim because no pre-optimization APK was measured under the same conditions.
 - GC pauses were short and reclaimed allocations normally. One post-restart sample showed Java Heap PSS 12,856 KiB, Native Heap PSS 185,124 KiB, and Total PSS 245,254 KiB; one point cannot establish leak behavior.
-- Repeated Settings transitions failed with the camera teardown `SIGSEGV` documented in `device-runtime.md`. Fix that P0 lifecycle race before collecting more lifecycle or long-duration memory evidence from the affected APK.
+- Repeated Settings transitions on the 2026-07-20 APK failed with the camera teardown `SIGSEGV` documented in `device-runtime.md`. Commit `6a9d6ce` later moved `ImageReader`/preview release behind `CameraDevice.onClosed()`; the same five-cycle Settings test then passed without teardown warnings, crashes, restarts, or recovery failures. This closes the reproduced P0 at that five-cycle scope, not the broader 20-cycle baseline below.
 
 ## Optimization Boundaries
 
@@ -49,4 +49,4 @@ adb logcat -s MainActivity:I
 - Collect preprocess, invoke, inference queue, tracking-to-result, capture-save P50/P95, processing FPS, Java/native heap, and GC.
 - Include fixed IR standalone model loading, six-class output, RGB/IR preview and crop, overlay/UI, camera-open termination, at least 20 pause/resume cycles, warmup termination, and a 100-sample capture with pause/resume/cancel.
 - Verify live HIGH/MEDIUM acceptance, non-live bypass, BMP output, metadata, portrait-pool pressure, and stale-directory prevention.
-- The 2026-07-20 fixed IR latency observation and user-confirmed image acquisition satisfy only part of this baseline. Do not infer capture-save performance, quality-gate correctness, 100-sample file integrity, memory stability, or lifecycle safety from those results.
+- The 2026-07-20 fixed IR latency observation, user-confirmed image acquisition, and the later five-cycle teardown regression satisfy only part of this baseline. Do not infer capture-save performance, quality-gate correctness, 100-sample file integrity, long-duration memory stability, or the full 20-cycle lifecycle baseline from those results.

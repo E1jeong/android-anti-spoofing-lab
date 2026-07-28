@@ -17,6 +17,7 @@ Read this document before changing capture collection, FaceMe quality gating, sa
 - Attack samples use `/sdcard/Pictures/raw/attack_live/attack_live_<subject>/<index>/` and save the same four BMP files plus `meta.json`. Its metadata uses `qualityMode: "attack_live"`; FaceMe quality levels are `-1` and score is `0.0`.
 - Attack writing uses its own single-thread executor. While it owns a detached `FramePair`, later qualifying candidates must be skipped rather than queued.
 - The red X stops accepting new candidates but preserves the subject directory and lets an already submitted write complete. Do not reuse normal-capture cancellation or its delete/session-invalidation behavior.
+- After all four BMP files plus `meta.json` save successfully, ATTACK plays the same short `TONE_PROP_BEEP` as a normal non-sector sample. Threshold misses and failed writes remain silent; an in-flight save that completes after X still plays its completion beep.
 
 ## Storage Contract
 

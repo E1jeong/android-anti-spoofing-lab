@@ -21,7 +21,7 @@ Read the relevant document before changing that area. If a task crosses areas, r
 - Detect the largest RGB face independently of model inference, map it to IR with device calibration, and keep displayed overlays aligned with mirrored previews.
 - Load all manifest slots and the FaceMe quality detector during startup, but run only the active slot per frame.
 - Display six-class output in the fixed order `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `PMASK`.
-- Collect exactly 100 valid samples per capture session. Only `live` uses FaceMe quality gating; cancel deletes the current subject directory.
+- Collect exactly 100 valid samples per normal capture session. Only `live` uses FaceMe quality gating; normal cancel deletes the current subject directory, while ATTACK X preserves completed and in-flight saves.
 - Preserve camera selection, resolution, timestamp synchronization, calibration mapping, IR LED control, watchdog behavior, lifecycle cleanup, package identity, and signing behavior unless the task specifically targets one of them.
 
 ## Build

@@ -4,10 +4,10 @@ Read this document before changing models, manifests, tensor mapping, preprocess
 
 ## Manifest and Slot Runtime
 
-- Model slots and their model/spec assets are declared in `app/src/main/assets/model_manifest.json`.
+- Model slots and their model/spec assets are declared in the local ignored `app/src/main/assets/model_manifest.json`.
 - Supported slot types are `single_1_input`, `paired_1_input`, `dual_2_input`, and `five_input`. A 1-input spec must declare `inputKind` as `rgb` or `ir`; 5-input specs map `cropRgb`, `cropIr`, `fullRgb`, `fullIr`, and `heatmap` by configured tensor-name substring.
 - On startup, every manifest entry and the FaceMe quality detector are initialized during the loading phase. The spinner remains visible until model loading finishes and the quality detector reports available.
-- Only the active preloaded slot runs per frame. The current manifest has one `single_1_input` IR slot, so only its IR model runs on the inference single-thread executor.
+- Only the active preloaded slot runs per frame. The current local evaluation manifest has one `single_1_input` IR slot, so only its IR model runs on the inference single-thread executor.
 - The current slot uses `best_crop_ir_fixed_npu_int8.tflite` with `best_crop_ir_fixed_npu_int8_manifest.json`.
 - `ModelSpec` supports both legacy spec JSON and generated sidecar manifests; do not assume the two schemas expose inputs in the same JSON shape.
 
@@ -29,10 +29,10 @@ Read this document before changing models, manifests, tensor mapping, preprocess
 
 ## Branch and Deployment State
 
-- `master` is the current manifest-based evaluator supporting single 1-input, paired 1-input, dual 2-input, and 5-input slots. The checked-in manifest selects only the fixed-split IR 1-input slot.
+- `master` is the current manifest-based evaluator supporting single 1-input, paired 1-input, dual 2-input, and 5-input slots. Model files, sidecar JSON, and `model_manifest.json` are ignored local assets; a fresh checkout has no selected slot until they are provisioned.
 - `codex/keras-5-input-tflite` is an earlier standard/NPU hot-swap and 5-input experiment. Do not copy its slot assumptions into `master` documentation.
 - The previous RGB fold3/IR fold4 INT8 pairing was observed on target hardware with both NNAPI backend labels and six-class output.
-- The current fixed IR 1-input slot still requires target-device model-load, backend-label, probability-output, latency/FPS, and latest overlay readability verification.
+- The current local fixed IR 1-input slot reached `Ready` on target hardware with one NNAPI partition replacing all 66 nodes, six-class output, continuous latency/FPS, and aligned RGB/IR overlay observation on 2026-07-20. Capture and broader lifecycle verification remain separate.
 
 ## Validation
 
