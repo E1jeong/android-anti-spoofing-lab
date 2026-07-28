@@ -1209,6 +1209,7 @@ public final class MainActivity extends Activity {
                     attackCaptureSaveBusy = false;
                 }
             }
+            if (saved) runOnUiThread(this::playCaptureSavedTone);
         });
         try {
             attackCaptureExecutor.execute(saveTask);
