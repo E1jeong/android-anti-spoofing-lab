@@ -49,6 +49,8 @@ final class CameraStream {
     private ImageReader reader;
     private Surface preview;
     private Handler handler;
+    private CountDownLatch closeLatch;
+    private boolean closing;
     private volatile boolean frameDeliveryEnabled = true;
     // Reused NV21 buffer; safe because frames are dropped while a conversion is in flight,
     // so the camera thread only rewrites it after the previous conversion finished.
@@ -108,6 +110,10 @@ final class CameraStream {
                 @Override public void onError(CameraDevice camera, int error) {
                     camera.close();
                     if (generationGuard.isCurrent(generation)) listener.onError("Camera error " + error);
+                }
+                @Override public void onClosed(CameraDevice camera) {
+                    if (camera == device) device = null;
+                    if (closing) finishCameraClose();
                 }
             }, handler);
         } catch (Exception e) {
@@ -240,40 +246,68 @@ final class CameraStream {
     private void closeCameraOnHandler() {
         Handler cameraHandler = handler;
         if (cameraHandler == null) {
-            closeCameraResources();
+            forceCloseCameraResources();
             return;
         }
         CountDownLatch closed = new CountDownLatch(1);
+        closeLatch = closed;
         if (!cameraHandler.post(() -> {
-            closeCameraResources();
-            closed.countDown();
-        })) return;
+            closing = true;
+            beginCameraClose();
+        })) {
+            forceCloseCameraResources();
+            return;
+        }
         try {
-            closed.await(500, TimeUnit.MILLISECONDS);
+            if (!closed.await(1, TimeUnit.SECONDS)) {
+                cameraHandler.post(this::forceCloseCameraResources);
+                closed.await(500, TimeUnit.MILLISECONDS);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
 
-    private void closeCameraResources() {
+    private void beginCameraClose() {
         if (session != null) {
             try { session.stopRepeating(); } catch (Exception ignored) {}
             try { session.abortCaptures(); } catch (Exception ignored) {}
             session.close();
             session = null;
         }
+        if (device != null) {
+            device.close();
+        } else {
+            finishCameraClose();
+        }
+    }
+
+    private void finishCameraClose() {
         if (reader != null) {
             reader.close();
             reader = null;
-        }
-        if (device != null) {
-            device.close();
-            device = null;
         }
         if (preview != null) {
             preview.release();
             preview = null;
         }
         handler = null;
+        CountDownLatch closed = closeLatch;
+        closeLatch = null;
+        if (closed != null) closed.countDown();
+    }
+
+    private void forceCloseCameraResources() {
+        if (session != null) {
+            try { session.stopRepeating(); } catch (Exception ignored) {}
+            try { session.abortCaptures(); } catch (Exception ignored) {}
+            session.close();
+            session = null;
+        }
+        if (device != null) {
+            device.close();
+            device = null;
+        }
+        finishCameraClose();
     }
 }
