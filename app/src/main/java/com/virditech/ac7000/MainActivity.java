@@ -2,6 +2,7 @@ package com.virditech.ac7000;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -39,7 +40,9 @@ import com.virditech.ac7000.capture.CaptureProgressText;
 import com.virditech.ac7000.capture.CaptureSchedule;
 import com.virditech.ac7000.capture.CaptureStep;
 import com.virditech.ac7000.capture.CaptureStorage;
+import com.virditech.ac7000.call.WebRtcCallActivity;
 import com.virditech.ac7000.concurrent.GenerationGuard;
+import com.virditech.ac7000.api.call.SignalingClient;
 import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.face.FaceDetectionEngine;
 import com.virditech.ac7000.face.MediaPipeFaceDetector;
@@ -68,6 +71,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "MainActivity";
+    private static final String SIGNALING_SERVER_URL = "ws://92.168.70.2:8080/ws";
+    private static final String SIGNALING_PEER_ID = "device-test-01";
     private static final int CAMERA_PERMISSION_REQUEST = 10;
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
     private static final int COLLECTION_TARGET_COUNT = CaptureSchedule.TARGET_COUNT;
@@ -80,6 +85,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService attackCaptureExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService modelInitExecutor = Executors.newSingleThreadExecutor();
+    private final SignalingClient signalingClient = new SignalingClient();
     private final AtomicReference<TrackingFrame> pendingTracking = new AtomicReference<>();
     private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
@@ -159,6 +165,8 @@ public final class MainActivity extends Activity {
     private boolean resumed;
     private int calibrationTapCount;
     private long lastCalibrationTapMs;
+    private int settingsTapCount;
+    private long lastSettingsTapMs;
     private long lastFaceDetectedMs;
     private volatile String normalStatusMessage = "Initializing...";
     private int trackingFrames;
@@ -195,6 +203,7 @@ public final class MainActivity extends Activity {
         initializeCaptureTone();
         buildUi();
         initializeEngines();
+        signalingClient.connect(SIGNALING_SERVER_URL, SIGNALING_PEER_ID);
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE}, CAMERA_PERMISSION_REQUEST);
@@ -234,6 +243,8 @@ public final class MainActivity extends Activity {
             @Override public void onCalibrationCancel() { exitCalibrationMode(); }
 
             @Override public void onCalibrationTap() { recordCalibrationTap(); }
+
+            @Override public void onSettingsTap() { recordSettingsTap(); }
         });
         rgbView = screen.rgbView;
         irView = screen.irView;
@@ -278,6 +289,31 @@ public final class MainActivity extends Activity {
             calibrationTapCount = 0;
             enterCalibrationMode();
         }
+    }
+
+    private void recordSettingsTap() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastSettingsTapMs > 2_000L) settingsTapCount = 0;
+        lastSettingsTapMs = now;
+        if (++settingsTapCount >= 5) {
+            settingsTapCount = 0;
+            showHiddenTestMenu();
+        }
+    }
+
+    private void showHiddenTestMenu() {
+        String[] items = {"SETTINGS", "WEBRTC TEST"};
+        new AlertDialog.Builder(this)
+                .setTitle("TEST MENU")
+                .setItems(items, (dialog, which) -> {
+                    if (which == 0) {
+                        startActivity(new Intent(Settings.ACTION_SETTINGS));
+                    } else {
+                        startActivity(new Intent(this, WebRtcCallActivity.class));
+                    }
+                })
+                .setNegativeButton("CANCEL", null)
+                .show();
     }
 
     private void enterCalibrationMode() {
@@ -1463,6 +1499,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        signalingClient.disconnect();
         synchronized (classifierLock) {
             enginesShutDown = true;
         }

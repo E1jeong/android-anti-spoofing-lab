@@ -43,6 +43,7 @@ public final class MainScreenView {
     public final Button calibrationConfirm;
     public final Button calibrationCancel;
     public final View calibrationHotspot;
+    public final View settingsHotspot;
     public final LinearLayout expandableLayout;
 
     private final Activity activity;
@@ -81,6 +82,7 @@ public final class MainScreenView {
         calibrationConfirm = new Button(activity);
         calibrationCancel = new Button(activity);
         calibrationHotspot = new View(activity);
+        settingsHotspot = new View(activity);
 
         int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
         buildPreview();
@@ -88,6 +90,7 @@ public final class MainScreenView {
         buildIrCrop(buttonWidth);
         buildCaptureIndicators(listener);
         buildControls(listener, buttonWidth);
+        buildSettingsHotspot(listener);
         buildCalibrationControls(listener, buttonWidth);
     }
 
@@ -287,6 +290,12 @@ public final class MainScreenView {
                 dp(180), dp(180), Gravity.TOP | Gravity.START));
     }
 
+    private void buildSettingsHotspot(Listener listener) {
+        settingsHotspot.setOnClickListener(v -> listener.onSettingsTap());
+        root.addView(settingsHotspot, new FrameLayout.LayoutParams(
+                dp(180), dp(180), Gravity.BOTTOM | Gravity.START));
+    }
+
     public void setInitialPerformanceText(String text) {
         performance.setText(text);
     }
@@ -313,6 +322,7 @@ public final class MainScreenView {
         resultsLabel.setVisibility(View.GONE);
         controlsLayout.setVisibility(View.GONE);
         calibrationHotspot.setVisibility(View.GONE);
+        settingsHotspot.setVisibility(View.GONE);
         calibrationInstruction.setText("Fit one face inside the guide, then press CONFIRM");
         calibrationInstruction.setVisibility(View.VISIBLE);
         calibrationConfirm.setVisibility(View.VISIBLE);
@@ -331,6 +341,7 @@ public final class MainScreenView {
         resultsLabel.setVisibility(View.VISIBLE);
         controlsLayout.setVisibility(View.VISIBLE);
         calibrationHotspot.setVisibility(View.VISIBLE);
+        settingsHotspot.setVisibility(View.VISIBLE);
     }
 
     public void setCollectionChromeVisible(boolean visible) {
@@ -341,6 +352,7 @@ public final class MainScreenView {
         irCropContainer.setVisibility(visibility);
         controlsLayout.setVisibility(visibility);
         calibrationHotspot.setVisibility(visibility);
+        settingsHotspot.setVisibility(visibility);
     }
 
     public void setCollectionActiveChrome(boolean collecting) {
@@ -444,5 +456,6 @@ public final class MainScreenView {
         void onCalibrationConfirm();
         void onCalibrationCancel();
         void onCalibrationTap();
+        void onSettingsTap();
     }
 }

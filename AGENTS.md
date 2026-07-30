@@ -2,8 +2,8 @@
 
 ## Purpose
 
-- Keep this isolated Android test app minimal: it evaluates new RGB/IR anti-spoofing TensorFlow Lite models on UBio-N Face Pro hardware; it is not the production terminal app.
-- Retain only the source project's device, camera, calibration, face-detection, and lifecycle behavior required for model evaluation.
+- Keep this isolated Android test app minimal: it evaluates new RGB/IR anti-spoofing TensorFlow Lite models and pre-production WebRTC device behavior on UBio-N Face Pro hardware; it is not the production terminal app.
+- Retain only the source project's device, camera, calibration, face-detection, and lifecycle behavior required for these isolated tests.
 - When copied device behavior is unclear, consult the UBio-N Face Pro source project before changing it. Do not import unrelated production features or modules.
 
 ## Task-Specific Guidance
@@ -13,6 +13,7 @@
   - Cameras, calibration, FaceMe tracking, lifecycle, hardware controls, or device storage: [`docs/agent/device-runtime.md`](docs/agent/device-runtime.md)
   - Capture collection, quality gating, sample paths, metadata, BMP output, pause/resume, or cancel: [`docs/agent/capture-contract.md`](docs/agent/capture-contract.md)
   - Performance diagnostics, benchmarks, allocation/concurrency optimization, or logcat troubleshooting: [`docs/agent/performance-guide.md`](docs/agent/performance-guide.md)
+  - Signaling, WebRTC, network permissions, hidden test menu, call activity, camera/audio handoff, or call recovery: [`docs/agent/webrtc-test.md`](docs/agent/webrtc-test.md)
 
 ## Build
 
@@ -22,7 +23,7 @@
 
 ## Change Rules
 
-- Make the smallest change that satisfies the requested model test or diagnostic goal.
+- Make the smallest change that satisfies the requested test or diagnostic goal.
 - Do not broadly refactor, add production features, or copy more UBio-N Face Pro modules unless explicitly requested.
 - Keep model-specific behavior in the model layer and device-specific behavior in the existing camera, calibration, face, and device packages.
 - Match the existing Java style and remove only imports or code made unused by the current change.
