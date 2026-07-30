@@ -1,6 +1,8 @@
 package com.virditech.ac7000.call;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -19,12 +21,18 @@ import org.webrtc.SurfaceViewRenderer;
 public final class WebRtcCallActivity extends Activity implements SignalingClient.Listener {
     public static final String EXTRA_REMOTE_PEER_ID = "remotePeerId";
     public static final String EXTRA_CALL_ID = "callId";
+    private static final int MICROPHONE_PERMISSION_REQUEST = 20;
 
     private SignalingClient signalingClient;
     private VideoPeerConnection videoPeerConnection;
+    private CallAudioManager callAudioManager;
     private TextView status;
+    private Button muteButton;
     private String remotePeerId;
     private String callId;
+    private boolean previewOnly;
+    private boolean mediaStarted;
+    private boolean microphoneMuted;
     private boolean remoteHangup;
     private boolean hangupSent;
 
@@ -34,7 +42,7 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
 
         remotePeerId = getIntent().getStringExtra(EXTRA_REMOTE_PEER_ID);
         callId = getIntent().getStringExtra(EXTRA_CALL_ID);
-        boolean previewOnly = remotePeerId == null || callId == null;
+        previewOnly = remotePeerId == null || callId == null;
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -88,6 +96,15 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         statusParams.setMargins(0, dp(24), 0, dp(24));
         controls.addView(status, statusParams);
+
+        if (!previewOnly) {
+            muteButton = new Button(this);
+            muteButton.setText("MUTE");
+            muteButton.setOnClickListener(v -> toggleMicrophoneMuted());
+            controls.addView(muteButton, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
 
         Button closeButton = new Button(this);
         closeButton.setText("CLOSE");
@@ -143,8 +160,35 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
                     }
                 }
         );
+        if (!previewOnly
+                && checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            status.setText("Microphone permission required");
+            requestPermissions(
+                    new String[]{Manifest.permission.RECORD_AUDIO},
+                    MICROPHONE_PERMISSION_REQUEST
+            );
+            return;
+        }
+        startMedia();
+    }
+
+    private void startMedia() {
+        if (mediaStarted || videoPeerConnection == null) return;
         try {
-            videoPeerConnection.start();
+            if (!previewOnly) {
+                callAudioManager = new CallAudioManager(
+                        this,
+                        active -> {
+                            if (videoPeerConnection != null) {
+                                videoPeerConnection.setAudioActive(active);
+                            }
+                        }
+                );
+                callAudioManager.start();
+            }
+            videoPeerConnection.start(!previewOnly);
+            mediaStarted = true;
             if (signalingClient != null) {
                 signalingClient.acceptCall(remotePeerId, callId);
             }
@@ -156,7 +200,32 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
             }
             videoPeerConnection.close();
             videoPeerConnection = null;
+            closeAudio();
         }
+    }
+
+    @Override public void onRequestPermissionsResult(
+            int requestCode,
+            String[] permissions,
+            int[] grantResults
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != MICROPHONE_PERMISSION_REQUEST) return;
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startMedia();
+            return;
+        }
+        status.setText("Microphone permission denied");
+        if (signalingClient != null) {
+            signalingClient.rejectCall(remotePeerId, callId);
+        }
+    }
+
+    private void toggleMicrophoneMuted() {
+        if (videoPeerConnection == null || !mediaStarted) return;
+        microphoneMuted = !microphoneMuted;
+        videoPeerConnection.setMicrophoneMuted(microphoneMuted);
+        muteButton.setText(microphoneMuted ? "UNMUTE" : "MUTE");
     }
 
     @Override public void onCallInvite(String fromPeerId, String incomingCallId) {
@@ -213,9 +282,18 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
     }
 
     private void closeVideo() {
-        if (videoPeerConnection == null) return;
-        videoPeerConnection.close();
-        videoPeerConnection = null;
+        if (videoPeerConnection != null) {
+            videoPeerConnection.close();
+            videoPeerConnection = null;
+        }
+        mediaStarted = false;
+        closeAudio();
+    }
+
+    private void closeAudio() {
+        if (callAudioManager == null) return;
+        callAudioManager.stop();
+        callAudioManager = null;
     }
 
     private void requestFullscreenMode() {

@@ -1,7 +1,10 @@
 package com.virditech.ac7000.call;
 
 import android.content.Context;
+import android.media.MediaRecorder;
 
+import org.webrtc.AudioSource;
+import org.webrtc.AudioTrack;
 import org.webrtc.Camera2Enumerator;
 import org.webrtc.CameraEnumerator;
 import org.webrtc.CameraVideoCapturer;
@@ -26,6 +29,7 @@ import org.webrtc.VideoCapturer;
 import org.webrtc.VideoFrame;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
+import org.webrtc.audio.JavaAudioDeviceModule;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -59,7 +63,13 @@ final class VideoPeerConnection {
     private VideoSource videoSource;
     private VideoTrack localVideoTrack;
     private VideoTrack remoteVideoTrack;
+    private JavaAudioDeviceModule audioDeviceModule;
+    private AudioSource audioSource;
+    private AudioTrack localAudioTrack;
+    private AudioTrack remoteAudioTrack;
     private boolean remoteDescriptionSet;
+    private boolean microphoneMuted;
+    private boolean audioActive = true;
     private boolean closed;
 
     VideoPeerConnection(
@@ -74,7 +84,7 @@ final class VideoPeerConnection {
         this.listener = listener;
     }
 
-    void start() {
+    void start(boolean audioEnabled) {
         initializeFactory();
         eglBase = EglBase.create();
         localRenderer.init(eglBase.getEglBaseContext(), null);
@@ -82,7 +92,7 @@ final class VideoPeerConnection {
         localRenderer.setZOrderMediaOverlay(true);
         remoteRenderer.init(eglBase.getEglBaseContext(), null);
 
-        factory = PeerConnectionFactory.builder()
+        PeerConnectionFactory.Builder factoryBuilder = PeerConnectionFactory.builder()
                 .setVideoEncoderFactory(new DefaultVideoEncoderFactory(
                         eglBase.getEglBaseContext(),
                         true,
@@ -90,8 +100,20 @@ final class VideoPeerConnection {
                 ))
                 .setVideoDecoderFactory(new DefaultVideoDecoderFactory(
                         eglBase.getEglBaseContext()
-                ))
-                .createPeerConnectionFactory();
+                ));
+        if (audioEnabled) {
+            audioDeviceModule = JavaAudioDeviceModule.builder(context)
+                    .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                    .setUseHardwareAcousticEchoCanceler(
+                            JavaAudioDeviceModule.isBuiltInAcousticEchoCancelerSupported()
+                    )
+                    .setUseHardwareNoiseSuppressor(
+                            JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported()
+                    )
+                    .createAudioDeviceModule();
+            factoryBuilder.setAudioDeviceModule(audioDeviceModule);
+        }
+        factory = factoryBuilder.createPeerConnectionFactory();
 
         PeerConnection.RTCConfiguration configuration =
                 new PeerConnection.RTCConfiguration(Collections.emptyList());
@@ -115,7 +137,32 @@ final class VideoPeerConnection {
         localVideoTrack = factory.createVideoTrack("device-video", videoSource);
         localVideoTrack.addSink(localRenderer);
         peerConnection.addTrack(localVideoTrack, Collections.singletonList("device-stream"));
-        listener.onStateChanged("Waiting for video offer");
+        if (audioEnabled) {
+            audioSource = factory.createAudioSource(new MediaConstraints());
+            localAudioTrack = factory.createAudioTrack("device-audio", audioSource);
+            localAudioTrack.setEnabled(audioActive && !microphoneMuted);
+            peerConnection.addTrack(localAudioTrack, Collections.singletonList("device-stream"));
+        }
+        listener.onStateChanged(audioEnabled
+                ? "Waiting for audio/video offer"
+                : "Camera preview");
+    }
+
+    void setMicrophoneMuted(boolean muted) {
+        microphoneMuted = muted;
+        if (localAudioTrack != null) {
+            localAudioTrack.setEnabled(audioActive && !microphoneMuted);
+        }
+    }
+
+    void setAudioActive(boolean active) {
+        audioActive = active;
+        if (localAudioTrack != null) {
+            localAudioTrack.setEnabled(audioActive && !microphoneMuted);
+        }
+        if (remoteAudioTrack != null) {
+            remoteAudioTrack.setEnabled(audioActive);
+        }
     }
 
     void handleOffer(String sdp) {
@@ -158,6 +205,11 @@ final class VideoPeerConnection {
             remoteVideoTrack.removeSink(remoteRenderer);
             remoteVideoTrack = null;
         }
+        if (localAudioTrack != null) {
+            localAudioTrack.dispose();
+            localAudioTrack = null;
+        }
+        remoteAudioTrack = null;
         if (videoCapturer != null) {
             try {
                 videoCapturer.stopCapture();
@@ -171,6 +223,10 @@ final class VideoPeerConnection {
             videoSource.dispose();
             videoSource = null;
         }
+        if (audioSource != null) {
+            audioSource.dispose();
+            audioSource = null;
+        }
         if (surfaceTextureHelper != null) {
             surfaceTextureHelper.dispose();
             surfaceTextureHelper = null;
@@ -183,6 +239,10 @@ final class VideoPeerConnection {
         if (factory != null) {
             factory.dispose();
             factory = null;
+        }
+        if (audioDeviceModule != null) {
+            audioDeviceModule.release();
+            audioDeviceModule = null;
         }
         localRenderer.release();
         remoteRenderer.release();
@@ -243,23 +303,28 @@ final class VideoPeerConnection {
             @Override public void onRenegotiationNeeded() {}
 
             @Override public void onAddTrack(RtpReceiver receiver, MediaStream[] mediaStreams) {
-                attachRemoteVideo(receiver.track());
+                attachRemoteTrack(receiver.track());
             }
 
             @Override public void onTrack(RtpTransceiver transceiver) {
-                attachRemoteVideo(transceiver.getReceiver().track());
+                attachRemoteTrack(transceiver.getReceiver().track());
             }
         };
     }
 
-    private void attachRemoteVideo(MediaStreamTrack track) {
-        if (!(track instanceof VideoTrack)) return;
-        VideoTrack videoTrack = (VideoTrack) track;
-        if (remoteVideoTrack == videoTrack) return;
-        if (remoteVideoTrack != null) remoteVideoTrack.removeSink(remoteRenderer);
-        remoteVideoTrack = videoTrack;
-        remoteVideoTrack.addSink(remoteRenderer);
-        listener.onStateChanged("Remote video received");
+    private void attachRemoteTrack(MediaStreamTrack track) {
+        if (track instanceof VideoTrack) {
+            VideoTrack videoTrack = (VideoTrack) track;
+            if (remoteVideoTrack == videoTrack) return;
+            if (remoteVideoTrack != null) remoteVideoTrack.removeSink(remoteRenderer);
+            remoteVideoTrack = videoTrack;
+            remoteVideoTrack.addSink(remoteRenderer);
+            listener.onStateChanged("Remote video received");
+        } else if (track instanceof AudioTrack) {
+            remoteAudioTrack = (AudioTrack) track;
+            remoteAudioTrack.setEnabled(audioActive);
+            listener.onStateChanged("Remote audio received");
+        }
     }
 
     private void createAnswer() {
@@ -280,7 +345,7 @@ final class VideoPeerConnection {
         peerConnection.setLocalDescription(new BaseSdpObserver() {
             @Override public void onSetSuccess() {
                 listener.onLocalAnswer(description.description);
-                listener.onStateChanged("Video answer sent");
+                listener.onStateChanged("Audio/video answer sent");
             }
 
             @Override public void onSetFailure(String error) {
