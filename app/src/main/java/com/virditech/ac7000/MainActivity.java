@@ -85,7 +85,8 @@ public final class MainActivity extends Activity {
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService attackCaptureExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService modelInitExecutor = Executors.newSingleThreadExecutor();
-    private final SignalingClient signalingClient = new SignalingClient();
+    private final SignalingClient signalingClient = SignalingClient.getInstance();
+    private final SignalingClient.Listener signalingListener = this::handleCallInvite;
     private final AtomicReference<TrackingFrame> pendingTracking = new AtomicReference<>();
     private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
@@ -190,7 +191,6 @@ public final class MainActivity extends Activity {
     private long lastPreviewUpdateTimeMs;
     private long lastIrCropCopyTimeMs;
     private ToneGenerator captureTone;
-
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
@@ -203,11 +203,19 @@ public final class MainActivity extends Activity {
         initializeCaptureTone();
         buildUi();
         initializeEngines();
+        signalingClient.setListener(signalingListener);
         signalingClient.connect(SIGNALING_SERVER_URL, SIGNALING_PEER_ID);
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE}, CAMERA_PERMISSION_REQUEST);
         }
+    }
+
+    private void handleCallInvite(String fromPeerId, String callId) {
+        Intent intent = new Intent(this, WebRtcCallActivity.class);
+        intent.putExtra(WebRtcCallActivity.EXTRA_REMOTE_PEER_ID, fromPeerId);
+        intent.putExtra(WebRtcCallActivity.EXTRA_CALL_ID, callId);
+        startActivity(intent);
     }
 
     private void buildUi() {
@@ -481,6 +489,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        signalingClient.setListener(signalingListener);
         resumed = true;
         HardwareControls.setLcdBrightness(90);
         startCameras();
@@ -1499,6 +1508,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        signalingClient.clearListener(signalingListener);
         signalingClient.disconnect();
         synchronized (classifierLock) {
             enginesShutDown = true;

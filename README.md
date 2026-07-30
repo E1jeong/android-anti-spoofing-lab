@@ -63,7 +63,7 @@ Tap the invisible lower-left hotspot five times to open `TEST MENU`.
 - `SETTINGS` opens the Android settings home screen.
 - `WEBRTC TEST` opens `WebRtcCallActivity`. Entering it pauses and closes the main RGB/IR camera pipeline; closing it returns to `MainActivity`, which resumes the pipeline.
 
-The app currently includes a LAN-only WebSocket signaling client that registers a test device and reconnects with backoff. The call activity is only a lifecycle handoff screen: no WebRTC Android SDK, `PeerConnection`, camera capturer, media track, or audio path is implemented yet. Shared signaling-server and operator-web code remain outside this repository, and UBio-N Face Pro production integration is deferred until this isolated test passes.
+The app currently includes a LAN-only WebSocket signaling client that registers a test device, reconnects with backoff, automatically accepts an incoming `call.invite`, and exchanges SDP/ICE with the operator web. `WebRtcCallActivity` uses the front RGB camera for a video-only `PeerConnection`, displays local and remote video, releases every WebRTC camera/rendering resource before returning, and sends `call.hangup` when the call closes. Audio, STUN, TURN, authentication, and production deployment are not implemented. Shared signaling-server and operator-web code remain outside this repository, and UBio-N Face Pro production integration is deferred until this isolated test passes.
 
 ## Build
 
