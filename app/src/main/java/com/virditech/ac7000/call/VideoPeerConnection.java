@@ -78,7 +78,7 @@ final class VideoPeerConnection {
         initializeFactory();
         eglBase = EglBase.create();
         localRenderer.init(eglBase.getEglBaseContext(), null);
-        localRenderer.setMirror(false);
+        localRenderer.setMirror(true);
         localRenderer.setZOrderMediaOverlay(true);
         remoteRenderer.init(eglBase.getEglBaseContext(), null);
 

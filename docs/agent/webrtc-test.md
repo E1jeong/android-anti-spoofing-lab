@@ -9,7 +9,7 @@ Read this document before changing signaling, WebRTC dependencies or messages, n
 - `SignalingClient` registers a test `device` Peer, reconnects with capped exponential backoff, and relays `call.*` plus SDP/ICE messages to the active Activity listener.
 - `WebRtcCallActivity` accepts the incoming call, answers the operator-created SDP Offer, exchanges ICE, sends the front RGB camera at the device-validated 768×432/15fps size, renders local and remote video, and sends `call.hangup` when it closes. Audio, STUN, TURN, authentication, and production configuration are not implemented.
 - Preserve SDP strings exactly as received, including their final CRLF. Trimming or normalizing SDP can make the native WebRTC parser reject an otherwise valid remote description.
-- The target device requires 270-degree frame-rotation metadata for its WebRTC front-camera capture. The local self preview is portrait and intentionally not mirrored so it matches the transmitted frame.
+- The target device requires 270-degree frame-rotation metadata for its WebRTC front-camera capture. Mirror only the local self preview so it matches the main-screen preview; keep the transmitted frame unchanged.
 
 ## Test-Network Boundary
 

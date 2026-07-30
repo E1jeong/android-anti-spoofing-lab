@@ -34,20 +34,31 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
 
         remotePeerId = getIntent().getStringExtra(EXTRA_REMOTE_PEER_ID);
         callId = getIntent().getStringExtra(EXTRA_CALL_ID);
+        boolean previewOnly = remotePeerId == null || callId == null;
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
         SurfaceViewRenderer remoteRenderer = new SurfaceViewRenderer(this);
-        root.addView(remoteRenderer, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
+        if (!previewOnly) {
+            root.addView(remoteRenderer, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+        }
 
         SurfaceViewRenderer localRenderer = new SurfaceViewRenderer(this);
-        FrameLayout.LayoutParams localParams = new FrameLayout.LayoutParams(dp(135), dp(240));
-        localParams.gravity = Gravity.TOP | Gravity.END;
-        localParams.setMargins(dp(16), dp(16), dp(16), dp(16));
+        FrameLayout.LayoutParams localParams;
+        if (previewOnly) {
+            localParams = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            );
+        } else {
+            localParams = new FrameLayout.LayoutParams(dp(135), dp(240));
+            localParams.gravity = Gravity.TOP | Gravity.END;
+            localParams.setMargins(dp(16), dp(16), dp(16), dp(16));
+        }
         root.addView(localRenderer, localParams);
 
         LinearLayout controls = new LinearLayout(this);
@@ -66,8 +77,8 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
         status = new TextView(this);
-        status.setText(remotePeerId == null
-                ? "Main camera pipeline is paused.\nWebRTC is not started yet."
+        status.setText(previewOnly
+                ? "Preparing camera preview"
                 : "Preparing video call\nRemote peer: " + remotePeerId);
         status.setTextColor(Color.LTGRAY);
         status.setTextSize(20f);
@@ -93,20 +104,23 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
         root.addView(controls, controlsParams);
         setContentView(root);
 
-        if (remotePeerId == null || callId == null) return;
-
-        signalingClient = SignalingClient.getInstance();
-        signalingClient.setListener(this);
+        if (!previewOnly) {
+            signalingClient = SignalingClient.getInstance();
+            signalingClient.setListener(this);
+        }
         videoPeerConnection = new VideoPeerConnection(
                 this,
                 localRenderer,
                 remoteRenderer,
                 new VideoPeerConnection.Listener() {
                     @Override public void onLocalAnswer(String sdp) {
-                        signalingClient.sendAnswer(remotePeerId, callId, sdp);
+                        if (signalingClient != null) {
+                            signalingClient.sendAnswer(remotePeerId, callId, sdp);
+                        }
                     }
 
                     @Override public void onLocalIce(IceCandidate candidate) {
+                        if (signalingClient == null) return;
                         signalingClient.sendIce(
                                 remotePeerId,
                                 callId,
@@ -117,22 +131,29 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
                     }
 
                     @Override public void onStateChanged(String state) {
-                        runOnUiThread(() -> status.setText(state + "\nRemote peer: " + remotePeerId));
+                        runOnUiThread(() -> status.setText(previewOnly
+                                ? "Camera preview"
+                                : state + "\nRemote peer: " + remotePeerId));
                     }
 
                     @Override public void onError(String message) {
-                        runOnUiThread(() -> status.setText(
-                                "Video error: " + message + "\nRemote peer: " + remotePeerId
-                        ));
+                        runOnUiThread(() -> status.setText(previewOnly
+                                ? "Preview error: " + message
+                                : "Video error: " + message + "\nRemote peer: " + remotePeerId));
                     }
                 }
         );
         try {
             videoPeerConnection.start();
-            signalingClient.acceptCall(remotePeerId, callId);
+            if (signalingClient != null) {
+                signalingClient.acceptCall(remotePeerId, callId);
+            }
         } catch (RuntimeException e) {
-            status.setText("Video initialization failed: " + e.getMessage());
-            signalingClient.rejectCall(remotePeerId, callId);
+            status.setText((previewOnly ? "Preview" : "Video")
+                    + " initialization failed: " + e.getMessage());
+            if (signalingClient != null) {
+                signalingClient.rejectCall(remotePeerId, callId);
+            }
             videoPeerConnection.close();
             videoPeerConnection = null;
         }
