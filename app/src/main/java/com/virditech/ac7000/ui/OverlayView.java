@@ -159,7 +159,7 @@ public final class OverlayView extends View {
 
     private static String formatResult(ClassificationResult result) {
         return String.format(Locale.US, "%s %.1f%%",
-                ClassificationResult.LABELS[result.topIndex], result.probabilities[result.topIndex] * 100f);
+                ClassificationResult.displayLabel(result.topIndex), result.probabilities[result.topIndex] * 100f);
     }
 
     private void drawCollectionGuide(Canvas canvas) {

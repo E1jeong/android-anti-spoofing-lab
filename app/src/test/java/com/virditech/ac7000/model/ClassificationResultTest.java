@@ -9,17 +9,27 @@ public class ClassificationResultTest {
     @Test
     public void labelsMatchModelOutputOrder() {
         assertArrayEquals(
-                new String[]{"LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK"},
+                new String[]{
+                        "LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK",
+                        "CURVED_PRINT", "CURVED_MASK", "CURVED_PICTURE", "CURVED_PMASK"
+                },
                 ClassificationResult.LABELS);
     }
 
     @Test
-    public void topIndexSupportsPictureMaskClass() {
+    public void topIndexSupportsCurvedPictureMaskClass() {
         ClassificationResult result = new ClassificationResult(
-                new float[]{0.05f, 0.10f, 0.15f, 0.20f, 0.10f, 0.40f}, 2L, 1L);
+                new float[]{0.01f, 0.02f, 0.03f, 0.04f, 0.05f, 0.06f, 0.07f, 0.08f, 0.09f, 0.55f},
+                2L, 1L);
 
-        assertEquals(5, result.topIndex);
+        assertEquals(9, result.topIndex);
         assertEquals(2L, result.preprocessMs);
+    }
+
+    @Test
+    public void displayLabelShortensCurvedClassNames() {
+        assertEquals("C PRINT", ClassificationResult.displayLabel(6));
+        assertEquals("C PMASK", ClassificationResult.displayLabel(9));
     }
 
     @Test

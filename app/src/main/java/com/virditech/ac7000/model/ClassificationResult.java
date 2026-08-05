@@ -1,7 +1,10 @@
 package com.virditech.ac7000.model;
 
 public final class ClassificationResult {
-    public static final String[] LABELS = {"LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK"};
+    public static final String[] LABELS = {
+            "LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK",
+            "CURVED_PRINT", "CURVED_MASK", "CURVED_PICTURE", "CURVED_PMASK"
+    };
     public final float[] probabilities;
     public final int topIndex;
     public final long preprocessMs;
@@ -16,5 +19,10 @@ public final class ClassificationResult {
             if (probabilities[i] > probabilities[best]) best = i;
         }
         topIndex = best;
+    }
+
+    public static String displayLabel(int index) {
+        String label = LABELS[index];
+        return label.startsWith("CURVED_") ? "C " + label.substring("CURVED_".length()) : label;
     }
 }

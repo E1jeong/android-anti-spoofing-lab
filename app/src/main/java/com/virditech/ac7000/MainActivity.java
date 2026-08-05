@@ -1398,7 +1398,7 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
             if (i > 0) sb.append("\n");
             float probability = result != null ? result.probabilities[i] * 100f : 0f;
-            sb.append(String.format(Locale.US, "%s %.1f%%", ClassificationResult.LABELS[i], probability));
+            sb.append(String.format(Locale.US, "%s %.1f%%", ClassificationResult.displayLabel(i), probability));
         }
     }
 
@@ -1406,7 +1406,7 @@ public final class MainActivity extends Activity {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
             if (i > 0) sb.append("\n");
-            sb.append(String.format(Locale.US, "%s 0.0%%", ClassificationResult.LABELS[i]));
+            sb.append(String.format(Locale.US, "%s 0.0%%", ClassificationResult.displayLabel(i)));
         }
         resultsLabel.setText(sb.toString());
     }

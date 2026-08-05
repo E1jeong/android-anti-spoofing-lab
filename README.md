@@ -15,9 +15,9 @@ The current manifest contains one `single_1_input` IR slot:
 
 - IR: `best_crop_ir_fixed_npu_int8.tflite` with `best_crop_ir_fixed_npu_int8_manifest.json`.
 
-The model uses an NNAPI-first INT8 spec and runs on the single inference executor. The UI displays its six-class probabilities, inference latency, and processing FPS. On 2026-07-20, the fixed IR model reached `Ready` on the target device with `Backend NNAPI`, six-class output, and continuous latency/FPS observation. Capture and lifecycle verification remain open.
+The model uses an NNAPI-first INT8 spec and runs on the single inference executor. The UI displays its ten-class probabilities, inference latency, and processing FPS. The local fixed IR asset is a 10-class export; target-device NNAPI verification remains required.
 
-The runtime parser accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Current deployment verification covers float and full INT8; UINT8 normalization/quantization semantics have not yet been verified against an exported model. Every model must have one `FLOAT32` or `INT8` output with shape `[1,6]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
+The runtime parser accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Current deployment verification covers float and full INT8; UINT8 normalization/quantization semantics have not yet been verified against an exported model. Every model must have one `FLOAT32` or `INT8` output with shape `[1,10]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
 
 NNAPI compilation caching must remain disabled because the target board's VSI NPU driver fails models with caching enabled. A `cpu` spec uses CPU/XNNPACK, while NNAPI setup or model warmup failure rejects that manifest slot instead of falling back. This no-fallback behavior is intentional for NPU evaluation. Verify model warmup, the on-screen backend label, logcat, and latency together; `Backend NNAPI` alone does not prove that every operation ran on the NPU.
 
