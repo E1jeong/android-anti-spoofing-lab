@@ -27,6 +27,7 @@ public final class MainScreenView {
     public final FrameLayout irCropContainer;
     public final ImageView faceCropView;
     public final TextView noFaceLabel;
+    public final TextView irAeModeLabel;
     public final TextView resultsLabel;
     public final TextView calibrationInstruction;
     public final Button switchButton;
@@ -63,6 +64,7 @@ public final class MainScreenView {
         irCropContainer = new FrameLayout(activity);
         faceCropView = new ImageView(activity);
         noFaceLabel = label(20f);
+        irAeModeLabel = label(18f);
         irLoadingSpinner = new ProgressBar(activity);
         controlsLayout = new LinearLayout(activity);
         collectionProgress = label(32f);
@@ -147,6 +149,14 @@ public final class MainScreenView {
 
         irLoadingSpinner.setIndeterminate(true);
         irCropContainer.addView(irLoadingSpinner, wrap(Gravity.CENTER, 0, 0));
+
+        irAeModeLabel.setTextColor(Color.WHITE);
+        irAeModeLabel.setGravity(Gravity.CENTER);
+        irAeModeLabel.setBackgroundColor(Color.parseColor("#99000000"));
+        irAeModeLabel.setVisibility(View.GONE);
+        irCropContainer.addView(irAeModeLabel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM));
     }
 
     private void buildCaptureIndicators(Listener listener) {
@@ -312,6 +322,11 @@ public final class MainScreenView {
         overlay.setTranslationX(0f);
         overlay.setTranslationY(0f);
         switchButton.setText(showIr ? "SHOW RGB" : "SHOW IR");
+    }
+
+    public void setIrAeMode(String mode) {
+        irAeModeLabel.setText("IR AE: " + mode);
+        irAeModeLabel.setVisibility(mode == null ? View.GONE : View.VISIBLE);
     }
 
     public void enterCalibrationMode() {

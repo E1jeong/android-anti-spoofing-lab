@@ -14,10 +14,18 @@ public final class IrCameraExposureController {
     private IrCameraExposureController() {}
 
     public static void applyFullAutoExposure() {
+        applyAutoExposure(0xFFFFFFFF, 0xFFFFFFFF, 0x01010203);
+    }
+
+    public static void applyCenterAutoExposure() {
+        applyAutoExposure(0x18000000, 0x00000018, 0x01010101);
+    }
+
+    private static void applyAutoExposure(int blockLow, int blockHigh, int weight) {
         writeRegister("0100B338", 0x00008000);
-        writeRegister("0100B364", 0xFFFFFFFF);
-        writeRegister("0100B368", 0xFFFFFFFF);
-        writeRegister("0100B308", 0x01010203);
+        writeRegister("0100B364", blockLow);
+        writeRegister("0100B368", blockHigh);
+        writeRegister("0100B308", weight);
 
         writeRegister("F0601810", 0x00000090);
         writeRegister("F06012A4", 0x0000007F);

@@ -168,6 +168,7 @@ public final class MainActivity extends Activity {
     private long lastCalibrationTapMs;
     private int settingsTapCount;
     private long lastSettingsTapMs;
+    private boolean irCenterAutoExposure = true;
     private long lastFaceDetectedMs;
     private volatile String normalStatusMessage = "Initializing...";
     private int trackingFrames;
@@ -282,6 +283,7 @@ public final class MainActivity extends Activity {
     private void setIrVisible(boolean visible) {
         showIr = visible;
         screen.setIrVisible(showIr);
+        updateIrAeModeLabel();
         if (showIr) {
             synchronized (irPreviewLock) {
                 releaseIrPreviewBufferLocked();
@@ -310,14 +312,20 @@ public final class MainActivity extends Activity {
     }
 
     private void showHiddenTestMenu() {
-        String[] items = {"SETTINGS", "WEBRTC TEST"};
+        String[] items = {"SETTINGS", "WEBRTC TEST",
+                "IR AE TOGGLE (" + (irCenterAutoExposure ? "CENTER" : "FULL") + ")"};
         new AlertDialog.Builder(this)
                 .setTitle("TEST MENU")
                 .setItems(items, (dialog, which) -> {
                     if (which == 0) {
                         startActivity(new Intent(Settings.ACTION_SETTINGS));
-                    } else {
+                    } else if (which == 1) {
                         startActivity(new Intent(this, WebRtcCallActivity.class));
+                    } else {
+                        irCenterAutoExposure = !irCenterAutoExposure;
+                        applyIrAutoExposure();
+                        updateIrAeModeLabel();
+                        showTransientStatus("IR AE: " + (irCenterAutoExposure ? "CENTER" : "FULL"));
                     }
                 })
                 .setNegativeButton("CANCEL", null)
@@ -475,7 +483,7 @@ public final class MainActivity extends Activity {
         final int generation = pipelineGeneration.advance();
         HardwareControls.setLcdBrightness(90);
         HardwareControls.setIrLed(true);
-        IrCameraExposureController.applyFullAutoExposure();
+        applyIrAutoExposure();
         cameras = new DualCameraController(this, rgbView, irView, new DualCameraController.Listener() {
             @Override public void onRgb(FrameData frame) { submitTracking(frame, generation); }
             @Override public void onIr(FrameData frame) { offerIr(frame, generation); }
@@ -485,6 +493,18 @@ public final class MainActivity extends Activity {
         });
         cameras.setIrFramesEnabled(true);
         cameras.start();
+    }
+
+    private void applyIrAutoExposure() {
+        if (irCenterAutoExposure) {
+            IrCameraExposureController.applyCenterAutoExposure();
+        } else {
+            IrCameraExposureController.applyFullAutoExposure();
+        }
+    }
+
+    private void updateIrAeModeLabel() {
+        screen.setIrAeMode(showIr ? (irCenterAutoExposure ? "CENTER" : "FULL") : null);
     }
 
     @Override protected void onResume() {
