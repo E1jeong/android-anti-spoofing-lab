@@ -54,6 +54,6 @@ adb logcat -s MainActivity:I
 ## Required Device Baseline
 
 - Collect preprocess, invoke, inference queue, tracking-to-result, capture-save P50/P95, processing FPS, Java/native heap, and GC.
-- Include fixed IR standalone model loading, six-class output, RGB/IR preview and crop, overlay/UI, camera-open termination, at least 20 pause/resume cycles, warmup termination, and a 100-sample capture with pause/resume/cancel.
+- Include fixed IR standalone model loading, ten-class output, RGB/IR preview and crop, overlay/UI, camera-open termination, at least 20 pause/resume cycles, warmup termination, and a 100-sample capture with pause/resume/cancel.
 - Verify live HIGH/MEDIUM acceptance, non-live bypass, BMP output, metadata, portrait-pool pressure, and stale-directory prevention.
 - The fixed IR latency, five-cycle teardown regression, 100-sample file audit, capture-save timing, quality-gate application, refactored UI/IR regression, MediaPipe-to-inference path, and 67-minute memory comparison have been verified on the current build. Do not infer an optimization speedup without a comparable pre-optimization APK, or full 20-cycle lifecycle coverage from the accepted five-cycle teardown scope.
