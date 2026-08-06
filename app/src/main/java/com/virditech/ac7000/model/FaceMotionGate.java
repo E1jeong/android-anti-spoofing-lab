@@ -1,8 +1,8 @@
 package com.virditech.ac7000.model;
 
 public final class FaceMotionGate {
-    private static final double MAX_CENTER_SPEED_FACE_WIDTHS_PER_SECOND = 0.7;
-    private static final int REQUIRED_STABLE_FRAMES = 2;
+    private static final double MAX_CENTER_SPEED_FACE_WIDTHS_PER_SECOND = 0.8;
+    private static final int REQUIRED_STABLE_FRAMES = 1;
 
     private double previousCenterX;
     private double previousCenterY;

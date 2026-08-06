@@ -1,5 +1,6 @@
 package com.virditech.ac7000.face;
 
+import android.util.Log;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
@@ -102,6 +103,14 @@ public final class FaceDetector implements FaceDetectionEngine {
             qualityError = "Face quality unavailable: " + e.getMessage();
             if (qualityDetector != null) qualityDetector.release();
             qualityDetector = null;
+        }
+
+        try {
+            Bitmap dummy = Bitmap.createBitmap(432, 768, Bitmap.Config.ARGB_8888);
+            detectLargest(dummy, extractConfig, false);
+            dummy.recycle();
+        } catch (Exception e) {
+            Log.w("FaceDetector", "FaceMe detector warmup failed: " + e.getMessage());
         }
     }
 
