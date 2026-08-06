@@ -7,6 +7,7 @@ Read this document before changing cameras, RGB/IR pairing, calibration, FaceMe 
 - RGB and IR YUV-to-Bitmap conversion runs on dedicated single-threaded executors. Camera callbacks drop incoming frames while conversion is busy.
 - Detect the largest face from the latest RGB frame and update the overlay independently of model inference.
 - Match the latest IR frame within `MAX_PAIR_DELTA_NS` (150ms), then map the RGB face region into IR coordinates using device calibration.
+- Normal inference rejects an RGB face box touching an image edge or moving faster than 0.7 face widths per second; it resumes after two stable tracking frames. On rejection, clear the prior classification while retaining the yellow face box, and discard any already-running result from the earlier motion generation. Do not apply this gate to collection.
 - The diagnostic crop preview updates independently of pairing success through a copied frame buffer and is throttled to a minimum 66ms interval (~15 FPS).
 - The UI displays probabilities, top result, conversion time, detection time, inference time, and processing FPS over the RGB or IR preview.
 - On `master`, FaceMe and MediaPipe Face Detector are initialized together and the UI can select either for tracking and calibration. MediaPipe runs on CPU in the existing tracking executor; do not invoke it from camera callbacks or enable a second accelerator path before target-device measurement. Its detected box expands 25% above and 5% below the raw height, with image-bound clamping; the model spec's crop margin remains separate. `live` collection keeps the FaceMe HIGH/MEDIUM quality contract, so it must reject live collection while MediaPipe is selected.
@@ -39,6 +40,7 @@ Read this document before changing cameras, RGB/IR pairing, calibration, FaceMe 
 ## Validation
 
 - Hardware-dependent changes must verify RGB and IR preview startup, frame pairing, calibration alignment, IR LED state, face detection, inference output, timing, and cleanup/restart across pause and resume.
+- For motion-gate changes, verify stationary LIVE/MASK inference, normal repositioning, rapid lateral MASK movement, image-edge entry/return, yellow-box clearing, and the `Motion gate` log's block/re-entry state.
 - Calibration changes must also verify hidden-mode entry, single-face validation for both cameras, cancel-without-save, persisted alignment after restart, and production mapping-formula compatibility.
 - Test camera-open termination, repeated pause/resume, and termination during model/FaceMe warmup when lifecycle behavior changes.
 - When changing or testing IR AE controls, verify Full/Center selection, IR-only label visibility, RGB label hiding, RGB/IR preview recovery, frame pairing, and no `IrCameraExposure` error across pause/resume.

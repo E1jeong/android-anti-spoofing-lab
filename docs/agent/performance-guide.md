@@ -13,6 +13,8 @@ Read this document before changing performance instrumentation, allocations, con
 adb logcat -s MainActivity:I
 ```
 
+- `Motion gate` diagnostics are throttled to 250ms and report RGB face speed, edge/movement state, stable-frame count, inference allowance, and RGB/IR pair delta. Use them to tune only from target-device evidence.
+
 ## Historical Baseline
 
 - Before the 2026-07-02 preprocessing optimizations, the 2-input model ran near 7 FPS with roughly 20-30ms NNAPI inference.
@@ -23,6 +25,7 @@ adb logcat -s MainActivity:I
 
 - Model preprocessing reuses scaled bitmaps, pixel/scratch arrays, direct buffers, normalization/quantization LUTs, and heatmap results.
 - Tracking and inference use latest-wins queues to prevent latency accumulation.
+- The motion gate invalidates a pending or completed earlier inference result when movement starts; preserve that generation boundary when changing queue ownership or result delivery.
 - Live save candidates share one FaceMe extraction between tracking and quality data.
 - Capture I/O owns detached source frames and writes full/crop BMPs with a reusable 16-row buffer, removing two full-frame copies and two crop bitmap creations per save attempt.
 - The throttled IR diagnostic preview reuses one ARGB bitmap/Canvas while dimensions remain stable, but still performs a full-frame copy.

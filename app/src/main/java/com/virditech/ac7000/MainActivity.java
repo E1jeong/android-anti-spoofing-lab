@@ -52,6 +52,7 @@ import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
 import com.virditech.ac7000.model.ClassificationResult;
 import com.virditech.ac7000.model.FaceCrop;
+import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.model.ModelSlotClassifier;
 import com.virditech.ac7000.model.SlotClassificationResult;
 import com.virditech.ac7000.performance.LatencyWindow;
@@ -67,6 +68,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class MainActivity extends Activity {
@@ -79,6 +81,7 @@ public final class MainActivity extends Activity {
     private static final int IR_RESULT_COLOR = Color.rgb(64, 196, 255);
     private static final int COLLECTION_MEDIUM_QUALITY_LEVEL = 1;
     private static final int LATENCY_WINDOW_SIZE = 120;
+    private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -91,6 +94,8 @@ public final class MainActivity extends Activity {
     private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
     private final AtomicBoolean inferenceWorkerRunning = new AtomicBoolean();
+    private final AtomicLong inferenceMotionGeneration = new AtomicLong();
+    private final FaceMotionGate inferenceMotionGate = new FaceMotionGate();
     private final AtomicBoolean calibrationRequested = new AtomicBoolean();
     private final GenerationGuard pipelineGeneration = new GenerationGuard();
     private final Object attackCaptureLock = new Object();
@@ -189,6 +194,8 @@ public final class MainActivity extends Activity {
     private volatile float trackingFps;
     private volatile float inferenceFps;
     private long lastUiUpdateTimeMs;
+    private long lastMotionDiagnosticLogTimeMs;
+    private boolean inferenceBlockedByMotion;
     private long lastPreviewUpdateTimeMs;
     private long lastIrCropCopyTimeMs;
     private ToneGenerator captureTone;
@@ -642,6 +649,7 @@ public final class MainActivity extends Activity {
         if (frame.ir != null) irConversionMs = frame.ir.conversionMs;
         updateTrackingFps();
         if (detected == null) {
+            inferenceMotionGate.reset();
             runOnUiThread(() -> {
                 if (!isPipelineCurrent(frame.generation)) return;
                 overlay.clearResult();
@@ -893,8 +901,17 @@ public final class MainActivity extends Activity {
         }
 
         if (isCollecting || rgbCrop == null || irCrop == null || frame.ir == null) return;
+        FaceMotionGate.Decision motion = inferenceMotionGate.evaluate(detected.left, detected.top,
+                detected.right, detected.bottom, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(),
+                frame.rgb.timestampNs);
+        logMotionDiagnostic(frame, detected, motion);
+        if (!motion.allowInference) {
+            if (!inferenceBlockedByMotion) blockInferenceForMotion(frame.generation);
+            return;
+        }
+        inferenceBlockedByMotion = false;
         submitInference(new InferenceTask(frame.detachPair(), detected, irDetected, rgbCrop, irCrop,
-                frame.generation, activeClassifier, frame.receivedNs));
+                frame.generation, activeClassifier, frame.receivedNs, inferenceMotionGeneration.get()));
     }
 
     private static Bitmap createCropPreviewBitmap(Bitmap source, Rect crop) {
@@ -905,6 +922,29 @@ public final class MainActivity extends Activity {
         int height = Math.min(source.getHeight() - top, crop.height());
         if (width <= 0 || height <= 0) return null;
         return Bitmap.createBitmap(source, left, top, width, height);
+    }
+
+    private void logMotionDiagnostic(TrackingFrame frame, Rect rgbFace, FaceMotionGate.Decision motion) {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastMotionDiagnosticLogTimeMs < MOTION_DIAGNOSTIC_LOG_INTERVAL_MS) return;
+        lastMotionDiagnosticLogTimeMs = now;
+        double pairDeltaMs = (frame.rgb.timestampNs - frame.ir.timestampNs) / 1_000_000.0;
+        android.util.Log.i(TAG, String.format(Locale.US,
+                "Motion gate pairDeltaMs=%+.1f rgbFace=%s speed=%.2f faceWidthsPerSec edge=%b moving=%b stableFrames=%d allow=%b",
+                pairDeltaMs, rgbFace, motion.speedFaceWidthsPerSecond, motion.touchesEdge,
+                motion.moving, motion.stableFrames, motion.allowInference));
+    }
+
+    private void blockInferenceForMotion(int generation) {
+        inferenceBlockedByMotion = true;
+        long motionGeneration = inferenceMotionGeneration.incrementAndGet();
+        InferenceTask pending = pendingInference.getAndSet(null);
+        if (pending != null) pending.recycle();
+        runOnUiThread(() -> {
+            if (!isPipelineCurrent(generation) || motionGeneration != inferenceMotionGeneration.get()) return;
+            overlay.clearClassificationResult();
+            resetResultsLabelToZero();
+        });
     }
 
     private void submitInference(InferenceTask task) {
@@ -940,7 +980,8 @@ public final class MainActivity extends Activity {
         SlotClassificationResult result = task.classifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
                 task.pair.ir.bitmap, task.irCrop);
         long endToEndMs = (SystemClock.elapsedRealtimeNanos() - task.receivedNs) / 1_000_000L;
-        if (!isPipelineCurrent(task.generation)) return;
+        if (!isPipelineCurrent(task.generation)
+                || task.motionGeneration != inferenceMotionGeneration.get()) return;
         inferenceMs = result.inferenceMs;
         rgbInferenceMs = result.rgbResult != null ? result.rgbResult.inferenceMs : -1L;
         irInferenceMs = result.irResult != null ? result.irResult.inferenceMs : -1L;
@@ -950,7 +991,8 @@ public final class MainActivity extends Activity {
         maybeSaveAttackLiveCapture(task, result);
 
         runOnUiThread(() -> {
-            if (!isPipelineCurrent(task.generation)) return;
+            if (!isPipelineCurrent(task.generation)
+                    || task.motionGeneration != inferenceMotionGeneration.get()) return;
             overlay.showResult(result.primaryResult(), result.irResult);
             resultsLabel.setText(formatClassificationResults(result));
             
@@ -1606,9 +1648,10 @@ public final class MainActivity extends Activity {
         final ModelSlotClassifier classifier;
         final long receivedNs;
         final long enqueuedNs;
+        final long motionGeneration;
 
         InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, int generation,
-                      ModelSlotClassifier classifier, long receivedNs) {
+                      ModelSlotClassifier classifier, long receivedNs, long motionGeneration) {
             this.pair = pair;
             this.rgbFace = rgbFace;
             this.irFace = irFace;
@@ -1618,6 +1661,7 @@ public final class MainActivity extends Activity {
             this.classifier = classifier;
             this.receivedNs = receivedNs;
             this.enqueuedNs = SystemClock.elapsedRealtimeNanos();
+            this.motionGeneration = motionGeneration;
         }
 
         void recycle() {

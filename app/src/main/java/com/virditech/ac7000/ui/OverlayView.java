@@ -104,6 +104,10 @@ public final class OverlayView extends View {
     public void clearResult() {
         rgbBox = null;
         irBox = null;
+        clearClassificationResult();
+    }
+
+    public void clearClassificationResult() {
         result = null;
         irResult = null;
         invalidate();
