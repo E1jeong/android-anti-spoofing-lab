@@ -7,9 +7,9 @@ Read this document before changing models, manifests, tensor mapping, preprocess
 - Model slots and their model/spec assets are declared in the local ignored `app/src/main/assets/model_manifest.json`.
 - Supported slot types are `single_1_input`, `paired_1_input`, `dual_2_input`, and `five_input`. A 1-input spec must declare `inputKind` as `rgb` or `ir`; 5-input specs map `cropRgb`, `cropIr`, `fullRgb`, `fullIr`, and `heatmap` by configured tensor-name substring.
 - On startup, every manifest entry and the FaceMe quality detector are initialized during the loading phase. FaceDetector performs a dummy-frame warmup in its constructor to cover FaceMe NPU cold-start; the spinner remains visible until model loading and FaceMe NPU warmup finish and the quality detector reports available.
-- Only the active preloaded slot runs per frame. The current local evaluation manifest has one `single_1_input` IR slot, so only its IR model runs on the inference single-thread executor.
-- The current slot uses `best_crop_ir_fixed_npu_int8.tflite` with `best_crop_ir_fixed_npu_int8_manifest.json`.
+- Only the active preloaded slot runs per frame on the inference single-thread executor; the model-switch button selects it. The current local evaluation manifest registers two `single_1_input` IR slots and one `dual_2_input` RGB+IR slot.
 - `ModelSpec` supports both legacy spec JSON and generated sidecar manifests; do not assume the two schemas expose inputs in the same JSON shape.
+- A generated sidecar is consumed only through `inputs[].input_kind`, `inputs[].index`, `inputs[].shape`, `normalization.mean`/`std`, `outputs[].output_is_logits`, `crop_margin_ratio`, and `delegate`. `file_name` and `normalization.range` are descriptive and ignored, so never gate behavior on them; derive `dual_2_input` RGB/IR tensor indices from `input_kind`, not from the legacy top-level `rgbInputIndex`/`irInputIndex` keys that generated sidecars do not carry.
 
 ## Tensor and Output Contract
 

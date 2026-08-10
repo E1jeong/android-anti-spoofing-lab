@@ -41,17 +41,23 @@ final class ModelSpec {
             bgr = false; // 기본 채널 오더는 RGB
 
             String kind = "";
+            int rgbIndex = -1;
+            int irIndex = -1;
             float[] rgbM = new float[]{0.5f, 0.5f, 0.5f};
             float[] rgbS = new float[]{0.5f, 0.5f, 0.5f};
             float[] irM = new float[]{0.5f};
             float[] irS = new float[]{0.5f};
-            String rgbNorm = "minus_one_to_one";
 
             for (int i = 0; i < inputsArray.length(); i++) {
                 JSONObject inputTensor = inputsArray.getJSONObject(i);
                 String itemKind = inputTensor.optString("input_kind", "unknown");
                 if (inputsArray.length() == 1) {
                     kind = itemKind;
+                }
+                if ("rgb".equals(itemKind)) {
+                    rgbIndex = inputTensor.optInt("index", i);
+                } else if ("ir".equals(itemKind)) {
+                    irIndex = inputTensor.optInt("index", i);
                 }
                 int channels = 1;
                 JSONArray shape = inputTensor.optJSONArray("shape");
@@ -63,11 +69,9 @@ final class ModelSpec {
                 if (normObj != null) {
                     float[] mean = parseFloatArray(normObj, "mean");
                     float[] std = parseFloatArray(normObj, "std");
-                    String range = normObj.optString("range", "minus_one_to_one");
                     if (channels == 3) {
                         rgbM = mean;
                         rgbS = std;
-                        rgbNorm = range;
                     } else {
                         irM = mean;
                         irS = std;
@@ -79,7 +83,8 @@ final class ModelSpec {
             rgbStd = rgbS;
             irMean = irM;
             irStd = irS;
-            rgbNormalization = rgbNorm;
+            // manifest 는 항상 mean/std 를 선언하므로 범위 문자열 대신 mean/std 경로로 정규화한다.
+            rgbNormalization = RGB_NORMALIZATION_IMAGENET;
 
             JSONArray outputsArray = json.optJSONArray("outputs");
             boolean logits = true;
@@ -90,8 +95,8 @@ final class ModelSpec {
 
             cropMarginRatio = (float) json.optDouble("crop_margin_ratio", 0.10);
             delegate = json.optString("delegate", "nnapi");
-            rgbInputIndex = json.optInt("rgbInputIndex", -1);
-            irInputIndex = json.optInt("irInputIndex", -1);
+            rgbInputIndex = rgbIndex;
+            irInputIndex = irIndex;
         } else {
             // 2. 레거시 model_spec.json 스펙 파싱
             rgbInputIndex = json.optInt("rgbInputIndex", -1);
