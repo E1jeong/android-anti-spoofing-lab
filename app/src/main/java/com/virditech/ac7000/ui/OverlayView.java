@@ -28,6 +28,7 @@ public final class OverlayView extends View {
     private boolean showIr;
     private boolean calibrationMode;
     private boolean isCollecting;
+    private boolean authMode;
     private int collectionSector;
     private int collectionCountdownSeconds;
 
@@ -79,6 +80,14 @@ public final class OverlayView extends View {
         invalidate();
     }
 
+    public void setAuthMode(boolean authMode) {
+        this.authMode = authMode;
+        if (authMode) {
+            clearClassificationResult();
+        }
+        invalidate();
+    }
+
     public void setCollectionGuide(int sector, int countdownSeconds) {
         this.collectionSector = sector;
         this.collectionCountdownSeconds = countdownSeconds;
@@ -123,6 +132,8 @@ public final class OverlayView extends View {
         int color;
         if (isCollecting) {
             color = Color.WHITE;
+        } else if (authMode) {
+            color = Color.CYAN;
         } else {
             color = result == null ? Color.YELLOW
                     : result.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
@@ -130,7 +141,7 @@ public final class OverlayView extends View {
         boxPaint.setColor(color);
         canvas.drawRect(box, boxPaint);
 
-        if (isCollecting) return;
+        if (isCollecting || authMode) return;
 
         float titleY = Math.max(32f, box.top - 10f);
         if (result == null) {

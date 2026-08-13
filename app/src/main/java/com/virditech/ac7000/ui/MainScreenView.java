@@ -46,6 +46,7 @@ public final class MainScreenView {
     public final View calibrationHotspot;
     public final View settingsHotspot;
     public final LinearLayout expandableLayout;
+    public final TextView authResultView;
 
     private final Activity activity;
     private Bitmap currentPreviewFace;
@@ -85,6 +86,7 @@ public final class MainScreenView {
         calibrationCancel = new Button(activity);
         calibrationHotspot = new View(activity);
         settingsHotspot = new View(activity);
+        authResultView = new TextView(activity);
 
         int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
         buildPreview();
@@ -94,6 +96,7 @@ public final class MainScreenView {
         buildControls(listener, buttonWidth);
         buildSettingsHotspot(listener);
         buildCalibrationControls(listener, buttonWidth);
+        buildAuthResultView();
     }
 
     private void buildPreview() {
@@ -306,6 +309,30 @@ public final class MainScreenView {
                 dp(180), dp(180), Gravity.BOTTOM | Gravity.START));
     }
 
+    private void buildAuthResultView() {
+        authResultView.setTextSize(40f);
+        authResultView.setTextColor(Color.WHITE);
+        authResultView.setTypeface(Typeface.DEFAULT_BOLD);
+        authResultView.setGravity(Gravity.START | Gravity.TOP);
+        authResultView.setShadowLayer(8f, 2f, 2f, Color.BLACK);
+        authResultView.setLineSpacing(dp(6), 1.15f);
+        authResultView.setVisibility(View.GONE);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.START);
+        params.setMargins(dp(20), dp(24), dp(20), dp(20));
+        root.addView(authResultView, params);
+    }
+
+    public void showAuthResult(CharSequence text) {
+        authResultView.setText(text);
+        authResultView.setVisibility(View.VISIBLE);
+    }
+
+    public void hideAuthResult() {
+        authResultView.setVisibility(View.GONE);
+    }
+
     public void setInitialPerformanceText(String text) {
         performance.setText(text);
     }
@@ -368,6 +395,21 @@ public final class MainScreenView {
         controlsLayout.setVisibility(visibility);
         calibrationHotspot.setVisibility(visibility);
         settingsHotspot.setVisibility(visibility);
+    }
+
+    public void setAuthMode(boolean authMode) {
+        int visibility = authMode ? View.GONE : View.VISIBLE;
+        performance.setVisibility(visibility);
+        status.setVisibility(visibility);
+        resultsLabel.setVisibility(visibility);
+        irCropContainer.setVisibility(visibility);
+        controlsLayout.setVisibility(visibility);
+        calibrationHotspot.setVisibility(visibility);
+        settingsHotspot.setVisibility(View.VISIBLE);
+        overlay.setAuthMode(authMode);
+        if (!authMode) {
+            hideAuthResult();
+        }
     }
 
     public void setCollectionActiveChrome(boolean collecting) {

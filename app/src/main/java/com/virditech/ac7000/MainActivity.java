@@ -14,6 +14,8 @@ import android.media.ToneGenerator;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.SpannableString;
@@ -174,6 +176,13 @@ public final class MainActivity extends Activity {
     private int settingsTapCount;
     private long lastSettingsTapMs;
     private boolean irCenterAutoExposure = true;
+    private static final int AUTH_FRAME_COUNT = 5;
+    private static final float AUTH_LIVE_THRESHOLD = 0.85f;
+    private volatile boolean authMode;
+    private volatile boolean authVerdictShowing;
+    private volatile boolean testMenuShowing;
+    private final List<float[]> authScoreBuffer = new ArrayList<>();
+    private long authStartNs;
     private long lastFaceDetectedMs;
     private volatile String normalStatusMessage = "Initializing...";
     private int trackingFrames;
@@ -319,24 +328,99 @@ public final class MainActivity extends Activity {
     }
 
     private void showHiddenTestMenu() {
+        testMenuShowing = true;
+        InferenceTask pending = pendingInference.getAndSet(null);
+        if (pending != null) pending.recycle();
+        synchronized (authScoreBuffer) {
+            authScoreBuffer.clear();
+            authStartNs = 0L;
+        }
         String[] items = {"SETTINGS", "WEBRTC TEST",
-                "IR AE TOGGLE (" + (irCenterAutoExposure ? "CENTER" : "FULL") + ")"};
-        new AlertDialog.Builder(this)
+                "IR AE TOGGLE (" + (irCenterAutoExposure ? "CENTER" : "FULL") + ")",
+                "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")"};
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("TEST MENU")
-                .setItems(items, (dialog, which) -> {
+                .setItems(items, (d, which) -> {
                     if (which == 0) {
                         startActivity(new Intent(Settings.ACTION_SETTINGS));
                     } else if (which == 1) {
                         startActivity(new Intent(this, WebRtcCallActivity.class));
-                    } else {
+                    } else if (which == 2) {
                         irCenterAutoExposure = !irCenterAutoExposure;
                         applyIrAutoExposure();
                         updateIrAeModeLabel();
                         showTransientStatus("IR AE: " + (irCenterAutoExposure ? "CENTER" : "FULL"));
+                    } else if (which == 3) {
+                        toggleAuthMode();
                     }
                 })
                 .setNegativeButton("CANCEL", null)
-                .show();
+                .create();
+        dialog.setOnDismissListener(d -> {
+            testMenuShowing = false;
+            synchronized (authScoreBuffer) {
+                authScoreBuffer.clear();
+                authStartNs = 0L;
+            }
+        });
+        dialog.show();
+    }
+
+    private final Handler authHandler = new Handler(Looper.getMainLooper());
+    private final Runnable hideAuthResultRunnable = () -> {
+        authVerdictShowing = false;
+        synchronized (authScoreBuffer) {
+            authScoreBuffer.clear();
+            authStartNs = 0L;
+        }
+        screen.hideAuthResult();
+    };
+
+    private void toggleAuthMode() {
+        if (isCollecting || isAttackLiveCapturing || calibrationMode) {
+            showTransientStatus("Cannot toggle Auth Mode during capture/calibration");
+            return;
+        }
+        authMode = !authMode;
+        authHandler.removeCallbacks(hideAuthResultRunnable);
+        authVerdictShowing = false;
+        synchronized (authScoreBuffer) {
+            authScoreBuffer.clear();
+            authStartNs = 0L;
+        }
+        screen.setAuthMode(authMode);
+        if (!authMode) {
+            resetResultsLabelToZero();
+        }
+        showTransientStatus(authMode ? "AUTH MODE: ON" : "AUTH MODE: OFF");
+    }
+
+    private void showAuthVerdict(boolean isLive, float avgLiveScore, String topSpoofLabel, long elapsedMs) {
+        authVerdictShowing = true;
+        InferenceTask pending = pendingInference.getAndSet(null);
+        if (pending != null) pending.recycle();
+
+        if (isLive) {
+            playCollectionFinishedTone();
+        } else {
+            playAuthFailedTone();
+        }
+
+        String title = isLive ? "AUTH SUCCESS" : "AUTH FAILED";
+        String resultText = isLive ? "LIVE" : "SPOOF (" + topSpoofLabel + ")";
+        String message = String.format(Locale.US,
+                "%s\nResult: %s\nLive Score: %.1f%%\nFrame Count: %d\nTime: %dms",
+                title, resultText, avgLiveScore * 100f, AUTH_FRAME_COUNT, elapsedMs);
+
+        SpannableString spannable = new SpannableString(message);
+        int titleColor = isLive ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+        spannable.setSpan(new ForegroundColorSpan(titleColor), 0, title.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        screen.showAuthResult(spannable);
+
+        authHandler.removeCallbacks(hideAuthResultRunnable);
+        authHandler.postDelayed(hideAuthResultRunnable, 3000L);
     }
 
     private void enterCalibrationMode() {
@@ -525,6 +609,14 @@ public final class MainActivity extends Activity {
     @Override protected void onPause() {
         if (calibrationMode) exitCalibrationMode();
         resumed = false;
+        authHandler.removeCallbacks(hideAuthResultRunnable);
+        authVerdictShowing = false;
+        testMenuShowing = false;
+        synchronized (authScoreBuffer) {
+            authScoreBuffer.clear();
+            authStartNs = 0L;
+        }
+        if (screen != null) screen.hideAuthResult();
         pipelineGeneration.advance();
         if (cameras != null) {
             cameras.stop();
@@ -650,6 +742,10 @@ public final class MainActivity extends Activity {
         updateTrackingFps();
         if (detected == null) {
             inferenceMotionGate.reset();
+            synchronized (authScoreBuffer) {
+                authScoreBuffer.clear();
+                authStartNs = 0L;
+            }
             runOnUiThread(() -> {
                 if (!isPipelineCurrent(frame.generation)) return;
                 overlay.clearResult();
@@ -900,14 +996,16 @@ public final class MainActivity extends Activity {
             }
         }
 
-        if (isCollecting || rgbCrop == null || irCrop == null || frame.ir == null) return;
-        FaceMotionGate.Decision motion = inferenceMotionGate.evaluate(detected.left, detected.top,
-                detected.right, detected.bottom, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(),
-                frame.rgb.timestampNs);
-        logMotionDiagnostic(frame, detected, motion);
-        if (!motion.allowInference) {
-            if (!inferenceBlockedByMotion) blockInferenceForMotion(frame.generation);
-            return;
+        if (isCollecting || authVerdictShowing || testMenuShowing || rgbCrop == null || irCrop == null || frame.ir == null) return;
+        if (!authMode) {
+            FaceMotionGate.Decision motion = inferenceMotionGate.evaluate(detected.left, detected.top,
+                    detected.right, detected.bottom, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(),
+                    frame.rgb.timestampNs);
+            logMotionDiagnostic(frame, detected, motion);
+            if (!motion.allowInference) {
+                if (!inferenceBlockedByMotion) blockInferenceForMotion(frame.generation);
+                return;
+            }
         }
         inferenceBlockedByMotion = false;
         submitInference(new InferenceTask(frame.detachPair(), detected, irDetected, rgbCrop, irCrop,
@@ -937,6 +1035,10 @@ public final class MainActivity extends Activity {
 
     private void blockInferenceForMotion(int generation) {
         inferenceBlockedByMotion = true;
+        synchronized (authScoreBuffer) {
+            authScoreBuffer.clear();
+            authStartNs = 0L;
+        }
         long motionGeneration = inferenceMotionGeneration.incrementAndGet();
         InferenceTask pending = pendingInference.getAndSet(null);
         if (pending != null) pending.recycle();
@@ -957,7 +1059,11 @@ public final class MainActivity extends Activity {
         try {
             InferenceTask task;
             while ((task = pendingInference.getAndSet(null)) != null) {
-                try { processInference(task); }
+                try {
+                    if (!authVerdictShowing && !testMenuShowing) {
+                        processInference(task);
+                    }
+                }
                 catch (Exception e) {
                     android.util.Log.e("MainActivity", "Inference failed in drainInference", e);
                     if (isPipelineCurrent(task.generation)) showTransientStatus("Inference failed");
@@ -974,13 +1080,13 @@ public final class MainActivity extends Activity {
     }
 
     private void processInference(InferenceTask task) {
-        if (!isPipelineCurrent(task.generation) || task.classifier == null) return;
+        if (authVerdictShowing || testMenuShowing || !isPipelineCurrent(task.generation) || task.classifier == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
         SlotClassificationResult result = task.classifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
                 task.pair.ir.bitmap, task.irCrop);
         long endToEndMs = (SystemClock.elapsedRealtimeNanos() - task.receivedNs) / 1_000_000L;
-        if (!isPipelineCurrent(task.generation)
+        if (authVerdictShowing || testMenuShowing || !isPipelineCurrent(task.generation)
                 || task.motionGeneration != inferenceMotionGeneration.get()) return;
         inferenceMs = result.inferenceMs;
         rgbInferenceMs = result.rgbResult != null ? result.rgbResult.inferenceMs : -1L;
@@ -991,8 +1097,48 @@ public final class MainActivity extends Activity {
         maybeSaveAttackLiveCapture(task, result);
 
         runOnUiThread(() -> {
-            if (!isPipelineCurrent(task.generation)
+            if (authVerdictShowing || !isPipelineCurrent(task.generation)
                     || task.motionGeneration != inferenceMotionGeneration.get()) return;
+            if (authMode) {
+                ClassificationResult primary = result.primaryResult();
+                if (primary != null && primary.probabilities != null && primary.probabilities.length > 0) {
+                    float[] probs = primary.probabilities.clone();
+                    synchronized (authScoreBuffer) {
+                        if (authScoreBuffer.isEmpty()) {
+                            authStartNs = task.receivedNs;
+                        }
+                        authScoreBuffer.add(probs);
+                        if (authScoreBuffer.size() >= AUTH_FRAME_COUNT) {
+                            long elapsedMs = (SystemClock.elapsedRealtimeNanos() - authStartNs) / 1_000_000L;
+                            int classCount = probs.length;
+                            float[] sumProbs = new float[classCount];
+                            for (float[] p : authScoreBuffer) {
+                                for (int i = 0; i < classCount && i < p.length; i++) {
+                                    sumProbs[i] += p[i];
+                                }
+                            }
+                            int frameCount = authScoreBuffer.size();
+                            float avgLive = sumProbs[0] / frameCount;
+                            boolean isLive = avgLive >= AUTH_LIVE_THRESHOLD;
+
+                            int topSpoofIndex = 1;
+                            for (int i = 2; i < classCount; i++) {
+                                if (sumProbs[i] > sumProbs[topSpoofIndex]) {
+                                    topSpoofIndex = i;
+                                }
+                            }
+                            String topSpoofLabel = (topSpoofIndex < ClassificationResult.LABELS.length)
+                                    ? ClassificationResult.displayLabel(topSpoofIndex)
+                                    : "UNKNOWN";
+
+                            authScoreBuffer.clear();
+                            authStartNs = 0L;
+                            showAuthVerdict(isLive, avgLive, topSpoofLabel, elapsedMs);
+                        }
+                    }
+                }
+                return;
+            }
             overlay.showResult(result.primaryResult(), result.irResult);
             resultsLabel.setText(formatClassificationResults(result));
             
@@ -1550,6 +1696,21 @@ public final class MainActivity extends Activity {
     private void playCollectionFinishedTone() {
         ToneGenerator tone = captureTone;
         if (tone != null) tone.startTone(ToneGenerator.TONE_PROP_ACK, 350);
+    }
+
+    private void playAuthFailedTone() {
+        ToneGenerator tone = captureTone;
+        if (tone != null) {
+            tone.startTone(ToneGenerator.TONE_PROP_BEEP, 120);
+            authHandler.postDelayed(() -> {
+                ToneGenerator t1 = captureTone;
+                if (t1 != null) t1.startTone(ToneGenerator.TONE_PROP_BEEP, 120);
+            }, 180L);
+            authHandler.postDelayed(() -> {
+                ToneGenerator t2 = captureTone;
+                if (t2 != null) t2.startTone(ToneGenerator.TONE_PROP_BEEP, 120);
+            }, 360L);
+        }
     }
 
     private void clearPendingWork() {
