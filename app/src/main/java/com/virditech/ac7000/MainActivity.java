@@ -8,6 +8,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.PointF;
 import android.graphics.Rect;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
@@ -58,6 +59,7 @@ import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.model.ModelSlotClassifier;
 import com.virditech.ac7000.model.SlotClassificationResult;
 import com.virditech.ac7000.performance.LatencyWindow;
+import com.virditech.ac7000.recognition.FaceEmbeddingModel;
 import com.virditech.ac7000.recognition.FaceRecognitionManager;
 import com.virditech.ac7000.recognition.FaceTemplate;
 import com.virditech.ac7000.recognition.RecognitionResult;
@@ -184,6 +186,10 @@ public final class MainActivity extends Activity {
     private volatile FaceRecognitionManager faceRecognitionManager;
     private volatile boolean faceRecognitionMode;
     private final AtomicBoolean enrollRequested = new AtomicBoolean(false);
+    private static final int ENROLL_TARGET_FRAME_COUNT = 3;
+    private final List<float[]> enrollEmbeddingBuffer = new ArrayList<>();
+    private FaceEmbeddingModel.DelegateType recogDelegate = FaceEmbeddingModel.DelegateType.NNAPI;
+    private String recogModelPath = FaceEmbeddingModel.DEFAULT_MODEL_PATH;
     private volatile boolean authMode;
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
@@ -342,12 +348,19 @@ public final class MainActivity extends Activity {
             authStartNs = 0L;
         }
         int enrolledCount = faceRecognitionManager != null ? faceRecognitionManager.getEnrolledCount() : 0;
-        String[] items = {"SETTINGS", "WEBRTC TEST",
+        String curDelegate = faceRecognitionManager != null ? faceRecognitionManager.getActiveDelegate() : "CPU";
+        String curModel = recogModelPath.contains("int8") ? "INT8 (NPU)" : (recogModelPath.contains("float16") ? "FP16" : "FP32");
+        String[] items = {
+                "SETTINGS",
+                "WEBRTC TEST",
                 "IR AE TOGGLE (" + (irCenterAutoExposure ? "CENTER" : "FULL") + ")",
                 "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
                 "FACE RECOGNITION (" + (faceRecognitionMode ? "ON" : "OFF") + ")",
-                "ENROLL CURRENT FACE (Total: " + enrolledCount + ")",
-                "CLEAR ENROLLED FACES"};
+                "RECOG DELEGATE (" + curDelegate + ")",
+                "RECOG MODEL (" + curModel + ")",
+                "ENROLL CURRENT FACE (" + ENROLL_TARGET_FRAME_COUNT + "-frame avg, Total: " + enrolledCount + ")",
+                "CLEAR ENROLLED FACES"
+        };
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("TEST MENU")
                 .setItems(items, (d, which) -> {
@@ -366,9 +379,37 @@ public final class MainActivity extends Activity {
                         faceRecognitionMode = !faceRecognitionMode;
                         showTransientStatus("FACE RECOGNITION: " + (faceRecognitionMode ? "ON" : "OFF"));
                     } else if (which == 5) {
-                        enrollRequested.set(true);
-                        showTransientStatus("Face the camera to enroll...");
+                        recogDelegate = (recogDelegate == FaceEmbeddingModel.DelegateType.CPU)
+                                ? FaceEmbeddingModel.DelegateType.NNAPI
+                                : FaceEmbeddingModel.DelegateType.CPU;
+                        showTransientStatus("Switching delegate to " + recogDelegate + "...");
+                        modelInitExecutor.execute(() -> {
+                            if (faceRecognitionManager != null) {
+                                faceRecognitionManager.reloadModel(getApplicationContext(), recogModelPath, recogDelegate);
+                            }
+                            runOnUiThread(() -> showTransientStatus("RECOG DELEGATE: " + (faceRecognitionManager != null ? faceRecognitionManager.getActiveDelegate() : "N/A")));
+                        });
                     } else if (which == 6) {
+                        if (recogModelPath.equals(FaceEmbeddingModel.MODEL_NPU_INT8)) {
+                            recogModelPath = FaceEmbeddingModel.MODEL_FLOAT16;
+                        } else if (recogModelPath.equals(FaceEmbeddingModel.MODEL_FLOAT16)) {
+                            recogModelPath = FaceEmbeddingModel.MODEL_FLOAT32;
+                        } else {
+                            recogModelPath = FaceEmbeddingModel.MODEL_NPU_INT8;
+                        }
+                        String name = recogModelPath.contains("int8") ? "INT8 (NPU)" : (recogModelPath.contains("float16") ? "FP16" : "FP32");
+                        showTransientStatus("Loading model: " + name + "...");
+                        modelInitExecutor.execute(() -> {
+                            if (faceRecognitionManager != null) {
+                                faceRecognitionManager.reloadModel(getApplicationContext(), recogModelPath, recogDelegate);
+                            }
+                            runOnUiThread(() -> showTransientStatus("RECOG MODEL: " + name));
+                        });
+                    } else if (which == 7) {
+                        enrollEmbeddingBuffer.clear();
+                        enrollRequested.set(true);
+                        showTransientStatus("Face the camera to enroll (" + ENROLL_TARGET_FRAME_COUNT + " frames)...");
+                    } else if (which == 8) {
                         if (faceRecognitionManager != null) {
                             faceRecognitionManager.clearTemplates();
                             showTransientStatus("Enrolled faces cleared");
@@ -529,10 +570,10 @@ public final class MainActivity extends Activity {
             reportEngineError("MODEL LOAD FAILED: " + e.getMessage());
         }
         try {
-            FaceRecognitionManager recManager = new FaceRecognitionManager(getApplicationContext());
+            FaceRecognitionManager recManager = new FaceRecognitionManager(getApplicationContext(), recogModelPath, recogDelegate);
             if (recManager.isReady()) {
                 faceRecognitionManager = recManager;
-                android.util.Log.i(TAG, "FaceRecognitionManager loaded successfully");
+                android.util.Log.i(TAG, "FaceRecognitionManager loaded successfully (" + recManager.getActiveDelegate() + ", " + recManager.getModelAssetPath() + ")");
             }
         } catch (Exception e) {
             android.util.Log.w(TAG, "FaceRecognitionManager load failed: " + e.getMessage());
@@ -765,6 +806,7 @@ public final class MainActivity extends Activity {
                 : prepareCollectionQuality
                         ? faceDetector.detectLargestWithQualityData(frame.rgb.bitmap)
                         : activeDetector.detectLargest(frame.rgb.bitmap);
+        PointF[] currentLandmarks = (faceDetector != null) ? faceDetector.getLastDetectedLandmarks() : null;
         if (!isPipelineCurrent(frame.generation)) return;
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         rgbConversionMs = frame.rgb.conversionMs;
@@ -801,24 +843,6 @@ public final class MainActivity extends Activity {
             return;
         } else {
             lastFaceDetectedMs = SystemClock.elapsedRealtime();
-            if (enrollRequested.compareAndSet(true, false)) {
-                FaceRecognitionManager recManager = faceRecognitionManager;
-                if (recManager != null && recManager.isReady()) {
-                    int count = recManager.getEnrolledCount() + 1;
-                    FaceTemplate template = recManager.enrollFace("USER_" + count, "User " + count,
-                            frame.rgb.bitmap, detected);
-                    runOnUiThread(() -> {
-                        if (template != null) {
-                            playCollectionFinishedTone();
-                            showTransientStatus("Enrolled: " + template.getName() + " (Total: " + recManager.getEnrolledCount() + ")");
-                        } else {
-                            showTransientStatus("Enrollment failed: extraction error");
-                        }
-                    });
-                } else {
-                    runOnUiThread(() -> showTransientStatus("Face recognition model not ready"));
-                }
-            }
         }
         int irWidth = frame.ir == null ? frame.rgb.bitmap.getWidth() : frame.ir.bitmap.getWidth();
         int irHeight = frame.ir == null ? frame.rgb.bitmap.getHeight() : frame.ir.bitmap.getHeight();
@@ -1056,7 +1080,7 @@ public final class MainActivity extends Activity {
             }
         }
         inferenceBlockedByMotion = false;
-        submitInference(new InferenceTask(frame.detachPair(), detected, irDetected, rgbCrop, irCrop,
+        submitInference(new InferenceTask(frame.detachPair(), detected, irDetected, rgbCrop, irCrop, currentLandmarks,
                 frame.generation, activeClassifier, frame.receivedNs, inferenceMotionGeneration.get()));
     }
 
@@ -1146,8 +1170,36 @@ public final class MainActivity extends Activity {
 
         RecognitionResult recResult = null;
         FaceRecognitionManager recManager = faceRecognitionManager;
-        if (faceRecognitionMode && recManager != null && recManager.isReady() && recManager.getEnrolledCount() > 0) {
-            recResult = recManager.identify(task.pair.rgb.bitmap, task.rgbCrop);
+        if (enrollRequested.get()) {
+            if (recManager != null && recManager.isReady()) {
+                float[] emb = recManager.extractEmbedding(task.pair.rgb.bitmap, task.rgbFace, task.landmarks);
+                if (emb != null) {
+                    enrollEmbeddingBuffer.add(emb);
+                    int collected = enrollEmbeddingBuffer.size();
+                    if (collected >= ENROLL_TARGET_FRAME_COUNT) {
+                        enrollRequested.set(false);
+                        int count = recManager.getEnrolledCount() + 1;
+                        FaceTemplate template = recManager.enrollFaceAverage("USER_" + count, "User " + count, enrollEmbeddingBuffer);
+                        enrollEmbeddingBuffer.clear();
+                        runOnUiThread(() -> {
+                            if (template != null) {
+                                playCollectionFinishedTone();
+                                showTransientStatus("Enrolled: " + template.getName() + " (" + ENROLL_TARGET_FRAME_COUNT + "-frame avg, Total: " + recManager.getEnrolledCount() + ")");
+                            } else {
+                                showTransientStatus("Enrollment failed: average error");
+                            }
+                        });
+                    } else {
+                        runOnUiThread(() -> showTransientStatus("Enrolling: " + collected + "/" + ENROLL_TARGET_FRAME_COUNT + " frames..."));
+                    }
+                }
+            } else {
+                enrollRequested.set(false);
+                enrollEmbeddingBuffer.clear();
+                runOnUiThread(() -> showTransientStatus("Face recognition model not ready"));
+            }
+        } else if (faceRecognitionMode && recManager != null && recManager.isReady() && recManager.getEnrolledCount() > 0) {
+            recResult = recManager.identify(task.pair.rgb.bitmap, task.rgbFace, task.landmarks);
         }
         final RecognitionResult finalRecResult = recResult;
 
@@ -1872,19 +1924,21 @@ public final class MainActivity extends Activity {
         final Rect irFace;
         final Rect rgbCrop;
         final Rect irCrop;
+        final PointF[] landmarks;
         final int generation;
         final ModelSlotClassifier classifier;
         final long receivedNs;
         final long enqueuedNs;
         final long motionGeneration;
 
-        InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, int generation,
-                      ModelSlotClassifier classifier, long receivedNs, long motionGeneration) {
+        InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, PointF[] landmarks,
+                      int generation, ModelSlotClassifier classifier, long receivedNs, long motionGeneration) {
             this.pair = pair;
             this.rgbFace = rgbFace;
             this.irFace = irFace;
             this.rgbCrop = rgbCrop;
             this.irCrop = irCrop;
+            this.landmarks = landmarks;
             this.generation = generation;
             this.classifier = classifier;
             this.receivedNs = receivedNs;

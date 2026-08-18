@@ -59,4 +59,29 @@ public class FaceRecognitionTest {
         assertFalse(fail.isRecognized());
         assertEquals(0.45f, fail.similarityScore(), 1e-5f);
     }
+
+    @Test
+    public void testMultiFrameAverageMath() {
+        float[] emb1 = new float[512];
+        float[] emb2 = new float[512];
+        emb1[0] = 1.0f;
+        emb2[0] = 1.0f;
+        emb1[1] = 0.5f;
+        emb2[1] = -0.5f;
+
+        java.util.List<float[]> list = new java.util.ArrayList<>();
+        list.add(emb1);
+        list.add(emb2);
+
+        float[] avg = new float[512];
+        for (float[] e : list) {
+            for (int i = 0; i < 512; i++) avg[i] += e[i];
+        }
+        for (int i = 0; i < 512; i++) avg[i] /= 2f;
+        FaceEmbeddingModel.normalizeL2(avg);
+
+        // Average y-component (index 1) cancels out to 0, x-component (index 0) becomes 1.0
+        assertEquals(1.0f, avg[0], 1e-5f);
+        assertEquals(0.0f, avg[1], 1e-5f);
+    }
 }

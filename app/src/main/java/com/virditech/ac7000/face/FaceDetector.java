@@ -3,6 +3,7 @@ package com.virditech.ac7000.face;
 import android.util.Log;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.PointF;
 import android.graphics.Rect;
 
 import com.cyberlink.faceme.DetectionMode;
@@ -42,6 +43,7 @@ public final class FaceDetector implements FaceDetectionEngine {
     private final ExtractConfig extractConfig = new ExtractConfig();
     private final ExtractConfig qualityExtractConfig = new ExtractConfig();
     private QualityFaceData lastQualityFaceData;
+    private volatile PointF[] lastDetectedLandmarks;
     private String qualityError;
 
     public FaceDetector(Context context) {
@@ -74,7 +76,7 @@ public final class FaceDetector implements FaceDetectionEngine {
         recognizer.setExtractionOption(ExtractionOption.DETECTION_SPEED_LEVEL, DetectionSpeedLevel.FAST);
 
         extractConfig.extractFeature = false;
-        extractConfig.extractFeatureLandmark = false;
+        extractConfig.extractFeatureLandmark = true;
         extractConfig.extractAge = false;
         extractConfig.extractGender = false;
         extractConfig.extractEmotion = false;
@@ -118,6 +120,10 @@ public final class FaceDetector implements FaceDetectionEngine {
         return "FACEME";
     }
 
+    public PointF[] getLastDetectedLandmarks() {
+        return lastDetectedLandmarks;
+    }
+
     @Override public Rect detectLargest(Bitmap rgb) {
         return detectLargest(rgb, extractConfig, false);
     }
@@ -128,6 +134,7 @@ public final class FaceDetector implements FaceDetectionEngine {
 
     private Rect detectLargest(Bitmap rgb, ExtractConfig config, boolean captureQualityData) {
         lastQualityFaceData = null;
+        lastDetectedLandmarks = null;
         List<Integer> counts = recognizer.extractFaceEx(config, Collections.singletonList(rgb));
         if (counts.isEmpty() || counts.get(0) == 0) return null;
         Rect largest = null;
@@ -146,12 +153,23 @@ public final class FaceDetector implements FaceDetectionEngine {
                 largestInfo = info;
             }
         }
-        if (captureQualityData && largestIndex >= 0 && largestInfo != null) {
+        if (largestIndex >= 0 && largestInfo != null) {
             FaceLandmark landmark = recognizer.getFaceLandmark(0, largestIndex);
-            FaceAttribute attribute = recognizer.getFaceAttribute(0, largestIndex);
-            Pose pose = attribute == null ? null : attribute.pose;
-            if (landmark != null && pose != null) {
-                lastQualityFaceData = new QualityFaceData(copyFaceInfo(largestInfo), landmark, pose);
+            if (landmark != null && landmark.featurePoints != null && landmark.featurePoints.length > 0) {
+                PointF[] pts = new PointF[landmark.featurePoints.length];
+                for (int k = 0; k < pts.length; k++) {
+                    if (landmark.featurePoints[k] != null) {
+                        pts[k] = new PointF(landmark.featurePoints[k].x, landmark.featurePoints[k].y);
+                    }
+                }
+                lastDetectedLandmarks = pts;
+            }
+            if (captureQualityData) {
+                FaceAttribute attribute = recognizer.getFaceAttribute(0, largestIndex);
+                Pose pose = attribute == null ? null : attribute.pose;
+                if (landmark != null && pose != null) {
+                    lastQualityFaceData = new QualityFaceData(copyFaceInfo(largestInfo), landmark, pose);
+                }
             }
         }
         return largest;
