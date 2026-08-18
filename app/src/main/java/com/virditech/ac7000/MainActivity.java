@@ -58,6 +58,9 @@ import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.model.ModelSlotClassifier;
 import com.virditech.ac7000.model.SlotClassificationResult;
 import com.virditech.ac7000.performance.LatencyWindow;
+import com.virditech.ac7000.recognition.FaceRecognitionManager;
+import com.virditech.ac7000.recognition.FaceTemplate;
+import com.virditech.ac7000.recognition.RecognitionResult;
 import com.virditech.ac7000.ui.MainScreenView;
 import com.virditech.ac7000.ui.OverlayView;
 
@@ -178,6 +181,9 @@ public final class MainActivity extends Activity {
     private boolean irCenterAutoExposure = true;
     private static final int AUTH_FRAME_COUNT = 5;
     private static final float AUTH_LIVE_THRESHOLD = 0.85f;
+    private volatile FaceRecognitionManager faceRecognitionManager;
+    private volatile boolean faceRecognitionMode;
+    private final AtomicBoolean enrollRequested = new AtomicBoolean(false);
     private volatile boolean authMode;
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
@@ -335,9 +341,13 @@ public final class MainActivity extends Activity {
             authScoreBuffer.clear();
             authStartNs = 0L;
         }
+        int enrolledCount = faceRecognitionManager != null ? faceRecognitionManager.getEnrolledCount() : 0;
         String[] items = {"SETTINGS", "WEBRTC TEST",
                 "IR AE TOGGLE (" + (irCenterAutoExposure ? "CENTER" : "FULL") + ")",
-                "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")"};
+                "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
+                "FACE RECOGNITION (" + (faceRecognitionMode ? "ON" : "OFF") + ")",
+                "ENROLL CURRENT FACE (Total: " + enrolledCount + ")",
+                "CLEAR ENROLLED FACES"};
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("TEST MENU")
                 .setItems(items, (d, which) -> {
@@ -352,6 +362,17 @@ public final class MainActivity extends Activity {
                         showTransientStatus("IR AE: " + (irCenterAutoExposure ? "CENTER" : "FULL"));
                     } else if (which == 3) {
                         toggleAuthMode();
+                    } else if (which == 4) {
+                        faceRecognitionMode = !faceRecognitionMode;
+                        showTransientStatus("FACE RECOGNITION: " + (faceRecognitionMode ? "ON" : "OFF"));
+                    } else if (which == 5) {
+                        enrollRequested.set(true);
+                        showTransientStatus("Face the camera to enroll...");
+                    } else if (which == 6) {
+                        if (faceRecognitionManager != null) {
+                            faceRecognitionManager.clearTemplates();
+                            showTransientStatus("Enrolled faces cleared");
+                        }
                     }
                 })
                 .setNegativeButton("CANCEL", null)
@@ -506,6 +527,15 @@ public final class MainActivity extends Activity {
             result = ModelSlotClassifier.loadAll(getApplicationContext());
         } catch (Exception e) {
             reportEngineError("MODEL LOAD FAILED: " + e.getMessage());
+        }
+        try {
+            FaceRecognitionManager recManager = new FaceRecognitionManager(getApplicationContext());
+            if (recManager.isReady()) {
+                faceRecognitionManager = recManager;
+                android.util.Log.i(TAG, "FaceRecognitionManager loaded successfully");
+            }
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "FaceRecognitionManager load failed: " + e.getMessage());
         }
         List<ModelSlotClassifier> loaded = result != null ? result.slots : new ArrayList<>();
         if (result != null) {
@@ -771,6 +801,24 @@ public final class MainActivity extends Activity {
             return;
         } else {
             lastFaceDetectedMs = SystemClock.elapsedRealtime();
+            if (enrollRequested.compareAndSet(true, false)) {
+                FaceRecognitionManager recManager = faceRecognitionManager;
+                if (recManager != null && recManager.isReady()) {
+                    int count = recManager.getEnrolledCount() + 1;
+                    FaceTemplate template = recManager.enrollFace("USER_" + count, "User " + count,
+                            frame.rgb.bitmap, detected);
+                    runOnUiThread(() -> {
+                        if (template != null) {
+                            playCollectionFinishedTone();
+                            showTransientStatus("Enrolled: " + template.getName() + " (Total: " + recManager.getEnrolledCount() + ")");
+                        } else {
+                            showTransientStatus("Enrollment failed: extraction error");
+                        }
+                    });
+                } else {
+                    runOnUiThread(() -> showTransientStatus("Face recognition model not ready"));
+                }
+            }
         }
         int irWidth = frame.ir == null ? frame.rgb.bitmap.getWidth() : frame.ir.bitmap.getWidth();
         int irHeight = frame.ir == null ? frame.rgb.bitmap.getHeight() : frame.ir.bitmap.getHeight();
@@ -1096,9 +1144,28 @@ public final class MainActivity extends Activity {
 
         maybeSaveAttackLiveCapture(task, result);
 
+        RecognitionResult recResult = null;
+        FaceRecognitionManager recManager = faceRecognitionManager;
+        if (faceRecognitionMode && recManager != null && recManager.isReady() && recManager.getEnrolledCount() > 0) {
+            recResult = recManager.identify(task.pair.rgb.bitmap, task.rgbCrop);
+        }
+        final RecognitionResult finalRecResult = recResult;
+
         runOnUiThread(() -> {
             if (authVerdictShowing || !isPipelineCurrent(task.generation)
                     || task.motionGeneration != inferenceMotionGeneration.get()) return;
+            if (finalRecResult != null) {
+                if (finalRecResult.isRecognized()) {
+                    status.setText(String.format(Locale.US, "RECOGNIZED: %s (%.1f%%, %dms)",
+                            finalRecResult.matchedTemplate().getName(),
+                            finalRecResult.similarityScore() * 100f,
+                            finalRecResult.elapsedMs()));
+                } else {
+                    status.setText(String.format(Locale.US, "UNRECOGNIZED (%.1f%%, %dms)",
+                            finalRecResult.similarityScore() * 100f,
+                            finalRecResult.elapsedMs()));
+                }
+            }
             if (authMode) {
                 ClassificationResult primary = result.primaryResult();
                 if (primary != null && primary.probabilities != null && primary.probabilities.length > 0) {
@@ -1879,6 +1946,11 @@ public final class MainActivity extends Activity {
             }
             classifier = null;
             classifiers.clear();
+        }
+        FaceRecognitionManager recManager = faceRecognitionManager;
+        if (recManager != null) {
+            faceRecognitionManager = null;
+            try { recManager.close(); } catch (Exception ignored) {}
         }
     }
 
