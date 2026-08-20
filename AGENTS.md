@@ -42,26 +42,26 @@ Dual Cameras (RGB + IR)
 
 | Domain / Package | Ownership | First Source Entry Point | Wiki & Spec Documents |
 | --- | --- | --- | --- |
-| **Model & Inference** (`model/`) | TFLite loader, manifest slots, tensor mapping, NNAPI, motion gate | `ModelSlotClassifier`, `AntiSpoofingClassifier`, `FaceMotionGate` | `features/model-contract-branches`, [`docs/agent/model-contract.md`](docs/agent/model-contract.md) |
-| **Face Detection** (`face/`) | FaceMe SDK 7.8.2, MediaPipe BlazeFace, NPU warmup, quality gate | `FaceDetector`, `MediaPipeFaceDetector` | `features/camera-and-calibration`, [`docs/agent/device-runtime.md`](docs/agent/device-runtime.md) |
-| **Camera & Teardown** (`camera/`, `calibration/`) | Dual Camera2, 150ms pairing, `CalibConfig.dat`, `onClosed` teardown | `DualCameraController`, `CameraStream`, `Calibration` | `features/camera-and-calibration`, [`docs/agent/device-runtime.md`](docs/agent/device-runtime.md) |
-| **Dataset Capture** (`capture/`) | 100-sample raw dataset, ATTACK false-live, BMP writing, `meta.json` | `CaptureStorage`, `BmpWriter`, `CaptureSchedule` | `features/camera-and-calibration`, [`docs/agent/capture-contract.md`](docs/agent/capture-contract.md) |
+| **Model & Inference** (`model/`) | TFLite loader, manifest slots, tensor mapping, NNAPI, motion gate | `ModelSlotClassifier`, `AntiSpoofingClassifier`, `FaceMotionGate` | `features/model-contract-branches`, [`docs/model-contract.md`](docs/model-contract.md) |
+| **Face Detection** (`face/`) | FaceMe SDK 7.8.2, MediaPipe BlazeFace, NPU warmup, quality gate | `FaceDetector`, `MediaPipeFaceDetector` | `features/camera-and-calibration`, [`docs/device-runtime.md`](docs/device-runtime.md) |
+| **Camera & Teardown** (`camera/`, `calibration/`) | Dual Camera2, 150ms pairing, `CalibConfig.dat`, `onClosed` teardown | `DualCameraController`, `CameraStream`, `Calibration` | `features/camera-and-calibration`, [`docs/device-runtime.md`](docs/device-runtime.md) |
+| **Dataset Capture** (`capture/`) | 100-sample raw dataset, ATTACK false-live, BMP writing, `meta.json` | `CaptureStorage`, `BmpWriter`, `CaptureSchedule` | `features/camera-and-calibration`, [`docs/capture-contract.md`](docs/capture-contract.md) |
 | **Face Recognition** (`recognition/`) | MobileFaceNet 1:N, 5-point similarity transform, async enrollment | `FaceRecognitionManager`, `FaceAligner`, `FaceEmbeddingModel` | `technical/mobilefacenet-recognition-experiment` |
-| **WebRTC PoC** (`call/`, `api/call/`) | Signaling WebSocket, Camera2 handoff, PeerConnection, audio routing | `SignalingClient`, `WebRtcCallActivity`, `VideoPeerConnection` | `features/webrtc-test`, [`docs/agent/webrtc-test.md`](docs/agent/webrtc-test.md) |
+| **WebRTC PoC** (`call/`, `api/call/`) | Signaling WebSocket, Camera2 handoff, PeerConnection, audio routing | `SignalingClient`, `WebRtcCallActivity`, `VideoPeerConnection` | `features/webrtc-test`, [`docs/webrtc-test.md`](docs/webrtc-test.md) |
 | **Device & Sysfs** (`device/`) | PI6008K IR AE Full/Center, IR LED/LCD sysfs, daemon watchdog | `IrCameraExposureController`, `HardwareControls`, `UbimDaemonClient` | `features/camera-and-calibration`, `technical/build-deployment-requirements` |
 | **UI & Overlay** (`ui/`) | Java-based layout, mirrored Canvas bounding boxes, Auth Mode cards | `MainScreenView`, `OverlayView` | `technical/code-structure-refactoring`, `features/model-contract-branches` |
-| **Performance** (`performance/`) | P50/P95 rolling latency windows, memory & GC diagnostics | `LatencyWindow`, `MainActivity` logcat pipelines | `technical/code-structure-performance-diagnosis`, [`docs/agent/performance-guide.md`](docs/agent/performance-guide.md) |
+| **Performance** (`performance/`) | P50/P95 rolling latency windows, memory & GC diagnostics | `LatencyWindow`, `MainActivity` logcat pipelines | `technical/code-structure-performance-diagnosis`, [`docs/performance-guide.md`](docs/performance-guide.md) |
 
 ## Task Router
 
 | Request Concerns | Read First | Primary Entry Point | Trace Path |
 | --- | --- | --- | --- |
-| **Add / update anti-spoofing model** | `features/model-contract-branches`, [`docs/agent/model-contract.md`](docs/agent/model-contract.md) | `assets/model_manifest.json`, `ModelSpec.java` | `ModelSlotClassifier` → `AntiSpoofingClassifier` → `MainActivity.loadModelSlots` |
-| **Camera crash / pause-resume / SIGSEGV** | `technical/code-structure-performance-diagnosis`, [`docs/agent/device-runtime.md`](docs/agent/device-runtime.md) | `CameraStream.java`, `DualCameraController.java` | `CameraDevice.StateCallback.onClosed` → `ImageReader.close` → `YuvConverter` |
+| **Add / update anti-spoofing model** | `features/model-contract-branches`, [`docs/model-contract.md`](docs/model-contract.md) | `assets/model_manifest.json`, `ModelSpec.java` | `ModelSlotClassifier` → `AntiSpoofingClassifier` → `MainActivity.loadModelSlots` |
+| **Camera crash / pause-resume / SIGSEGV** | `technical/code-structure-performance-diagnosis`, [`docs/device-runtime.md`](docs/device-runtime.md) | `CameraStream.java`, `DualCameraController.java` | `CameraDevice.StateCallback.onClosed` → `ImageReader.close` → `YuvConverter` |
 | **IR AE profile / register tweak** | `features/camera-and-calibration` | `IrCameraExposureController.java` | Sysfs register write → `MainActivity.startCameras` → Hidden test menu |
-| **Capture flow / metadata / BMP format** | `features/camera-and-calibration`, [`docs/agent/capture-contract.md`](docs/agent/capture-contract.md) | `CaptureStorage.java`, `BmpWriter.java` | `MainActivity.processTracking` → `CaptureSchedule` → `SampleMetadata` |
+| **Capture flow / metadata / BMP format** | `features/camera-and-calibration`, [`docs/capture-contract.md`](docs/capture-contract.md) | `CaptureStorage.java`, `BmpWriter.java` | `MainActivity.processTracking` → `CaptureSchedule` → `SampleMetadata` |
 | **MobileFaceNet recognition experiment** | `technical/mobilefacenet-recognition-experiment` | `FaceRecognitionManager.java`, `FaceAligner.java` | `FaceEmbeddingModel` → `FaceTemplate` → `MainScreenView` test menu |
-| **WebRTC video / audio / handoff** | `features/webrtc-test`, [`docs/agent/webrtc-test.md`](docs/agent/webrtc-test.md) | `SignalingClient.java`, `WebRtcCallActivity.java` | `MainActivity.onPause` camera stop → `VideoPeerConnection` → `CallAudioManager` |
+| **WebRTC video / audio / handoff** | `features/webrtc-test`, [`docs/webrtc-test.md`](docs/webrtc-test.md) | `SignalingClient.java`, `WebRtcCallActivity.java` | `MainActivity.onPause` camera stop → `VideoPeerConnection` → `CallAudioManager` |
 | **Auth Mode (5-frame moving avg)** | `features/model-contract-branches` | `MainActivity.java` (`authScoreBuffer`) | `OverlayView.drawAuthVerdict` → `ToneGenerator` pass/fail feedback |
 
 ## Immutable Boundaries and Change Gates

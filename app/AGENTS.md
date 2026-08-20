@@ -11,11 +11,11 @@
 - Source entry points:
   - Application orchestration: `MainActivity.java` (lifecycle, executors, hotspot gesture dispatcher), `IntroActivity.java`
   - Deep technical specifications:
-    - Model contracts & manifests: [`../docs/agent/model-contract.md`](../docs/agent/model-contract.md)
-    - Device runtime & teardown: [`../docs/agent/device-runtime.md`](../docs/agent/device-runtime.md)
-    - Dataset capture & BMP stream: [`../docs/agent/capture-contract.md`](../docs/agent/capture-contract.md)
-    - Performance diagnostics & P50/P95: [`../docs/agent/performance-guide.md`](../docs/agent/performance-guide.md)
-    - WebRTC signaling & handoff: [`../docs/agent/webrtc-test.md`](../docs/agent/webrtc-test.md)
+    - Model contracts & manifests: [`../docs/model-contract.md`](../docs/model-contract.md)
+    - Device runtime & teardown: [`../docs/device-runtime.md`](../docs/device-runtime.md)
+    - Dataset capture & BMP stream: [`../docs/capture-contract.md`](../docs/capture-contract.md)
+    - Performance diagnostics & P50/P95: [`../docs/performance-guide.md`](../docs/performance-guide.md)
+    - WebRTC signaling & handoff: [`../docs/webrtc-test.md`](../docs/webrtc-test.md)
 
 ## Boundary & Package Architecture Rules
 
