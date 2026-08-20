@@ -4,6 +4,10 @@ import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.TextureView;
 import android.view.View;
@@ -15,11 +19,18 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import com.virditech.ac7000.model.ClassificationResult;
+import com.virditech.ac7000.model.SlotClassificationResult;
+
+import java.util.Locale;
+
 public final class MainScreenView {
     public final FrameLayout root;
+    public final FrameLayout uiContainer;
     public final TextureView rgbView;
     public final TextureView irView;
     public final OverlayView overlay;
+    public final TextView cleanModeResultView;
     public final ProgressBar loadingSpinner;
     public final ProgressBar irLoadingSpinner;
     public final TextView performance;
@@ -51,13 +62,16 @@ public final class MainScreenView {
     private final Activity activity;
     private Bitmap currentPreviewFace;
     private boolean highQualityOnly;
+    private CharSequence currentCleanResultText;
 
     public MainScreenView(Activity activity, Listener listener) {
         this.activity = activity;
         root = new FrameLayout(activity);
+        uiContainer = new FrameLayout(activity);
         rgbView = new TextureView(activity);
         irView = new TextureView(activity);
         overlay = new OverlayView(activity);
+        cleanModeResultView = new TextView(activity);
         loadingSpinner = new ProgressBar(activity);
         performance = label(22f);
         resultsLabel = label(32f);
@@ -90,6 +104,7 @@ public final class MainScreenView {
 
         int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
         buildPreview();
+        buildCleanModeResultView();
         buildDiagnostics(buttonWidth);
         buildIrCrop(buttonWidth);
         buildCaptureIndicators(listener);
@@ -97,6 +112,7 @@ public final class MainScreenView {
         buildSettingsHotspot(listener);
         buildCalibrationControls(listener, buttonWidth);
         buildAuthResultView();
+        buildTapListener();
     }
 
     private void buildPreview() {
@@ -104,6 +120,8 @@ public final class MainScreenView {
         irView.setAlpha(0f);
         root.addView(rgbView, match());
         root.addView(irView, match());
+        root.addView(overlay, match());
+        root.addView(uiContainer, match());
     }
 
     private void buildDiagnostics(int buttonWidth) {
@@ -124,23 +142,22 @@ public final class MainScreenView {
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP | Gravity.START);
         resultsParams.setMargins(dp(16), dp(16), buttonWidth + dp(16), dp(16));
-        root.addView(resultsLabel, resultsParams);
-        root.addView(overlay, match());
+        uiContainer.addView(resultsLabel, resultsParams);
 
         loadingSpinner.setIndeterminate(true);
-        root.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
+        uiContainer.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
         status.setText("Initializing...");
         diagnosticsLayout.addView(status, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        root.addView(diagnosticsLayout, diagnosticsParams);
+        uiContainer.addView(diagnosticsLayout, diagnosticsParams);
     }
 
     private void buildIrCrop(int buttonWidth) {
         FrameLayout.LayoutParams irCropParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
         irCropParams.width = buttonWidth;
         irCropParams.height = buttonWidth;
-        root.addView(irCropContainer, irCropParams);
+        uiContainer.addView(irCropContainer, irCropParams);
 
         faceCropView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         faceCropView.setBackgroundColor(Color.parseColor("#44000000"));
@@ -168,7 +185,7 @@ public final class MainScreenView {
         collectionProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams collectionProgressParams =
                 wrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 16, 16);
-        root.addView(collectionProgress, collectionProgressParams);
+        uiContainer.addView(collectionProgress, collectionProgressParams);
 
         configureCaptureButton(pauseCollectionButton, "Pause capture",
                 Gravity.TOP | Gravity.CENTER_HORIZONTAL, listener::onPauseCollection);
@@ -186,7 +203,7 @@ public final class MainScreenView {
         FrameLayout.LayoutParams params = wrap(gravity, 16, 16);
         params.width = dp(84);
         params.height = dp(84);
-        root.addView(button, params);
+        uiContainer.addView(button, params);
     }
 
     private void buildControls(Listener listener, int buttonWidth) {
@@ -208,7 +225,7 @@ public final class MainScreenView {
         configureControlButton(detectorSwitchButton, "DETECTOR: FACEME", buttonWidth,
                 v -> listener.onToggleDetector());
 
-        root.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
+        uiContainer.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
     }
 
     private void buildCollectionMenu(Listener listener, int buttonWidth) {
@@ -282,30 +299,30 @@ public final class MainScreenView {
         calibrationInstruction.setText("Fit one face inside the guide, then press CONFIRM");
         calibrationInstruction.setGravity(Gravity.CENTER);
         calibrationInstruction.setVisibility(View.GONE);
-        root.addView(calibrationInstruction, wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 24));
+        uiContainer.addView(calibrationInstruction, wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 24));
 
         calibrationConfirm.setText("CONFIRM");
         calibrationConfirm.setVisibility(View.GONE);
         calibrationConfirm.setOnClickListener(v -> listener.onCalibrationConfirm());
         FrameLayout.LayoutParams confirmParams = wrap(Gravity.BOTTOM | Gravity.END, 16, 16);
         confirmParams.width = buttonWidth;
-        root.addView(calibrationConfirm, confirmParams);
+        uiContainer.addView(calibrationConfirm, confirmParams);
 
         calibrationCancel.setText("CANCEL");
         calibrationCancel.setVisibility(View.GONE);
         calibrationCancel.setOnClickListener(v -> listener.onCalibrationCancel());
         FrameLayout.LayoutParams cancelParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
         cancelParams.width = buttonWidth;
-        root.addView(calibrationCancel, cancelParams);
+        uiContainer.addView(calibrationCancel, cancelParams);
 
         calibrationHotspot.setOnClickListener(v -> listener.onCalibrationTap());
-        root.addView(calibrationHotspot, new FrameLayout.LayoutParams(
+        uiContainer.addView(calibrationHotspot, new FrameLayout.LayoutParams(
                 dp(180), dp(180), Gravity.TOP | Gravity.START));
     }
 
     private void buildSettingsHotspot(Listener listener) {
         settingsHotspot.setOnClickListener(v -> listener.onSettingsTap());
-        root.addView(settingsHotspot, new FrameLayout.LayoutParams(
+        uiContainer.addView(settingsHotspot, new FrameLayout.LayoutParams(
                 dp(180), dp(180), Gravity.BOTTOM | Gravity.START));
     }
 
@@ -321,7 +338,101 @@ public final class MainScreenView {
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP | Gravity.START);
         params.setMargins(dp(20), dp(24), dp(20), dp(20));
-        root.addView(authResultView, params);
+        uiContainer.addView(authResultView, params);
+    }
+
+    private void buildCleanModeResultView() {
+        cleanModeResultView.setTextSize(38f);
+        cleanModeResultView.setTypeface(Typeface.DEFAULT_BOLD);
+        cleanModeResultView.setGravity(Gravity.CENTER);
+        cleanModeResultView.setShadowLayer(8f, 2f, 2f, Color.BLACK);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor("#B0000000"));
+        bg.setCornerRadius(dp(16));
+        cleanModeResultView.setBackground(bg);
+        cleanModeResultView.setPadding(dp(24), dp(10), dp(24), dp(10));
+        cleanModeResultView.setVisibility(View.GONE);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        params.setMargins(dp(16), dp(28), dp(16), 0);
+        root.addView(cleanModeResultView, params);
+    }
+
+    private void buildTapListener() {
+        uiContainer.setOnClickListener(v -> toggleUiVisibility());
+        overlay.setOnClickListener(v -> toggleUiVisibility());
+        root.setOnClickListener(v -> toggleUiVisibility());
+        cleanModeResultView.setOnClickListener(v -> toggleUiVisibility());
+    }
+
+    public void toggleUiVisibility() {
+        setUiVisible(uiContainer.getVisibility() != View.VISIBLE);
+    }
+
+    public void setUiVisible(boolean visible) {
+        uiContainer.setVisibility(visible ? View.VISIBLE : View.GONE);
+        updateCleanModeResultVisibility();
+    }
+
+    public boolean isUiVisible() {
+        return uiContainer.getVisibility() == View.VISIBLE;
+    }
+
+    public void showCleanModeResult(SlotClassificationResult slotResult) {
+        if (slotResult == null) {
+            clearCleanModeResult();
+            return;
+        }
+        if (slotResult.hasPairedResults()) {
+            ClassificationResult rgb = slotResult.rgbResult;
+            ClassificationResult ir = slotResult.irResult;
+            String rgbText = rgb != null ? formatResult(rgb) : "-";
+            String irText = ir != null ? formatResult(ir) : "-";
+            int rgbColor = (rgb != null && rgb.topIndex == 0) ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+            int irColor = (ir != null && ir.topIndex == 0) ? Color.rgb(64, 196, 255) : Color.rgb(255, 82, 82);
+
+            String fullStr = "RGB: " + rgbText + "   IR: " + irText;
+            SpannableString spannable = new SpannableString(fullStr);
+            int rgbEnd = ("RGB: " + rgbText).length();
+            spannable.setSpan(new ForegroundColorSpan(rgbColor), 0, rgbEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            int irStart = fullStr.indexOf("IR: ");
+            if (irStart >= 0) {
+                spannable.setSpan(new ForegroundColorSpan(irColor), irStart, fullStr.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            currentCleanResultText = spannable;
+        } else {
+            ClassificationResult primary = slotResult.primaryResult();
+            if (primary == null) {
+                clearCleanModeResult();
+                return;
+            }
+            int color = primary.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+            String text = formatResult(primary);
+            SpannableString spannable = new SpannableString(text);
+            spannable.setSpan(new ForegroundColorSpan(color), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            currentCleanResultText = spannable;
+        }
+        cleanModeResultView.setText(currentCleanResultText);
+        updateCleanModeResultVisibility();
+    }
+
+    public void clearCleanModeResult() {
+        currentCleanResultText = null;
+        cleanModeResultView.setText("");
+        updateCleanModeResultVisibility();
+    }
+
+    private void updateCleanModeResultVisibility() {
+        boolean showClean = uiContainer.getVisibility() != View.VISIBLE
+                && currentCleanResultText != null
+                && currentCleanResultText.length() > 0;
+        cleanModeResultView.setVisibility(showClean ? View.VISIBLE : View.GONE);
+    }
+
+    private static String formatResult(ClassificationResult result) {
+        return String.format(Locale.US, "%s %.1f%%",
+                ClassificationResult.displayLabel(result.topIndex), result.probabilities[result.topIndex] * 100f);
     }
 
     public void showAuthResult(CharSequence text) {
@@ -358,6 +469,7 @@ public final class MainScreenView {
 
     public void enterCalibrationMode() {
         overlay.clearResult();
+        clearCleanModeResult();
         overlay.setCalibrationMode(true);
         performance.setVisibility(View.GONE);
         status.setVisibility(View.GONE);
@@ -374,6 +486,7 @@ public final class MainScreenView {
     public void exitCalibrationMode(String normalStatusMessage) {
         overlay.setCalibrationMode(false);
         overlay.clearResult();
+        clearCleanModeResult();
         calibrationInstruction.setVisibility(View.GONE);
         calibrationConfirm.setVisibility(View.GONE);
         calibrationCancel.setVisibility(View.GONE);
@@ -409,6 +522,8 @@ public final class MainScreenView {
         overlay.setAuthMode(authMode);
         if (!authMode) {
             hideAuthResult();
+        } else {
+            clearCleanModeResult();
         }
     }
 

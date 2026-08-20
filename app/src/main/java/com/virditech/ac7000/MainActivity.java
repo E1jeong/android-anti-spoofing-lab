@@ -696,6 +696,7 @@ public final class MainActivity extends Activity {
         HardwareControls.setIrLed(false);
         clearPendingWork();
         overlay.clearResult();
+        if (screen != null) screen.clearCleanModeResult();
         synchronized (irPreviewLock) {
             releaseIrPreviewBufferLocked();
         }
@@ -821,6 +822,7 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (!isPipelineCurrent(frame.generation)) return;
                 overlay.clearResult();
+                if (screen != null) screen.clearCleanModeResult();
                 clearPreviewFace();
                 faceCropView.setScaleX(1f);
                 noFaceLabel.setVisibility(View.VISIBLE);
@@ -1117,6 +1119,7 @@ public final class MainActivity extends Activity {
         runOnUiThread(() -> {
             if (!isPipelineCurrent(generation) || motionGeneration != inferenceMotionGeneration.get()) return;
             overlay.clearClassificationResult();
+            if (screen != null) screen.clearCleanModeResult();
             resetResultsLabelToZero();
         });
     }
@@ -1260,6 +1263,7 @@ public final class MainActivity extends Activity {
             }
             overlay.showResult(result.primaryResult(), result.irResult);
             resultsLabel.setText(formatClassificationResults(result));
+            if (screen != null) screen.showCleanModeResult(result);
             
             long now = SystemClock.elapsedRealtime();
             if (now - lastUiUpdateTimeMs >= 150L) {
