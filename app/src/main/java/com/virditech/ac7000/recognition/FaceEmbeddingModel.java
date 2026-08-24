@@ -3,6 +3,7 @@ package com.virditech.ac7000.recognition;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
+import android.os.SystemClock;
 import android.util.Log;
 
 import org.tensorflow.lite.DataType;
@@ -13,6 +14,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
 /**
@@ -53,6 +55,8 @@ public final class FaceEmbeddingModel implements AutoCloseable {
     private final Object inferenceLock = new Object();
     private volatile long lastInferenceNs;
 
+    private static final int THREAD_COUNT = Math.min(4, Runtime.getRuntime().availableProcessors());
+
     public FaceEmbeddingModel(Context context) throws IOException {
         this(context, DEFAULT_MODEL_PATH, DelegateType.NNAPI);
     }
@@ -63,7 +67,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
 
     public FaceEmbeddingModel(Context context, String modelAssetPath, DelegateType delegateType) throws IOException {
         this.modelAssetPath = modelAssetPath;
-        ByteBuffer modelBuffer = loadModelFile(context, modelAssetPath);
+        MappedByteBuffer modelBuffer = loadModelFile(context, modelAssetPath);
 
         Interpreter createdInterpreter = null;
         String delegateName = "CPU";
@@ -71,21 +75,22 @@ public final class FaceEmbeddingModel implements AutoCloseable {
         if (delegateType == DelegateType.NNAPI) {
             try {
                 // Do NOT setCacheDir / setModelToken for NNAPI on i.MX 8M Plus VSI NPU
-                Interpreter.Options nnapiOptions = new Interpreter.Options().setUseNNAPI(true);
-                nnapiOptions.setNumThreads(4);
+                Interpreter.Options nnapiOptions = new Interpreter.Options()
+                        .setNumThreads(THREAD_COUNT)
+                        .setUseNNAPI(true);
                 createdInterpreter = new Interpreter(modelBuffer, nnapiOptions);
                 createdInterpreter.allocateTensors();
                 delegateName = "NNAPI";
                 Log.i(TAG, "Initialized FaceEmbeddingModel with NNAPI Delegate");
             } catch (Exception e) {
-                Log.w(TAG, "NNAPI initialization failed, falling back to CPU: " + e.getMessage());
+                Log.w(TAG, "NNAPI initialization failed for " + modelAssetPath + ", falling back to CPU: " + e.getMessage(), e);
             }
         }
 
         if (createdInterpreter == null) {
-            Interpreter.Options cpuOptions = new Interpreter.Options();
-            cpuOptions.setUseXNNPACK(true);
-            cpuOptions.setNumThreads(4);
+            Interpreter.Options cpuOptions = new Interpreter.Options()
+                    .setNumThreads(THREAD_COUNT)
+                    .setUseXNNPACK(true);
             createdInterpreter = new Interpreter(modelBuffer, cpuOptions);
             createdInterpreter.allocateTensors();
             delegateName = "CPU";
@@ -124,6 +129,21 @@ public final class FaceEmbeddingModel implements AutoCloseable {
         } else {
             this.outputBufferFloat = null;
             this.outputBufferInt8 = new byte[1][EMBEDDING_DIM];
+        }
+
+        // Warmup interpreter on NPU/CPU once to compile/partition graph ahead of time
+        try {
+            long wStart = SystemClock.elapsedRealtime();
+            if (outputDataType == DataType.FLOAT32) {
+                interpreter.run(inputBuffer, outputBufferFloat);
+            } else {
+                interpreter.run(inputBuffer, outputBufferInt8);
+            }
+            inputBuffer.rewind();
+            long wMs = SystemClock.elapsedRealtime() - wStart;
+            Log.i(TAG, "FaceEmbeddingModel warmup completed in " + wMs + " ms (" + activeDelegate + ")");
+        } catch (Exception e) {
+            Log.w(TAG, "FaceEmbeddingModel warmup warning: " + e.getMessage());
         }
 
         Log.i(TAG, String.format(java.util.Locale.US,
@@ -233,14 +253,13 @@ public final class FaceEmbeddingModel implements AutoCloseable {
         return dot;
     }
 
-    private static ByteBuffer loadModelFile(Context context, String assetPath) throws IOException {
-        try (AssetFileDescriptor afd = context.getAssets().openFd(assetPath);
-             FileInputStream inputStream = new FileInputStream(afd.getFileDescriptor())) {
-            FileChannel fileChannel = inputStream.getChannel();
-            long startOffset = afd.getStartOffset();
-            long declaredLength = afd.getDeclaredLength();
-            return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
-        }
+    private static MappedByteBuffer loadModelFile(Context context, String assetPath) throws IOException {
+        AssetFileDescriptor afd = context.getAssets().openFd(assetPath);
+        FileInputStream inputStream = new FileInputStream(afd.getFileDescriptor());
+        FileChannel fileChannel = inputStream.getChannel();
+        long startOffset = afd.getStartOffset();
+        long declaredLength = afd.getDeclaredLength();
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
     }
 
     @Override

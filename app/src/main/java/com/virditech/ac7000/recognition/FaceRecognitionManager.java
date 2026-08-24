@@ -44,10 +44,11 @@ public final class FaceRecognitionManager implements AutoCloseable {
             embeddingModel.close();
             embeddingModel = null;
         }
+        enrolledTemplates.clear();
         try {
             embeddingModel = new FaceEmbeddingModel(context, modelPath, delegateType);
             initError = null;
-            Log.i(TAG, "Reloaded FaceEmbeddingModel: " + modelPath + " (" + delegateType + ")");
+            Log.i(TAG, "Reloaded FaceEmbeddingModel: " + modelPath + " (" + delegateType + "), cleared previous templates");
             return true;
         } catch (Exception e) {
             initError = e.getMessage();
