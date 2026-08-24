@@ -11,6 +11,8 @@
 
 Minimal Android testbed evaluating RGB/IR anti-spoofing TFLite models, MobileFaceNet recognition, and WebRTC on physical UBio-N Face Pro hardware (`com.virditech.ac7000`).
 
+Anti-spoofing and face recognition are unordered, independent evaluation tracks. Anti-spoofing training/export belongs to the paired `access-liveness-model` project; this Android app deploys and evaluates its artifacts. The current face-recognition track does not train a model: it acquires a suitable pretrained artifact, converts it, and measures standalone Android inference and identity-score behavior before any product integration.
+
 ```text
 Dual Cameras (RGB + IR)
            │
@@ -18,6 +20,8 @@ Dual Cameras (RGB + IR)
 [ CameraStream + YuvConverter ] ── (NV21 / Bitmap conversion on worker executor)
            │
            ├─► [ FaceDetector / MediaPipeFaceDetector ] ── (Largest RGB face + 5 landmarks)
+           │          │
+           │          └─► [ FaceRecognitionManager ] ── (independent CPU/NNAPI validation; 112x112 aligned 1:N search)
            │
            ├─► [ FramePair (<= 150ms delta) ] ── (Calibration RGB-to-IR affine mapping)
            │          │
@@ -26,11 +30,7 @@ Dual Cameras (RGB + IR)
            │          │
            │          ▼
            ├─► [ AntiSpoofingClassifier / ModelSlotClassifier ] ── (1/2/5-input TFLite NPU/CPU)
-           │          │
-           │          ▼
-           ├─► [ FaceRecognitionManager ] ── (MobileFaceNet 112x112 aligned 1:N cosine search)
-           │          │
-           │          ▼
+           │
            ├─► [ OverlayView + MainScreenView ] ── (Mirrored canvas overlay & diagnostics)
            │
            ├─► [ CaptureStorage + BmpWriter ] ── (/sdcard/Pictures/raw 100-sample dataset)
@@ -46,7 +46,7 @@ Dual Cameras (RGB + IR)
 | **Face Detection** (`face/`) | FaceMe SDK 7.8.2, MediaPipe BlazeFace, NPU warmup, quality gate | `FaceDetector`, `MediaPipeFaceDetector` | `features/camera-and-calibration`, [`docs/device-runtime.md`](docs/device-runtime.md) |
 | **Camera & Teardown** (`camera/`, `calibration/`) | Dual Camera2, 150ms pairing, `CalibConfig.dat`, `onClosed` teardown | `DualCameraController`, `CameraStream`, `Calibration` | `features/camera-and-calibration`, [`docs/device-runtime.md`](docs/device-runtime.md) |
 | **Dataset Capture** (`capture/`) | 100-sample raw dataset, ATTACK false-live, BMP writing, `meta.json` | `CaptureStorage`, `BmpWriter`, `CaptureSchedule` | `features/camera-and-calibration`, [`docs/capture-contract.md`](docs/capture-contract.md) |
-| **Face Recognition** (`recognition/`) | MobileFaceNet 1:N, 5-point similarity transform, async enrollment | `FaceRecognitionManager`, `FaceAligner`, `FaceEmbeddingModel` | `technical/mobilefacenet-recognition-experiment` |
+| **Face Recognition** (`recognition/`) | MobileFaceNet 1:N, 5-point alignment, independent correctness and delegate validation | `FaceRecognitionManager`, `FaceAligner`, `FaceEmbeddingModel` | `technical/mobilefacenet-recognition-experiment`, [`docs/performance-guide.md`](docs/performance-guide.md) |
 | **WebRTC PoC** (`call/`, `api/call/`) | Signaling WebSocket, Camera2 handoff, PeerConnection, audio routing | `SignalingClient`, `WebRtcCallActivity`, `VideoPeerConnection` | `features/webrtc-test`, [`docs/webrtc-test.md`](docs/webrtc-test.md) |
 | **Device & Sysfs** (`device/`) | PI6008K IR AE Full/Center, IR LED/LCD sysfs, daemon watchdog | `IrCameraExposureController`, `HardwareControls`, `UbimDaemonClient` | `features/camera-and-calibration`, `technical/build-deployment-requirements` |
 | **UI & Overlay** (`ui/`) | Java-based layout, mirrored Canvas bounding boxes, Auth Mode cards | `MainScreenView`, `OverlayView` | `technical/code-structure-refactoring`, `features/model-contract-branches` |
@@ -60,13 +60,13 @@ Dual Cameras (RGB + IR)
 | **Camera crash / pause-resume / SIGSEGV** | `technical/code-structure-performance-diagnosis`, [`docs/device-runtime.md`](docs/device-runtime.md) | `CameraStream.java`, `DualCameraController.java` | `CameraDevice.StateCallback.onClosed` → `ImageReader.close` → `YuvConverter` |
 | **IR AE profile / register tweak** | `features/camera-and-calibration` | `IrCameraExposureController.java` | Sysfs register write → `MainActivity.startCameras` → Hidden test menu |
 | **Capture flow / metadata / BMP format** | `features/camera-and-calibration`, [`docs/capture-contract.md`](docs/capture-contract.md) | `CaptureStorage.java`, `BmpWriter.java` | `MainActivity.processTracking` → `CaptureSchedule` → `SampleMetadata` |
-| **MobileFaceNet recognition experiment** | `technical/mobilefacenet-recognition-experiment` | `FaceRecognitionManager.java`, `FaceAligner.java` | `FaceEmbeddingModel` → `FaceTemplate` → `MainScreenView` test menu |
+| **MobileFaceNet recognition experiment** | `technical/mobilefacenet-recognition-experiment`, [`docs/performance-guide.md`](docs/performance-guide.md) | `FaceRecognitionManager.java`, `FaceAligner.java` | FaceMe 5-point landmarks → aligned 112x112 RGB → embedding → `FaceTemplate` search |
 | **WebRTC video / audio / handoff** | `features/webrtc-test`, [`docs/webrtc-test.md`](docs/webrtc-test.md) | `SignalingClient.java`, `WebRtcCallActivity.java` | `MainActivity.onPause` camera stop → `VideoPeerConnection` → `CallAudioManager` |
 | **Auth Mode (5-frame moving avg)** | `features/model-contract-branches` | `MainActivity.java` (`authScoreBuffer`) | `OverlayView.drawAuthVerdict` → `ToneGenerator` pass/fail feedback |
 
 ## Immutable Boundaries and Change Gates
 
-1. **NNAPI No-Fallback Rule**: Never implement silent CPU fallback when NNAPI fails. An NNAPI error during setup/warmup must reject the slot so NPU defects are immediately detected.
+1. **Anti-Spoofing NNAPI No-Fallback Rule**: Never implement silent CPU fallback for a manifest model slot. An NNAPI error during setup/warmup must reject the slot so NPU defects are immediately detected. The separate MobileFaceNet experiment defaults explicitly to CPU because its PReLU graph is slower on this board.
 2. **VSI NPU Cache Restriction**: Never enable NNAPI compilation caching (`setCacheDir`/`setModelToken`); the board driver will fail compilation.
 3. **Camera Teardown Sequencing**: Never close `ImageReader` or preview `Surface` before `CameraDevice.StateCallback.onClosed()` has fired. Violating this triggers native `SIGSEGV` in `YuvConverter`.
 4. **Capture Atomicity**: A capture sample advances the count only when all 5 files (`RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, `meta.json`) succeed.

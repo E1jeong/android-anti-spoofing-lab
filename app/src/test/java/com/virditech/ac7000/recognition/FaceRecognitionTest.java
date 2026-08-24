@@ -10,6 +10,34 @@ import static org.junit.Assert.assertTrue;
 public class FaceRecognitionTest {
 
     @Test
+    public void testDefaultDelegateIsCpu() {
+        assertEquals(FaceEmbeddingModel.DelegateType.CPU, FaceEmbeddingModel.DEFAULT_DELEGATE);
+    }
+
+    @Test
+    public void testInvalidEmbeddingsAreRejected() {
+        assertFalse(FaceEmbeddingModel.isValidEmbedding(null));
+        assertFalse(FaceEmbeddingModel.isValidEmbedding(new float[0]));
+        assertFalse(FaceEmbeddingModel.isValidEmbedding(new float[511]));
+        assertFalse(FaceEmbeddingModel.isValidEmbedding(new float[512]));
+
+        float[] nonFinite = new float[512];
+        nonFinite[0] = Float.NaN;
+        assertFalse(FaceEmbeddingModel.isValidEmbedding(nonFinite));
+    }
+
+    @Test
+    public void testNormalizedEmbeddingIsValid() {
+        float[] embedding = new float[512];
+        embedding[0] = 3.0f;
+        embedding[1] = 4.0f;
+        FaceEmbeddingModel.normalizeL2(embedding);
+
+        assertTrue(FaceEmbeddingModel.isValidEmbedding(embedding));
+        assertEquals(1.0f, FaceEmbeddingModel.l2Norm(embedding), 1e-5f);
+    }
+
+    @Test
     public void testL2NormalizationAndCosineSimilarity() {
         float[] v1 = new float[]{3.0f, 4.0f, 0.0f};
         FaceEmbeddingModel.normalizeL2(v1);

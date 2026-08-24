@@ -49,10 +49,15 @@ adb logcat -s MainActivity:I
 ## Optimization Boundaries
 
 - FaceMe detection and model NNAPI share the same NPU. Parallel execution can be slower; compare on hardware before changing executor topology.
+- The current PReLU MobileFaceNet artifact measures about 300 ms on CPU versus 400–500 ms through NNAPI. Use CPU as the current baseline and NNAPI only for an explicit same-input comparison; these observations do not yet establish recognition accuracy or production suitability.
+- Keep recognition on a dedicated executor so its preprocessing, embedding, and search timing can be measured without blocking or being attributed to anti-spoofing inference.
+- During independent recognition validation, do not use the primary `LIVE` result, a fixed 300 ms interval, or latest-wins replacement to select test samples. Account for every accepted enrollment/query request with a result, explicit error, or explicit cancellation so alignment, embedding stability, and score distributions are auditable.
+- Anti-spoofing evaluation neither precedes nor follows recognition evaluation. Its training/export loop is owned by `access-liveness-model`; recognition currently evaluates an acquired pretrained model and must finish its own standalone measurements without waiting for or consuming liveness results.
+- A recognition task owns only its aligned 112x112 bitmap and must recycle it exactly once after completion, invalidation, or shutdown; never retain the source `FramePair` beyond its existing owner.
 - On-screen `Inference` timing covers only TFLite invoke, excluding preprocessing, detection, pairing, queue wait, and UI work.
 - Holding source frames during capture reduces allocation but occupies one entry from each four-bitmap portrait pool until I/O completes. Re-check pool pressure and frame drops when capture resolution, writer topology, or file count changes.
 - Do not enable NNAPI compilation caching; see `model-contract.md`.
-- Preserve latest-wins ownership and recycle behavior when modifying concurrency.
+- Preserve each existing queue's ownership and recycle behavior when modifying concurrency; do not extend anti-spoofing queue policy to recognition validation without a separately approved integration design.
 
 ## Required Device Baseline
 

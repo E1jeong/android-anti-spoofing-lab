@@ -39,6 +39,8 @@ public final class FaceEmbeddingModel implements AutoCloseable {
         NNAPI
     }
 
+    public static final DelegateType DEFAULT_DELEGATE = DelegateType.CPU;
+
     private Interpreter interpreter;
     private final String modelAssetPath;
     private final String activeDelegate;
@@ -58,11 +60,11 @@ public final class FaceEmbeddingModel implements AutoCloseable {
     private static final int THREAD_COUNT = Math.min(4, Runtime.getRuntime().availableProcessors());
 
     public FaceEmbeddingModel(Context context) throws IOException {
-        this(context, DEFAULT_MODEL_PATH, DelegateType.NNAPI);
+        this(context, DEFAULT_MODEL_PATH, DEFAULT_DELEGATE);
     }
 
     public FaceEmbeddingModel(Context context, String modelAssetPath) throws IOException {
-        this(context, modelAssetPath, DelegateType.NNAPI);
+        this(context, modelAssetPath, DEFAULT_DELEGATE);
     }
 
     public FaceEmbeddingModel(Context context, String modelAssetPath, DelegateType delegateType) throws IOException {
@@ -167,7 +169,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
      * Extracts an L2-normalized 512-dimensional embedding from a 112x112 RGB Bitmap.
      *
      * @param alignedFace 112x112 ARGB_8888 or RGB Bitmap.
-     * @return 512-dim normalized float array, or null on failure.
+     * @return 512-dim normalized float array, or null when the model is unavailable.
      */
     public float[] extractEmbedding(Bitmap alignedFace) {
         if (alignedFace == null || interpreter == null) return null;
@@ -193,6 +195,9 @@ public final class FaceEmbeddingModel implements AutoCloseable {
             }
             lastInferenceNs = android.os.SystemClock.elapsedRealtimeNanos() - startNs;
             normalizeL2(embedding);
+            if (!isValidEmbedding(embedding)) {
+                throw new IllegalStateException("Model produced an invalid normalized embedding");
+            }
             return embedding;
         }
     }
@@ -239,6 +244,22 @@ public final class FaceEmbeddingModel implements AutoCloseable {
                 vector[i] /= norm;
             }
         }
+    }
+
+    public static float l2Norm(float[] vector) {
+        if (vector == null || vector.length == 0) return Float.NaN;
+        double sumSq = 0.0;
+        for (float value : vector) {
+            if (!Float.isFinite(value)) return Float.NaN;
+            sumSq += (double) value * value;
+        }
+        return (float) Math.sqrt(sumSq);
+    }
+
+    public static boolean isValidEmbedding(float[] embedding) {
+        if (embedding == null || embedding.length != EMBEDDING_DIM) return false;
+        float norm = l2Norm(embedding);
+        return Float.isFinite(norm) && Math.abs(norm - 1.0f) <= 1e-3f;
     }
 
     /**

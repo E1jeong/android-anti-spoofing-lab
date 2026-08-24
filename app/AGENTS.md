@@ -34,6 +34,12 @@
    - Isolated experimental package for MobileFaceNet (`w600k_mbf`).
    - `FaceAligner.align5PointsTo112` performs 2D affine similarity transform from FaceMe 5 landmarks to canonical 112x112 ArcFace coordinates.
    - Model loading and delegate reloads must run asynchronously on `modelInitExecutor` (never block the Android UI Main Thread).
+   - Default to CPU/XNNPACK. NNAPI remains an explicit diagnostic comparison because the PReLU graph measures 400–500 ms on this board versus about 300 ms on CPU.
+   - Keep embedding extraction off the anti-spoofing `inferenceExecutor` so recognition timing and failures can be measured independently. Transfer only an owned aligned 112x112 bitmap to the recognition executor.
+   - During independent model validation, do not gate recognition or enrollment on an anti-spoofing result. Do not drop or replace requested samples through latest-wins scheduling or a fixed minimum interval; every accepted test request must produce a recorded result, explicit error, or explicit cancellation.
+   - Face recognition and anti-spoofing are parallel evaluation tracks with no ordering or dependency. Anti-spoofing artifacts are trained/exported by `access-liveness-model`; the current recognition work acquires and converts a pretrained model rather than training one.
+   - Stop the current recognition scope at standalone load/inference, conversion/delegate agreement, alignment inspection, embedding repeatability, score distributions, and latency. Liveness gating, rate limiting, latest-wins scheduling, template persistence, and authentication-score composition are separate future integration work.
+   - Treat the 0.70 identity threshold and the observed self 91% versus other 19–20% result as preliminary experiment evidence, not proof of model acceptance or a production authentication boundary.
 
 4. **`capture`**:
    - Writes directly to `/sdcard/Pictures/raw/<class>/<class>_<subject>/<index>/`.
@@ -57,6 +63,7 @@
 ## Change Gates
 
 - **No Main Thread Blocking**: Model loading, NNAPI compilation, face detection, and BMP I/O must run on dedicated background executors.
+- **Recognition Isolation**: MobileFaceNet alignment may copy an owned 112x112 bitmap before frame recycle, but embedding and 1:N search must run only on the recognition executor.
 - **Teardown Sequencing**: Never close `ImageReader` or preview `Surface` before `CameraDevice.StateCallback.onClosed()` has fired (avoids native `SIGSEGV` in `YuvConverter`).
 - **No XML Inflation**: All UI views are constructed programmatically in Java via `MainScreenView`.
 

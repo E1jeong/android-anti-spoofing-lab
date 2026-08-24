@@ -22,12 +22,12 @@ public final class FaceRecognitionManager implements AutoCloseable {
     public static final float DEFAULT_THRESHOLD = 0.70f;
 
     private final List<FaceTemplate> enrolledTemplates = new CopyOnWriteArrayList<>();
-    private FaceEmbeddingModel embeddingModel;
+    private volatile FaceEmbeddingModel embeddingModel;
     private float threshold = DEFAULT_THRESHOLD;
     private String initError;
 
     public FaceRecognitionManager(Context context) {
-        this(context, FaceEmbeddingModel.DEFAULT_MODEL_PATH, FaceEmbeddingModel.DelegateType.NNAPI);
+        this(context, FaceEmbeddingModel.DEFAULT_MODEL_PATH, FaceEmbeddingModel.DEFAULT_DELEGATE);
     }
 
     public FaceRecognitionManager(Context context, String modelPath, FaceEmbeddingModel.DelegateType delegateType) {
@@ -105,6 +105,24 @@ public final class FaceRecognitionManager implements AutoCloseable {
         if (embeddingModel == null || rgbBitmap == null) return null;
 
         long alignStart = SystemClock.elapsedRealtimeNanos();
+        Bitmap aligned112 = alignFace(rgbBitmap, faceBox, landmarks);
+        long alignMs = (SystemClock.elapsedRealtimeNanos() - alignStart) / 1_000_000L;
+        if (aligned112 == null) return null;
+
+        try {
+            float[] emb = extractAlignedEmbedding(aligned112);
+            long inferMs = getLastInferenceMs();
+            Log.i(TAG, String.format(java.util.Locale.US, "ExtractEmbedding [%s]: Align=%dms, ModelRun=%dms",
+                    getActiveDelegate(), alignMs, inferMs));
+            return emb;
+        } finally {
+            if (!aligned112.isRecycled()) aligned112.recycle();
+        }
+    }
+
+    /** Creates an owned 112x112 face bitmap while the source frame is still valid. */
+    public static Bitmap alignFace(Bitmap rgbBitmap, Rect faceBox, PointF[] landmarks) {
+        if (rgbBitmap == null) return null;
         Bitmap aligned112 = null;
         if (landmarks != null && landmarks.length >= 5) {
             aligned112 = FaceAligner.align5PointsTo112(rgbBitmap, landmarks);
@@ -115,18 +133,13 @@ public final class FaceRecognitionManager implements AutoCloseable {
         if (aligned112 == null && faceBox != null) {
             aligned112 = FaceAligner.cropTo112(rgbBitmap, faceBox, 0.15f);
         }
-        long alignMs = (SystemClock.elapsedRealtimeNanos() - alignStart) / 1_000_000L;
-        if (aligned112 == null) return null;
+        return aligned112;
+    }
 
-        try {
-            float[] emb = embeddingModel.extractEmbedding(aligned112);
-            long inferMs = embeddingModel.getLastInferenceMs();
-            Log.i(TAG, String.format(java.util.Locale.US, "ExtractEmbedding [%s]: Align=%dms, ModelRun=%dms",
-                    embeddingModel.getActiveDelegate(), alignMs, inferMs));
-            return emb;
-        } finally {
-            if (!aligned112.isRecycled()) aligned112.recycle();
-        }
+    /** Extracts an embedding from an owned, already-aligned 112x112 bitmap. */
+    public float[] extractAlignedEmbedding(Bitmap aligned112) {
+        FaceEmbeddingModel model = embeddingModel;
+        return model != null ? model.extractEmbedding(aligned112) : null;
     }
 
     /**
@@ -247,7 +260,7 @@ public final class FaceRecognitionManager implements AutoCloseable {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         if (embeddingModel != null) {
             embeddingModel.close();
             embeddingModel = null;
