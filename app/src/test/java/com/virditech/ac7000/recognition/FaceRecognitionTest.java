@@ -1,17 +1,57 @@
 package com.virditech.ac7000.recognition;
 
+import org.tensorflow.lite.DataType;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class FaceRecognitionTest {
 
     @Test
     public void testDefaultDelegateIsCpu() {
         assertEquals(FaceEmbeddingModel.DelegateType.CPU, FaceEmbeddingModel.DEFAULT_DELEGATE);
+    }
+
+    @Test
+    public void validTensorContractIsAccepted() {
+        FaceEmbeddingModel.validateTensorContract(1, new int[]{1, 112, 112, 3}, DataType.INT8,
+                0.01f, 1, new int[]{1, 512}, DataType.INT8, 0.01f);
+        FaceEmbeddingModel.validateTensorContract(1, new int[]{1, 112, 112, 3}, DataType.FLOAT32,
+                0f, 1, new int[]{1, 512}, DataType.FLOAT32, 0f);
+    }
+
+    @Test
+    public void invalidTensorContractsAreRejected() {
+        assertTensorContractRejected(2, new int[]{1, 112, 112, 3}, DataType.INT8, 0.01f,
+                1, new int[]{1, 512}, DataType.INT8, 0.01f);
+        assertTensorContractRejected(1, new int[]{1, 224, 224, 3}, DataType.INT8, 0.01f,
+                1, new int[]{1, 512}, DataType.INT8, 0.01f);
+        assertTensorContractRejected(1, new int[]{1, 112, 112, 3}, DataType.UINT8, 0.01f,
+                1, new int[]{1, 512}, DataType.INT8, 0.01f);
+        assertTensorContractRejected(1, new int[]{1, 112, 112, 3}, DataType.INT8, 0f,
+                1, new int[]{1, 512}, DataType.INT8, 0.01f);
+        assertTensorContractRejected(1, new int[]{1, 112, 112, 3}, DataType.INT8, 0.01f,
+                1, new int[]{1, 256}, DataType.INT8, 0.01f);
+        assertTensorContractRejected(1, new int[]{1, 112, 112, 3}, DataType.INT8, 0.01f,
+                1, new int[]{1, 512}, DataType.UINT8, 0.01f);
+        assertTensorContractRejected(1, new int[]{1, 112, 112, 3}, DataType.INT8, 0.01f,
+                1, new int[]{1, 512}, DataType.INT8, 0f);
+    }
+
+    private static void assertTensorContractRejected(int inputCount, int[] inputShape, DataType inputType,
+                                                     float inputScale, int outputCount, int[] outputShape,
+                                                     DataType outputType, float outputScale) {
+        try {
+            FaceEmbeddingModel.validateTensorContract(inputCount, inputShape, inputType, inputScale,
+                    outputCount, outputShape, outputType, outputScale);
+            fail("Expected tensor contract rejection");
+        } catch (IllegalArgumentException expected) {
+            // Expected.
+        }
     }
 
     @Test

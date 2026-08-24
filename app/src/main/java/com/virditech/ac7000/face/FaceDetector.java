@@ -120,7 +120,7 @@ public final class FaceDetector implements FaceDetectionEngine {
         return "FACEME";
     }
 
-    public PointF[] getLastDetectedLandmarks() {
+    @Override public PointF[] getLastDetectedLandmarks() {
         return lastDetectedLandmarks;
     }
 

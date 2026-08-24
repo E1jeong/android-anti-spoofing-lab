@@ -39,6 +39,7 @@
    - During independent model validation, do not gate recognition or enrollment on an anti-spoofing result. Do not drop or replace requested samples through latest-wins scheduling or a fixed minimum interval; every accepted test request must produce a recorded result, explicit error, or explicit cancellation.
    - Face recognition and anti-spoofing are parallel evaluation tracks with no ordering or dependency. Anti-spoofing artifacts are trained/exported by `access-liveness-model`; the current recognition work acquires and converts a pretrained model rather than training one.
    - Stop the current recognition scope at standalone load/inference, conversion/delegate agreement, alignment inspection, embedding repeatability, score distributions, and latency. Liveness gating, rate limiting, latest-wins scheduling, template persistence, and authentication-score composition are separate future integration work.
+   - `FixedInputRecognitionActivity` / `FixedInputRecognitionRunner` own camera-free CPU/NNAPI comparison on external 112x112 inputs; follow `docs/performance-guide.md` and keep biometric fixtures out of Git and the APK.
    - Treat the 0.70 identity threshold and the observed self 91% versus other 19–20% result as preliminary experiment evidence, not proof of model acceptance or a production authentication boundary.
 
 4. **`capture`**:

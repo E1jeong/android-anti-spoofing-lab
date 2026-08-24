@@ -24,7 +24,7 @@ public final class FaceRecognitionManager implements AutoCloseable {
     private final List<FaceTemplate> enrolledTemplates = new CopyOnWriteArrayList<>();
     private volatile FaceEmbeddingModel embeddingModel;
     private float threshold = DEFAULT_THRESHOLD;
-    private String initError;
+    private volatile String initError;
 
     public FaceRecognitionManager(Context context) {
         this(context, FaceEmbeddingModel.DEFAULT_MODEL_PATH, FaceEmbeddingModel.DEFAULT_DELEGATE);
@@ -39,22 +39,26 @@ public final class FaceRecognitionManager implements AutoCloseable {
         }
     }
 
-    public synchronized boolean reloadModel(Context context, String modelPath, FaceEmbeddingModel.DelegateType delegateType) {
-        if (embeddingModel != null) {
-            embeddingModel.close();
-            embeddingModel = null;
-        }
-        enrolledTemplates.clear();
+    public boolean reloadModel(Context context, String modelPath, FaceEmbeddingModel.DelegateType delegateType) {
+        FaceEmbeddingModel replacement;
         try {
-            embeddingModel = new FaceEmbeddingModel(context, modelPath, delegateType);
-            initError = null;
-            Log.i(TAG, "Reloaded FaceEmbeddingModel: " + modelPath + " (" + delegateType + "), cleared previous templates");
-            return true;
+            replacement = new FaceEmbeddingModel(context, modelPath, delegateType);
         } catch (Exception e) {
             initError = e.getMessage();
             Log.e(TAG, "Failed to reload FaceEmbeddingModel: " + e.getMessage(), e);
             return false;
         }
+        FaceEmbeddingModel previous;
+        synchronized (this) {
+            previous = embeddingModel;
+            embeddingModel = replacement;
+            enrolledTemplates.clear();
+            initError = null;
+        }
+        if (previous != null) previous.close();
+        Log.i(TAG, "Reloaded FaceEmbeddingModel: " + modelPath + " (requested=" + delegateType
+                + ", active=" + replacement.getActiveDelegate() + "), cleared previous templates");
+        return true;
     }
 
     public boolean isReady() {
@@ -67,6 +71,10 @@ public final class FaceRecognitionManager implements AutoCloseable {
 
     public String getActiveDelegate() {
         return embeddingModel != null ? embeddingModel.getActiveDelegate() : "N/A";
+    }
+
+    public String getRequestedDelegate() {
+        return embeddingModel != null ? embeddingModel.getRequestedDelegate().name() : "N/A";
     }
 
     public String getModelAssetPath() {

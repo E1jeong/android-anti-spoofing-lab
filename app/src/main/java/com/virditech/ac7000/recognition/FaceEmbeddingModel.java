@@ -43,6 +43,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
 
     private Interpreter interpreter;
     private final String modelAssetPath;
+    private final DelegateType requestedDelegate;
     private final String activeDelegate;
     private final DataType inputDataType;
     private final float inputScale;
@@ -69,6 +70,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
 
     public FaceEmbeddingModel(Context context, String modelAssetPath, DelegateType delegateType) throws IOException {
         this.modelAssetPath = modelAssetPath;
+        this.requestedDelegate = delegateType;
         MappedByteBuffer modelBuffer = loadModelFile(context, modelAssetPath);
 
         Interpreter createdInterpreter = null;
@@ -85,23 +87,45 @@ public final class FaceEmbeddingModel implements AutoCloseable {
                 delegateName = "NNAPI";
                 Log.i(TAG, "Initialized FaceEmbeddingModel with NNAPI Delegate");
             } catch (Exception e) {
+                if (createdInterpreter != null) createdInterpreter.close();
+                createdInterpreter = null;
                 Log.w(TAG, "NNAPI initialization failed for " + modelAssetPath + ", falling back to CPU: " + e.getMessage(), e);
             }
         }
 
         if (createdInterpreter == null) {
-            Interpreter.Options cpuOptions = new Interpreter.Options()
-                    .setNumThreads(THREAD_COUNT)
-                    .setUseXNNPACK(true);
-            createdInterpreter = new Interpreter(modelBuffer, cpuOptions);
-            createdInterpreter.allocateTensors();
-            delegateName = "CPU";
+            try {
+                Interpreter.Options cpuOptions = new Interpreter.Options()
+                        .setNumThreads(THREAD_COUNT)
+                        .setUseXNNPACK(true);
+                createdInterpreter = new Interpreter(modelBuffer, cpuOptions);
+                createdInterpreter.allocateTensors();
+                delegateName = "CPU";
+            } catch (RuntimeException e) {
+                if (createdInterpreter != null) createdInterpreter.close();
+                throw e;
+            }
+        }
+
+        int inputTensorCount = createdInterpreter.getInputTensorCount();
+        int outputTensorCount = createdInterpreter.getOutputTensorCount();
+        if (inputTensorCount != 1 || outputTensorCount != 1) {
+            createdInterpreter.close();
+            throw new IllegalArgumentException("Face embedding model must have exactly one input and one output");
+        }
+        Tensor inputTensor = createdInterpreter.getInputTensor(0);
+        Tensor outputTensor = createdInterpreter.getOutputTensor(0);
+        try {
+            validateTensorContract(inputTensorCount, inputTensor.shape(), inputTensor.dataType(),
+                    inputTensor.quantizationParams().getScale(), outputTensorCount,
+                    outputTensor.shape(), outputTensor.dataType(), outputTensor.quantizationParams().getScale());
+        } catch (RuntimeException e) {
+            createdInterpreter.close();
+            throw e;
         }
 
         this.interpreter = createdInterpreter;
         this.activeDelegate = delegateName;
-
-        Tensor inputTensor = interpreter.getInputTensor(0);
         this.inputDataType = inputTensor.dataType();
         if (inputTensor.quantizationParams() != null) {
             this.inputScale = inputTensor.quantizationParams().getScale();
@@ -111,7 +135,6 @@ public final class FaceEmbeddingModel implements AutoCloseable {
             this.inputZeroPoint = 0;
         }
 
-        Tensor outputTensor = interpreter.getOutputTensor(0);
         this.outputDataType = outputTensor.dataType();
         if (outputTensor.quantizationParams() != null) {
             this.outputScale = outputTensor.quantizationParams().getScale();
@@ -145,16 +168,59 @@ public final class FaceEmbeddingModel implements AutoCloseable {
             long wMs = SystemClock.elapsedRealtime() - wStart;
             Log.i(TAG, "FaceEmbeddingModel warmup completed in " + wMs + " ms (" + activeDelegate + ")");
         } catch (Exception e) {
-            Log.w(TAG, "FaceEmbeddingModel warmup warning: " + e.getMessage());
+            createdInterpreter.close();
+            this.interpreter = null;
+            throw new IllegalStateException("FaceEmbeddingModel warmup failed for "
+                    + modelAssetPath + " (requested=" + delegateType + ", active=" + delegateName + ")", e);
         }
 
         Log.i(TAG, String.format(java.util.Locale.US,
-                "FaceEmbeddingModel loaded: %s (%s, inType=%s, outType=%s)",
-                modelAssetPath, activeDelegate, inputDataType, outputDataType));
+                "FaceEmbeddingModel loaded: %s (requested=%s, active=%s, inType=%s, outType=%s)",
+                modelAssetPath, requestedDelegate, activeDelegate, inputDataType, outputDataType));
+    }
+
+    static void validateTensorContract(int inputCount, int[] inputShape, DataType inputType,
+                                       float inputQuantizationScale, int outputCount, int[] outputShape,
+                                       DataType outputType, float outputQuantizationScale) {
+        if (inputCount != 1 || outputCount != 1) {
+            throw new IllegalArgumentException("Face embedding model must have exactly one input and one output");
+        }
+        if (!java.util.Arrays.equals(inputShape, new int[]{1, INPUT_SIZE, INPUT_SIZE, 3})) {
+            throw new IllegalArgumentException("Unsupported face embedding input shape: "
+                    + java.util.Arrays.toString(inputShape));
+        }
+        if (!java.util.Arrays.equals(outputShape, new int[]{1, EMBEDDING_DIM})) {
+            throw new IllegalArgumentException("Unsupported face embedding output shape: "
+                    + java.util.Arrays.toString(outputShape));
+        }
+        if (inputType != DataType.FLOAT32 && inputType != DataType.INT8) {
+            throw new IllegalArgumentException("Unsupported face embedding input type: " + inputType);
+        }
+        if (outputType != DataType.FLOAT32 && outputType != DataType.INT8) {
+            throw new IllegalArgumentException("Unsupported face embedding output type: " + outputType);
+        }
+        if (inputType == DataType.INT8 && inputQuantizationScale <= 0f) {
+            throw new IllegalArgumentException("INT8 face embedding input requires a positive quantization scale");
+        }
+        if (outputType == DataType.INT8 && outputQuantizationScale <= 0f) {
+            throw new IllegalArgumentException("INT8 face embedding output requires a positive quantization scale");
+        }
     }
 
     public String getActiveDelegate() {
         return activeDelegate;
+    }
+
+    public DelegateType getRequestedDelegate() {
+        return requestedDelegate;
+    }
+
+    public DataType getInputDataType() {
+        return inputDataType;
+    }
+
+    public DataType getOutputDataType() {
+        return outputDataType;
     }
 
     public String getModelAssetPath() {

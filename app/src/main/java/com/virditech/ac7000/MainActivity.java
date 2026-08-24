@@ -62,8 +62,10 @@ import com.virditech.ac7000.performance.LatencyWindow;
 import com.virditech.ac7000.recognition.FaceEmbeddingModel;
 import com.virditech.ac7000.recognition.FaceRecognitionManager;
 import com.virditech.ac7000.recognition.FaceTemplate;
+import com.virditech.ac7000.recognition.FixedInputRecognitionActivity;
 import com.virditech.ac7000.recognition.RecognitionPolicy;
 import com.virditech.ac7000.recognition.RecognitionResult;
+import com.virditech.ac7000.recognition.RecognitionWorkCoordinator;
 import com.virditech.ac7000.ui.MainScreenView;
 import com.virditech.ac7000.ui.OverlayView;
 
@@ -103,9 +105,8 @@ public final class MainActivity extends Activity {
     private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
     private final AtomicBoolean inferenceWorkerRunning = new AtomicBoolean();
-    private final AtomicBoolean recognitionWorkerRunning = new AtomicBoolean();
+    private final RecognitionWorkCoordinator recognitionCoordinator = new RecognitionWorkCoordinator();
     private final AtomicLong inferenceMotionGeneration = new AtomicLong();
-    private final AtomicLong recognitionInvalidationGeneration = new AtomicLong();
     private final FaceMotionGate inferenceMotionGate = new FaceMotionGate();
     private final AtomicBoolean calibrationRequested = new AtomicBoolean();
     private final GenerationGuard pipelineGeneration = new GenerationGuard();
@@ -353,8 +354,12 @@ public final class MainActivity extends Activity {
             authStartNs = 0L;
         }
         int enrolledCount = faceRecognitionManager != null ? faceRecognitionManager.getEnrolledCount() : 0;
-        String curDelegate = faceRecognitionManager != null ? faceRecognitionManager.getActiveDelegate() : "CPU";
-        String curModel = recogModelPath.contains("int8") ? "INT8" : (recogModelPath.contains("float16") ? "FP16" : "FP32");
+        String curDelegate = faceRecognitionManager != null
+                ? faceRecognitionManager.getRequestedDelegate() + "→" + faceRecognitionManager.getActiveDelegate()
+                : "N/A";
+        String activeModelPath = faceRecognitionManager != null
+                ? faceRecognitionManager.getModelAssetPath() : recogModelPath;
+        String curModel = recognitionModelLabel(activeModelPath);
         String[] items = {
                 "SETTINGS",
                 "WEBRTC TEST",
@@ -364,7 +369,8 @@ public final class MainActivity extends Activity {
                 "RECOG DELEGATE (" + curDelegate + ")",
                 "RECOG MODEL (" + curModel + ")",
                 "ENROLL CURRENT FACE (" + ENROLL_TARGET_FRAME_COUNT + "-frame avg, Total: " + enrolledCount + ")",
-                "CLEAR ENROLLED FACES"
+                "CLEAR ENROLLED FACES",
+                "FIXED-INPUT RECOG TEST"
         };
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("TEST MENU")
@@ -385,46 +391,54 @@ public final class MainActivity extends Activity {
                         invalidateRecognitionWork();
                         showTransientStatus("FACE RECOGNITION: " + (faceRecognitionMode ? "ON" : "OFF"));
                     } else if (which == 5) {
-                        recogDelegate = (recogDelegate == FaceEmbeddingModel.DelegateType.CPU)
+                        FaceEmbeddingModel.DelegateType requestedDelegate =
+                                (recogDelegate == FaceEmbeddingModel.DelegateType.CPU)
                                 ? FaceEmbeddingModel.DelegateType.NNAPI
                                 : FaceEmbeddingModel.DelegateType.CPU;
                         invalidateRecognitionWork();
                         cancelEnrollment();
-                        FaceEmbeddingModel.DelegateType requestedDelegate = recogDelegate;
                         String requestedModelPath = recogModelPath;
-                        showTransientStatus("Switching delegate to " + recogDelegate + "...");
+                        showTransientStatus("Switching delegate to " + requestedDelegate + "...");
                         modelInitExecutor.execute(() -> {
-                            if (faceRecognitionManager != null) {
-                                faceRecognitionManager.reloadModel(getApplicationContext(), requestedModelPath, requestedDelegate);
-                            }
-                            runOnUiThread(() -> showTransientStatus("RECOG DELEGATE: " + (faceRecognitionManager != null ? faceRecognitionManager.getActiveDelegate() : "N/A")));
+                            FaceRecognitionManager manager = faceRecognitionManager;
+                            boolean reloaded = manager != null && manager.reloadModel(
+                                    getApplicationContext(), requestedModelPath, requestedDelegate);
+                            runOnUiThread(() -> {
+                                if (reloaded) recogDelegate = requestedDelegate;
+                                showTransientStatus(formatRecognitionReloadStatus(reloaded, manager,
+                                        requestedModelPath, requestedDelegate));
+                            });
                         });
                     } else if (which == 6) {
+                        String requestedModelPath;
                         if (recogModelPath.equals(FaceEmbeddingModel.MODEL_NPU_INT8)) {
-                            recogModelPath = FaceEmbeddingModel.MODEL_FLOAT16;
+                            requestedModelPath = FaceEmbeddingModel.MODEL_FLOAT16;
                         } else if (recogModelPath.equals(FaceEmbeddingModel.MODEL_FLOAT16)) {
-                            recogModelPath = FaceEmbeddingModel.MODEL_FLOAT32;
+                            requestedModelPath = FaceEmbeddingModel.MODEL_FLOAT32;
                         } else {
-                            recogModelPath = FaceEmbeddingModel.MODEL_NPU_INT8;
+                            requestedModelPath = FaceEmbeddingModel.MODEL_NPU_INT8;
                         }
                         invalidateRecognitionWork();
                         cancelEnrollment();
-                        String requestedModelPath = recogModelPath;
                         FaceEmbeddingModel.DelegateType requestedDelegate = recogDelegate;
-                        String name = recogModelPath.contains("int8") ? "INT8" : (recogModelPath.contains("float16") ? "FP16" : "FP32");
+                        String name = recognitionModelLabel(requestedModelPath);
                         showTransientStatus("Loading model: " + name + "...");
                         modelInitExecutor.execute(() -> {
-                            if (faceRecognitionManager != null) {
-                                faceRecognitionManager.reloadModel(getApplicationContext(), requestedModelPath, requestedDelegate);
-                            }
-                            runOnUiThread(() -> showTransientStatus("RECOG MODEL: " + name));
+                            FaceRecognitionManager manager = faceRecognitionManager;
+                            boolean reloaded = manager != null && manager.reloadModel(
+                                    getApplicationContext(), requestedModelPath, requestedDelegate);
+                            runOnUiThread(() -> {
+                                if (reloaded) recogModelPath = requestedModelPath;
+                                showTransientStatus(formatRecognitionReloadStatus(reloaded, manager,
+                                        requestedModelPath, requestedDelegate));
+                            });
                         });
                     } else if (which == 7) {
                         invalidateRecognitionWork();
-                        synchronized (enrollEmbeddingBuffer) {
+                        recognitionCoordinator.runExclusive(() -> {
                             enrollEmbeddingBuffer.clear();
-                        }
-                        enrollRequested.set(true);
+                            enrollRequested.set(true);
+                        });
                         showTransientStatus("Face the camera to enroll (" + ENROLL_TARGET_FRAME_COUNT + " frames)...");
                     } else if (which == 8) {
                         invalidateRecognitionWork();
@@ -433,6 +447,18 @@ public final class MainActivity extends Activity {
                             faceRecognitionManager.clearTemplates();
                             showTransientStatus("Enrolled faces cleared");
                         }
+                    } else if (which == 9) {
+                        if (!enginesWarmedUp || faceRecognitionManager == null
+                                || !faceRecognitionManager.isReady()) {
+                            showTransientStatus("Wait for recognition model loading to finish");
+                            return;
+                        }
+                        invalidateRecognitionWork();
+                        cancelEnrollment();
+                        String modelPath = faceRecognitionManager.getModelAssetPath();
+                        Intent intent = new Intent(this, FixedInputRecognitionActivity.class);
+                        intent.putExtra(FixedInputRecognitionActivity.EXTRA_MODEL_ASSET_PATH, modelPath);
+                        startActivity(intent);
                     }
                 })
                 .setNegativeButton("CANCEL", null)
@@ -833,7 +859,7 @@ public final class MainActivity extends Activity {
                 : prepareCollectionQuality
                         ? faceDetector.detectLargestWithQualityData(frame.rgb.bitmap)
                         : activeDetector.detectLargest(frame.rgb.bitmap);
-        PointF[] currentLandmarks = (faceDetector != null) ? faceDetector.getLastDetectedLandmarks() : null;
+        PointF[] currentLandmarks = activeDetector.getLastDetectedLandmarks();
         if (!isPipelineCurrent(frame.generation)) return;
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         rgbConversionMs = frame.rgb.conversionMs;
@@ -1255,6 +1281,28 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private static String recognitionModelLabel(String modelPath) {
+        if (modelPath == null) return "N/A";
+        if (modelPath.contains("int8")) return "INT8";
+        if (modelPath.contains("float16")) return "FP16";
+        if (modelPath.contains("float32")) return "FP32";
+        return modelPath;
+    }
+
+    private static String formatRecognitionReloadStatus(boolean reloaded, FaceRecognitionManager manager,
+                                                        String requestedModelPath,
+                                                        FaceEmbeddingModel.DelegateType requestedDelegate) {
+        String requested = recognitionModelLabel(requestedModelPath) + " " + requestedDelegate;
+        if (manager == null) return "RECOG RELOAD FAILED: requested " + requested
+                + ", manager unavailable";
+        String active = recognitionModelLabel(manager.getModelAssetPath()) + " "
+                + manager.getRequestedDelegate() + "→" + manager.getActiveDelegate();
+        if (reloaded) return "RECOG READY: requested " + requested + ", active " + active;
+        String error = manager.getInitError();
+        return "RECOG RELOAD FAILED: requested " + requested + ", "
+                + (error == null ? "unknown error" : error) + " (active " + active + ")";
+    }
+
     private void scheduleRecognition(TrackingFrame sourceFrame, Rect rgbFace, PointF[] landmarks) {
         FaceRecognitionManager manager = faceRecognitionManager;
         boolean enrollment = enrollRequested.get();
@@ -1262,36 +1310,45 @@ public final class MainActivity extends Activity {
         int enrolledCount = manager != null ? manager.getEnrolledCount() : 0;
         if (!RecognitionPolicy.shouldSchedule(enrollment, faceRecognitionMode,
                 managerReady, enrolledCount)) {
-            if (enrollment && !managerReady && enrollRequested.compareAndSet(true, false)) {
-                synchronized (enrollEmbeddingBuffer) {
-                    enrollEmbeddingBuffer.clear();
-                }
+            if (enrollment && !managerReady) {
+                final boolean[] cancelled = new boolean[1];
+                recognitionCoordinator.runExclusive(() -> {
+                    cancelled[0] = enrollRequested.compareAndSet(true, false);
+                    if (cancelled[0]) enrollEmbeddingBuffer.clear();
+                });
+                if (!cancelled[0]) return;
                 android.util.Log.e(TAG, "Recognition request error: model not ready");
                 runOnUiThread(() -> showTransientStatus("Face recognition model not ready"));
             }
             return;
         }
-        if (!recognitionWorkerRunning.compareAndSet(false, true)) return;
-
-        long invalidationGeneration = recognitionInvalidationGeneration.get();
+        long invalidationGeneration = recognitionCoordinator.acquireWorkerGeneration();
+        if (invalidationGeneration < 0L) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         String mode = enrollment ? "ENROLL" : "IDENTIFY";
         android.util.Log.i(TAG, "Recognition request accepted: id=" + startNs + " mode=" + mode);
-        Bitmap alignedFace = FaceRecognitionManager.alignFace(
-                sourceFrame.rgb.bitmap, rgbFace, landmarks);
+        Bitmap alignedFace;
+        try {
+            alignedFace = recognitionCoordinator.prepareOwnedWork(() ->
+                    FaceRecognitionManager.alignFace(sourceFrame.rgb.bitmap, rgbFace, landmarks));
+        } catch (RuntimeException e) {
+            android.util.Log.e(TAG, "Recognition request error: id=" + startNs
+                    + " mode=" + mode + " alignment failed", e);
+            runOnUiThread(() -> showTransientStatus("Face recognition alignment failed"));
+            return;
+        }
         long alignMs = (SystemClock.elapsedRealtimeNanos() - startNs) / 1_000_000L;
         if (alignedFace == null) {
             android.util.Log.e(TAG, "Recognition request error: id=" + startNs
                     + " mode=" + mode + " alignment failed");
-            recognitionWorkerRunning.set(false);
             runOnUiThread(() -> showTransientStatus("Face recognition alignment failed"));
             return;
         }
-        if (invalidationGeneration != recognitionInvalidationGeneration.get()
+        if (!recognitionCoordinator.isCurrent(invalidationGeneration)
                 || !isPipelineCurrent(sourceFrame.generation)
                 || (enrollment ? !enrollRequested.get() : !faceRecognitionMode)) {
             alignedFace.recycle();
-            recognitionWorkerRunning.set(false);
+            recognitionCoordinator.releaseWorker();
             android.util.Log.i(TAG, "Recognition request cancelled: id=" + startNs
                     + " mode=" + mode + " invalidated before submission");
             return;
@@ -1326,7 +1383,7 @@ public final class MainActivity extends Activity {
             }
         } finally {
             task.recycle();
-            recognitionWorkerRunning.set(false);
+            recognitionCoordinator.releaseWorker();
             if (enginesShutDown) closeFaceRecognitionManager();
         }
     }
@@ -1354,17 +1411,28 @@ public final class MainActivity extends Activity {
         if (task.enrollment) {
             FaceTemplate template = null;
             int collected;
-            synchronized (enrollEmbeddingBuffer) {
-                enrollEmbeddingBuffer.add(embedding);
-                collected = enrollEmbeddingBuffer.size();
-                if (collected >= ENROLL_TARGET_FRAME_COUNT) {
-                    int count = task.manager.getEnrolledCount() + 1;
-                    template = task.manager.enrollFaceAverage(
-                            "USER_" + count, "User " + count, enrollEmbeddingBuffer);
-                    enrollEmbeddingBuffer.clear();
-                    enrollRequested.set(false);
-                }
+            final FaceTemplate[] templateHolder = new FaceTemplate[1];
+            final int[] collectedHolder = new int[1];
+            boolean committed = recognitionCoordinator.commitIfCurrent(task.invalidationGeneration,
+                    () -> !enginesShutDown && !testMenuShowing
+                            && isPipelineCurrent(task.pipelineGeneration) && enrollRequested.get(), () -> {
+                        enrollEmbeddingBuffer.add(embedding);
+                        collectedHolder[0] = enrollEmbeddingBuffer.size();
+                        if (collectedHolder[0] >= ENROLL_TARGET_FRAME_COUNT) {
+                            int count = task.manager.getEnrolledCount() + 1;
+                            templateHolder[0] = task.manager.enrollFaceAverage(
+                                    "USER_" + count, "User " + count, enrollEmbeddingBuffer);
+                            enrollEmbeddingBuffer.clear();
+                            enrollRequested.set(false);
+                        }
+                    });
+            if (!committed) {
+                android.util.Log.i(TAG, "Recognition request cancelled: id=" + task.startedNs
+                        + " enrollment invalidated before commit");
+                return;
             }
+            template = templateHolder[0];
+            collected = collectedHolder[0];
             FaceTemplate enrolled = template;
             int collectedCount = collected;
             boolean enrollmentComplete = collected >= ENROLL_TARGET_FRAME_COUNT;
@@ -1411,18 +1479,18 @@ public final class MainActivity extends Activity {
         return !enginesShutDown
                 && !testMenuShowing
                 && isPipelineCurrent(task.pipelineGeneration)
-                && task.invalidationGeneration == recognitionInvalidationGeneration.get();
+                && recognitionCoordinator.isCurrent(task.invalidationGeneration);
     }
 
     private void invalidateRecognitionWork() {
-        recognitionInvalidationGeneration.incrementAndGet();
+        recognitionCoordinator.invalidate();
     }
 
     private void cancelEnrollment() {
-        enrollRequested.set(false);
-        synchronized (enrollEmbeddingBuffer) {
+        recognitionCoordinator.runExclusive(() -> {
+            enrollRequested.set(false);
             enrollEmbeddingBuffer.clear();
-        }
+        });
     }
 
     private void updateCollectionUi(long nowMs) {
@@ -2173,7 +2241,7 @@ public final class MainActivity extends Activity {
             if (error == null) android.util.Log.i(TAG, message);
             else android.util.Log.i(TAG, message, error);
             discarded.recycle();
-            recognitionWorkerRunning.set(false);
+            recognitionCoordinator.releaseWorker();
         }
 
         private synchronized RecognitionTask take() {
