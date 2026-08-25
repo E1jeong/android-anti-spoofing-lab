@@ -114,6 +114,7 @@ public final class MainScreenView {
         buildCalibrationControls(listener, buttonWidth);
         buildAuthResultView();
         buildTapListener();
+        root.bringChildToFront(overlay);
     }
 
     private void buildPreview() {
@@ -368,7 +369,6 @@ public final class MainScreenView {
 
     private void buildTapListener() {
         uiContainer.setOnClickListener(v -> toggleUiVisibility());
-        overlay.setOnClickListener(v -> toggleUiVisibility());
         root.setOnClickListener(v -> toggleUiVisibility());
         cleanModeResultView.setOnClickListener(v -> toggleUiVisibility());
     }

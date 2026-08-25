@@ -2,6 +2,7 @@ package com.virditech.ac7000.call;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -22,6 +23,8 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
     public static final String EXTRA_REMOTE_PEER_ID = "remotePeerId";
     public static final String EXTRA_CALL_ID = "callId";
     private static final int MICROPHONE_PERMISSION_REQUEST = 20;
+    private static final String SIGNALING_SERVER_URL = "ws://92.168.70.2:8080/ws";
+    private static final String SIGNALING_PEER_ID = "device-test-01";
 
     private SignalingClient signalingClient;
     private VideoPeerConnection videoPeerConnection;
@@ -35,6 +38,8 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
     private boolean microphoneMuted;
     private boolean remoteHangup;
     private boolean hangupSent;
+    private boolean ownsSignalingConnection;
+    private boolean launchingCall;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -76,7 +81,7 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
         controls.setBackgroundColor(0x66000000);
 
         TextView title = new TextView(this);
-        title.setText("WEBRTC TEST");
+        title.setText("WEBRTC");
         title.setTextColor(Color.WHITE);
         title.setTextSize(32f);
         title.setGravity(Gravity.CENTER);
@@ -106,6 +111,15 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
                     LinearLayout.LayoutParams.WRAP_CONTENT));
         }
 
+        if (previewOnly) {
+            Button serverConnectButton = new Button(this);
+            serverConnectButton.setText("SERVER CONNECT");
+            serverConnectButton.setOnClickListener(v -> connectToSignalingServer());
+            controls.addView(serverConnectButton, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+
         Button closeButton = new Button(this);
         closeButton.setText("CLOSE");
         closeButton.setOnClickListener(v -> endCallAndFinish());
@@ -124,6 +138,7 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
         if (!previewOnly) {
             signalingClient = SignalingClient.getInstance();
             signalingClient.setListener(this);
+            ownsSignalingConnection = true;
         }
         videoPeerConnection = new VideoPeerConnection(
                 this,
@@ -229,7 +244,18 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
     }
 
     @Override public void onCallInvite(String fromPeerId, String incomingCallId) {
-        signalingClient.rejectCall(fromPeerId, incomingCallId);
+        if (!previewOnly || launchingCall) {
+            signalingClient.rejectCall(fromPeerId, incomingCallId);
+            return;
+        }
+        launchingCall = true;
+        closeVideo();
+        ownsSignalingConnection = false;
+        Intent intent = new Intent(this, WebRtcCallActivity.class);
+        intent.putExtra(EXTRA_REMOTE_PEER_ID, fromPeerId);
+        intent.putExtra(EXTRA_CALL_ID, incomingCallId);
+        startActivity(intent);
+        finish();
     }
 
     @Override public void onWebRtcOffer(String fromPeerId, String incomingCallId, String sdp) {
@@ -256,11 +282,11 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
     }
 
     private boolean matchesCall(String fromPeerId, String incomingCallId) {
-        return remotePeerId.equals(fromPeerId) && callId.equals(incomingCallId);
+        return !previewOnly && remotePeerId.equals(fromPeerId) && callId.equals(incomingCallId);
     }
 
     private void endCallAndFinish() {
-        if (signalingClient != null && !hangupSent) {
+        if (!previewOnly && signalingClient != null && !hangupSent) {
             signalingClient.hangUpCall(remotePeerId, callId);
             hangupSent = true;
         }
@@ -269,11 +295,14 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
     }
 
     @Override protected void onDestroy() {
-        if (signalingClient != null && !remoteHangup && !hangupSent) {
+        if (!previewOnly && signalingClient != null && !remoteHangup && !hangupSent) {
             signalingClient.hangUpCall(remotePeerId, callId);
         }
         closeVideo();
-        if (signalingClient != null) signalingClient.clearListener(this);
+        if (signalingClient != null) {
+            signalingClient.clearListener(this);
+            if (ownsSignalingConnection) signalingClient.disconnect();
+        }
         super.onDestroy();
     }
 
@@ -294,6 +323,14 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
         if (callAudioManager == null) return;
         callAudioManager.stop();
         callAudioManager = null;
+    }
+
+    private void connectToSignalingServer() {
+        if (signalingClient == null) signalingClient = SignalingClient.getInstance();
+        signalingClient.setListener(this);
+        signalingClient.connect(SIGNALING_SERVER_URL, SIGNALING_PEER_ID);
+        ownsSignalingConnection = true;
+        status.setText("Connecting to signaling server");
     }
 
     private void requestFullscreenMode() {

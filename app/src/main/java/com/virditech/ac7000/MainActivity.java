@@ -45,7 +45,6 @@ import com.virditech.ac7000.capture.CaptureStep;
 import com.virditech.ac7000.capture.CaptureStorage;
 import com.virditech.ac7000.call.WebRtcCallActivity;
 import com.virditech.ac7000.concurrent.GenerationGuard;
-import com.virditech.ac7000.api.call.SignalingClient;
 import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.face.FaceDetectionEngine;
 import com.virditech.ac7000.face.MediaPipeFaceDetector;
@@ -86,8 +85,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "MainActivity";
-    private static final String SIGNALING_SERVER_URL = "ws://92.168.70.2:8080/ws";
-    private static final String SIGNALING_PEER_ID = "device-test-01";
     private static final int CAMERA_PERMISSION_REQUEST = 10;
     private static final int FACE_MANAGEMENT_REQUEST = 11;
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
@@ -103,8 +100,6 @@ public final class MainActivity extends Activity {
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService attackCaptureExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService modelInitExecutor = Executors.newSingleThreadExecutor();
-    private final SignalingClient signalingClient = SignalingClient.getInstance();
-    private final SignalingClient.Listener signalingListener = this::handleCallInvite;
     private final AtomicReference<TrackingFrame> pendingTracking = new AtomicReference<>();
     private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
@@ -245,19 +240,10 @@ public final class MainActivity extends Activity {
         faceTemplateRepository = new FaceTemplateRepository(getApplicationContext());
         buildUi();
         initializeEngines();
-        signalingClient.setListener(signalingListener);
-        signalingClient.connect(SIGNALING_SERVER_URL, SIGNALING_PEER_ID);
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE}, CAMERA_PERMISSION_REQUEST);
         }
-    }
-
-    private void handleCallInvite(String fromPeerId, String callId) {
-        Intent intent = new Intent(this, WebRtcCallActivity.class);
-        intent.putExtra(WebRtcCallActivity.EXTRA_REMOTE_PEER_ID, fromPeerId);
-        intent.putExtra(WebRtcCallActivity.EXTRA_CALL_ID, callId);
-        startActivity(intent);
     }
 
     private void buildUi() {
@@ -362,13 +348,13 @@ public final class MainActivity extends Activity {
         }
         String[] items = {
                 "SETTINGS",
-                "WEBRTC TEST",
+                "WEBRTC",
                 "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
                 "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE"),
                 "FACE MANAGEMENT"
         };
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("TEST MENU")
+                .setTitle("MENU")
                 .setItems(items, (d, which) -> {
                     if (which == 0) {
                         startActivity(new Intent(Settings.ACTION_SETTINGS));
@@ -720,7 +706,6 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        signalingClient.setListener(signalingListener);
         resumed = true;
         HardwareControls.setLcdBrightness(90);
         startCameras();
@@ -2153,8 +2138,6 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        signalingClient.clearListener(signalingListener);
-        signalingClient.disconnect();
         synchronized (classifierLock) {
             enginesShutDown = true;
         }
