@@ -25,19 +25,20 @@ import java.util.concurrent.Executors;
 public final class FaceRecognitionActivity extends Activity {
     public static final String EXTRA_MODEL_ASSET_PATH = "modelAssetPath";
     public static final String EXTRA_MODEL_CHECKSUM = "modelChecksum";
-    public static final String EXTRA_MODEL_LABEL = "modelLabel";
     public static final String EXTRA_RECOGNITION_ENABLED = "recognitionEnabled";
-    public static final String EXTRA_DELEGATE_LABEL = "delegateLabel";
+    public static final String EXTRA_DELEGATE_TYPE = "delegateType";
     public static final String EXTRA_ENROLL_NAME = "enrollName";
     public static final int RESULT_ENROLL_REQUESTED = RESULT_FIRST_USER;
-    public static final int RESULT_TOGGLE_RECOGNITION = RESULT_FIRST_USER + 1;
-    public static final int RESULT_TOGGLE_DELEGATE = RESULT_FIRST_USER + 2;
-    public static final int RESULT_TOGGLE_MODEL = RESULT_FIRST_USER + 3;
+    public static final int RESULT_APPLY_SETTINGS = RESULT_FIRST_USER + 1;
 
     private final ExecutorService databaseExecutor = Executors.newSingleThreadExecutor();
     private FaceTemplateRepository repository;
     private String modelAssetPath;
     private String modelChecksum;
+    private String selectedModelAssetPath;
+    private String selectedModelChecksum;
+    private FaceEmbeddingModel.DelegateType selectedDelegate;
+    private boolean selectedRecognitionEnabled;
     private TextView summary;
     private LinearLayout templateList;
     private final List<View> actionControls = new ArrayList<>();
@@ -54,9 +55,13 @@ public final class FaceRecognitionActivity extends Activity {
             finish();
             return;
         }
+        selectedModelAssetPath = modelAssetPath;
+        selectedModelChecksum = modelChecksum;
+        selectedRecognitionEnabled = getIntent().getBooleanExtra(EXTRA_RECOGNITION_ENABLED, false);
+        selectedDelegate = parseDelegate(getIntent().getStringExtra(EXTRA_DELEGATE_TYPE));
         repository = new FaceTemplateRepository(getApplicationContext());
         setContentView(createContentView());
-        loadTemplates();
+        loadSelectedModelTemplates();
     }
 
     private View createContentView() {
@@ -68,27 +73,38 @@ public final class FaceRecognitionActivity extends Activity {
 
         TextView title = text("FACE MANAGEMENT", 24f);
         root.addView(title);
-        String modelLabel = getIntent().getStringExtra(EXTRA_MODEL_LABEL);
-        TextView model = text("Model: " + (modelLabel == null ? modelAssetPath : modelLabel), 15f);
+        TextView model = text("Model: " + modelLabel(selectedModelAssetPath), 15f);
         root.addView(model);
 
-        boolean recognitionEnabled = getIntent().getBooleanExtra(EXTRA_RECOGNITION_ENABLED, false);
         Button recognitionMode = new Button(this);
-        recognitionMode.setText("FACE RECOGNITION: " + (recognitionEnabled ? "ON" : "OFF"));
-        recognitionMode.setOnClickListener(view -> finishWithResult(RESULT_TOGGLE_RECOGNITION));
+        updateRecognitionModeText(recognitionMode);
+        recognitionMode.setOnClickListener(view -> {
+            selectedRecognitionEnabled = !selectedRecognitionEnabled;
+            updateRecognitionModeText(recognitionMode);
+        });
         actionControls.add(recognitionMode);
         root.addView(recognitionMode, fullWidthParams());
 
         Button delegate = new Button(this);
-        String delegateLabel = getIntent().getStringExtra(EXTRA_DELEGATE_LABEL);
-        delegate.setText("RECOG DELEGATE: " + (delegateLabel == null ? "N/A" : delegateLabel));
-        delegate.setOnClickListener(view -> finishWithResult(RESULT_TOGGLE_DELEGATE));
+        updateDelegateText(delegate);
+        delegate.setOnClickListener(view -> {
+            selectedDelegate = selectedDelegate == FaceEmbeddingModel.DelegateType.CPU
+                    ? FaceEmbeddingModel.DelegateType.NNAPI
+                    : FaceEmbeddingModel.DelegateType.CPU;
+            updateDelegateText(delegate);
+        });
         actionControls.add(delegate);
         root.addView(delegate, fullWidthParams());
 
         Button modelSwitch = new Button(this);
-        modelSwitch.setText("RECOG MODEL: " + (modelLabel == null ? modelAssetPath : modelLabel));
-        modelSwitch.setOnClickListener(view -> finishWithResult(RESULT_TOGGLE_MODEL));
+        updateModelText(modelSwitch);
+        modelSwitch.setOnClickListener(view -> {
+            selectedModelAssetPath = nextModelPath(selectedModelAssetPath);
+            selectedModelChecksum = null;
+            updateModelText(modelSwitch);
+            model.setText("Model: " + modelLabel(selectedModelAssetPath));
+            loadSelectedModelTemplates();
+        });
         actionControls.add(modelSwitch);
         root.addView(modelSwitch, fullWidthParams());
 
@@ -134,7 +150,7 @@ public final class FaceRecognitionActivity extends Activity {
 
         Button close = new Button(this);
         close.setText("CLOSE");
-        close.setOnClickListener(view -> finish());
+        close.setOnClickListener(view -> finishWithSettings());
         actionControls.add(close);
         root.addView(close, fullWidthParams());
         return root;
@@ -154,15 +170,62 @@ public final class FaceRecognitionActivity extends Activity {
                     if (name.isEmpty()) return;
                     Intent result = new Intent();
                     result.putExtra(EXTRA_ENROLL_NAME, name);
+                    putSelectedSettings(result);
                     setResult(RESULT_ENROLL_REQUESTED, result);
                     finish();
                 })
                 .show();
     }
 
-    private void finishWithResult(int resultCode) {
-        setResult(resultCode);
+    private void finishWithSettings() {
+        Intent result = new Intent();
+        putSelectedSettings(result);
+        setResult(RESULT_APPLY_SETTINGS, result);
         finish();
+    }
+
+    private void putSelectedSettings(Intent result) {
+        result.putExtra(EXTRA_MODEL_ASSET_PATH, selectedModelAssetPath);
+        result.putExtra(EXTRA_DELEGATE_TYPE, selectedDelegate.name());
+        result.putExtra(EXTRA_RECOGNITION_ENABLED, selectedRecognitionEnabled);
+    }
+
+    private FaceEmbeddingModel.DelegateType parseDelegate(String value) {
+        if (FaceEmbeddingModel.DelegateType.NNAPI.name().equals(value)) {
+            return FaceEmbeddingModel.DelegateType.NNAPI;
+        }
+        return FaceEmbeddingModel.DelegateType.CPU;
+    }
+
+    private void updateRecognitionModeText(Button button) {
+        button.setText("FACE RECOGNITION: " + (selectedRecognitionEnabled ? "ON" : "OFF"));
+    }
+
+    private void updateDelegateText(Button button) {
+        button.setText("RECOG DELEGATE: " + selectedDelegate.name());
+    }
+
+    private void updateModelText(Button button) {
+        button.setText("RECOG MODEL: " + modelLabel(selectedModelAssetPath));
+    }
+
+    private String modelLabel(String modelPath) {
+        if (FaceEmbeddingModel.MODEL_NPU_INT8.equals(modelPath)) return "W600K INT8";
+        if (FaceEmbeddingModel.MODEL_FLOAT16.equals(modelPath)) return "W600K FP16";
+        if (FaceEmbeddingModel.MODEL_FLOAT32.equals(modelPath)) return "W600K FP32";
+        if (FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4.equals(modelPath)) return "MobileNetV4 FP32";
+        if (FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4_INT8.equals(modelPath)) return "MobileNetV4 INT8";
+        return modelPath;
+    }
+
+    private String nextModelPath(String modelPath) {
+        if (FaceEmbeddingModel.MODEL_NPU_INT8.equals(modelPath)) return FaceEmbeddingModel.MODEL_FLOAT16;
+        if (FaceEmbeddingModel.MODEL_FLOAT16.equals(modelPath)) return FaceEmbeddingModel.MODEL_FLOAT32;
+        if (FaceEmbeddingModel.MODEL_FLOAT32.equals(modelPath)) return FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4;
+        if (FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4.equals(modelPath)) {
+            return FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4_INT8;
+        }
+        return FaceEmbeddingModel.MODEL_NPU_INT8;
     }
 
     private void confirmClear() {
@@ -174,10 +237,32 @@ public final class FaceRecognitionActivity extends Activity {
                 .show();
     }
 
-    private void loadTemplates() {
+    private void loadSelectedModelTemplates() {
+        String requestedModelPath = selectedModelAssetPath;
+        summary.setText("Loading templates...");
+        templateList.removeAllViews();
+        templateActionControls.clear();
         databaseExecutor.execute(() -> {
-            List<FaceTemplate> templates = repository.loadForModel(modelAssetPath, modelChecksum);
-            runOnUiThread(() -> showTemplates(templates));
+            String requestedModelChecksum;
+            try {
+                requestedModelChecksum = FaceModelFingerprint.sha256(
+                        getApplicationContext(), requestedModelPath);
+            } catch (Exception e) {
+                requestedModelChecksum = null;
+            }
+            List<FaceTemplate> templates = requestedModelChecksum == null
+                    ? null : repository.loadForModel(requestedModelPath, requestedModelChecksum);
+            String checksum = requestedModelChecksum;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()
+                        || !requestedModelPath.equals(selectedModelAssetPath)) return;
+                selectedModelChecksum = checksum;
+                if (templates == null) {
+                    summary.setText("Failed to load templates");
+                    return;
+                }
+                showTemplates(templates);
+            });
         });
     }
 
@@ -187,7 +272,7 @@ public final class FaceRecognitionActivity extends Activity {
         templateList.removeAllViews();
         templateActionControls.clear();
         if (templates.isEmpty()) {
-            templateList.addView(text("No templates for this model.", 16f));
+            templateList.addView(text("등록된 얼굴 데이터가 없습니다.", 16f));
             return;
         }
         for (FaceTemplate template : templates) addTemplateRow(template);
@@ -220,7 +305,14 @@ public final class FaceRecognitionActivity extends Activity {
     }
 
     private void deleteAll() {
-        runDatabaseWrite(() -> repository.deleteAllForModel(modelAssetPath, modelChecksum));
+        if (selectedModelChecksum == null) {
+            summary.setText("Loading templates...");
+            return;
+        }
+        String selectedPath = selectedModelAssetPath;
+        String selectedChecksum = selectedModelChecksum;
+        runDatabaseWrite(() -> repository.deleteAllForModel(
+                selectedPath, selectedChecksum));
     }
 
     private void runDatabaseWrite(Runnable write) {
@@ -232,7 +324,7 @@ public final class FaceRecognitionActivity extends Activity {
             RuntimeException error = null;
             try {
                 write.run();
-                templates = repository.loadForModel(modelAssetPath, modelChecksum);
+                templates = repository.loadForModel(selectedModelAssetPath, selectedModelChecksum);
             } catch (RuntimeException e) {
                 error = e;
             }

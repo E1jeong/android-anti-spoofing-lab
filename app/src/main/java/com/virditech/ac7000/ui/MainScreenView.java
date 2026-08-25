@@ -63,6 +63,7 @@ public final class MainScreenView {
     private Bitmap currentPreviewFace;
     private boolean highQualityOnly;
     private boolean irPreviewVisible;
+    private boolean recognitionEnrollmentMode;
     private CharSequence currentCleanResultText;
 
     public MainScreenView(Activity activity, Listener listener) {
@@ -311,7 +312,10 @@ public final class MainScreenView {
 
         calibrationConfirm.setText("CONFIRM");
         calibrationConfirm.setVisibility(View.GONE);
-        calibrationConfirm.setOnClickListener(v -> listener.onCalibrationConfirm());
+        calibrationConfirm.setOnClickListener(v -> {
+            if (recognitionEnrollmentMode) listener.onRecognitionEnrollmentStart();
+            else listener.onCalibrationConfirm();
+        });
         FrameLayout.LayoutParams confirmParams = wrap(Gravity.BOTTOM | Gravity.END, 16, 16);
         confirmParams.width = buttonWidth;
         uiContainer.addView(calibrationConfirm, confirmParams);
@@ -495,6 +499,7 @@ public final class MainScreenView {
 
     public void exitCalibrationMode(String normalStatusMessage) {
         overlay.setCalibrationMode(false);
+        overlay.setGuideOnlyMode(false);
         overlay.clearResult();
         clearCleanModeResult();
         calibrationInstruction.setVisibility(View.GONE);
@@ -508,6 +513,40 @@ public final class MainScreenView {
         calibrationHotspot.setVisibility(View.VISIBLE);
         settingsHotspot.setVisibility(View.VISIBLE);
         updateIrAeToggleVisibility();
+    }
+
+    public void enterRecognitionEnrollmentMode() {
+        recognitionEnrollmentMode = true;
+        setUiVisible(true);
+        overlay.clearResult();
+        clearCleanModeResult();
+        overlay.setCalibrationMode(true);
+        overlay.setGuideOnlyMode(true);
+        performance.setVisibility(View.GONE);
+        status.setVisibility(View.GONE);
+        resultsLabel.setVisibility(View.GONE);
+        irCropContainer.setVisibility(View.GONE);
+        controlsLayout.setVisibility(View.GONE);
+        calibrationHotspot.setVisibility(View.GONE);
+        settingsHotspot.setVisibility(View.GONE);
+        calibrationInstruction.setText("Fit one face inside the guide, then press START");
+        calibrationInstruction.setVisibility(View.VISIBLE);
+        calibrationConfirm.setText("START");
+        calibrationConfirm.setEnabled(true);
+        calibrationConfirm.setVisibility(View.VISIBLE);
+        calibrationCancel.setVisibility(View.GONE);
+        updateIrAeToggleVisibility();
+    }
+
+    public void setRecognitionEnrollmentCollecting(int collectedCount, int targetCount) {
+        calibrationInstruction.setText("Collecting " + collectedCount + "/" + targetCount + " frames...");
+        calibrationConfirm.setText("COLLECTING...");
+        calibrationConfirm.setEnabled(false);
+    }
+
+    public void exitRecognitionEnrollmentMode(String normalStatusMessage) {
+        recognitionEnrollmentMode = false;
+        exitCalibrationMode(normalStatusMessage);
     }
 
     public void setCollectionChromeVisible(boolean visible) {
@@ -646,6 +685,7 @@ public final class MainScreenView {
         void onToggleIrAutoExposure();
         void onCalibrationConfirm();
         void onCalibrationCancel();
+        void onRecognitionEnrollmentStart();
         void onCalibrationTap();
         void onSettingsTap();
     }

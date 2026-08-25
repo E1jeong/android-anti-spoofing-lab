@@ -29,6 +29,7 @@ public final class OverlayView extends View {
     private boolean recognitionMatched;
     private boolean showIr;
     private boolean calibrationMode;
+    private boolean guideOnlyMode;
     private boolean isCollecting;
     private boolean authMode;
     private int collectionSector;
@@ -70,6 +71,11 @@ public final class OverlayView extends View {
 
     public void setCalibrationMode(boolean calibrationMode) {
         this.calibrationMode = calibrationMode;
+        invalidate();
+    }
+
+    public void setGuideOnlyMode(boolean guideOnlyMode) {
+        this.guideOnlyMode = guideOnlyMode;
         invalidate();
     }
 
@@ -138,6 +144,7 @@ public final class OverlayView extends View {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (calibrationMode) drawCalibrationGuide(canvas);
+        if (guideOnlyMode) return;
         if (isCollecting) drawCollectionGuide(canvas);
         Rect source = showIr ? irBox : rgbBox;
         if (source == null) return;
