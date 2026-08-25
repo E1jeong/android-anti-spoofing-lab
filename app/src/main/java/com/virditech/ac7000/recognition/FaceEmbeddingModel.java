@@ -25,6 +25,9 @@ import java.nio.channels.FileChannel;
  */
 public final class FaceEmbeddingModel implements AutoCloseable {
     private static final String TAG = "FaceEmbeddingModel";
+    public static final String MODEL_MOBILENET_EMORE_INT8 = "models/mobilenet_emore_npu_int8.tflite";
+    public static final String MODEL_PURE_MBF_RELU_INT8 = "models/pure_mbf_relu_npu_int8.tflite";
+    public static final String MODEL_SE_RELU_INT8 = "models/se_mobilefacenet_relu_npu_int8.tflite";
     public static final String MODEL_NPU_INT8 = "models/w600k_mbf_npu_int8.tflite";
     public static final String MODEL_FLOAT16 = "models/w600k_mbf_static_float16.tflite";
     public static final String MODEL_FLOAT32 = "models/w600k_mbf_static_float32.tflite";
@@ -32,7 +35,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
             "models/frbench_mobilenetv4conv_m_arcface_ms1m_float_nchw.tflite";
     public static final String MODEL_RESEARCH_MOBILENETV4_INT8 =
             "models/frbench_mobilenetv4conv_m_arcface_ms1m_full_int8_nchw.tflite";
-    public static final String DEFAULT_MODEL_PATH = MODEL_NPU_INT8;
+    public static final String DEFAULT_MODEL_PATH = MODEL_MOBILENET_EMORE_INT8;
     public static final int INPUT_SIZE = 112;
     public static final int EMBEDDING_DIM = 512;
     private static final float NORM_MEAN = 127.5f;
@@ -43,7 +46,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
         NNAPI
     }
 
-    public static final DelegateType DEFAULT_DELEGATE = DelegateType.CPU;
+    public static final DelegateType DEFAULT_DELEGATE = DelegateType.NNAPI;
 
     private Interpreter interpreter;
     private final String modelAssetPath;
@@ -56,6 +59,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
     private final DataType outputDataType;
     private final float outputScale;
     private final int outputZeroPoint;
+    private final int embeddingDim;
     private final ByteBuffer inputBuffer;
     private final int[] pixelBuffer = new int[INPUT_SIZE * INPUT_SIZE];
     private final float[][] outputBufferFloat;
@@ -141,6 +145,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
             this.inputZeroPoint = 0;
         }
 
+        this.embeddingDim = outputTensor.shape()[1];
         this.outputDataType = outputTensor.dataType();
         if (outputTensor.quantizationParams() != null) {
             this.outputScale = outputTensor.quantizationParams().getScale();
@@ -155,11 +160,11 @@ public final class FaceEmbeddingModel implements AutoCloseable {
         this.inputBuffer.order(ByteOrder.nativeOrder());
 
         if (outputDataType == DataType.FLOAT32) {
-            this.outputBufferFloat = new float[1][EMBEDDING_DIM];
+            this.outputBufferFloat = new float[1][embeddingDim];
             this.outputBufferInt8 = null;
         } else {
             this.outputBufferFloat = null;
-            this.outputBufferInt8 = new byte[1][EMBEDDING_DIM];
+            this.outputBufferInt8 = new byte[1][embeddingDim];
         }
 
         // Warmup interpreter on NPU/CPU once to compile/partition graph ahead of time
@@ -196,7 +201,8 @@ public final class FaceEmbeddingModel implements AutoCloseable {
             throw new IllegalArgumentException("Unsupported face embedding input shape: "
                     + java.util.Arrays.toString(inputShape));
         }
-        if (!java.util.Arrays.equals(outputShape, new int[]{1, EMBEDDING_DIM})) {
+        if (outputShape == null || outputShape.length != 2 || outputShape[0] != 1
+                || (outputShape[1] != 512 && outputShape[1] != 256)) {
             throw new IllegalArgumentException("Unsupported face embedding output shape: "
                     + java.util.Arrays.toString(outputShape));
         }
@@ -216,6 +222,10 @@ public final class FaceEmbeddingModel implements AutoCloseable {
 
     private static boolean isNchwInput(int[] shape) {
         return java.util.Arrays.equals(shape, new int[]{1, 3, INPUT_SIZE, INPUT_SIZE});
+    }
+
+    public int getEmbeddingDim() {
+        return embeddingDim;
     }
 
     public String getActiveDelegate() {
@@ -248,10 +258,10 @@ public final class FaceEmbeddingModel implements AutoCloseable {
     }
 
     /**
-     * Extracts an L2-normalized 512-dimensional embedding from a 112x112 RGB Bitmap.
+     * Extracts an L2-normalized embedding from a 112x112 RGB Bitmap.
      *
      * @param alignedFace 112x112 ARGB_8888 or RGB Bitmap.
-     * @return 512-dim normalized float array, or null when the model is unavailable.
+     * @return normalized float array, or null when the model is unavailable.
      */
     public float[] extractEmbedding(Bitmap alignedFace) {
         if (alignedFace == null || interpreter == null) return null;
@@ -264,14 +274,14 @@ public final class FaceEmbeddingModel implements AutoCloseable {
             if (interpreter == null) return null;
             long startNs = android.os.SystemClock.elapsedRealtimeNanos();
             preprocess(alignedFace);
-            float[] embedding = new float[EMBEDDING_DIM];
+            float[] embedding = new float[embeddingDim];
             if (outputDataType == DataType.FLOAT32) {
                 interpreter.run(inputBuffer, outputBufferFloat);
-                System.arraycopy(outputBufferFloat[0], 0, embedding, 0, EMBEDDING_DIM);
+                System.arraycopy(outputBufferFloat[0], 0, embedding, 0, embeddingDim);
             } else {
                 interpreter.run(inputBuffer, outputBufferInt8);
                 float scale = outputScale > 0f ? outputScale : 1f;
-                for (int i = 0; i < EMBEDDING_DIM; i++) {
+                for (int i = 0; i < embeddingDim; i++) {
                     embedding[i] = (outputBufferInt8[0][i] - outputZeroPoint) * scale;
                 }
             }
@@ -344,7 +354,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
     }
 
     public static boolean isValidEmbedding(float[] embedding) {
-        if (embedding == null || embedding.length != EMBEDDING_DIM) return false;
+        if (embedding == null || (embedding.length != EMBEDDING_DIM && embedding.length != 256)) return false;
         float norm = l2Norm(embedding);
         return Float.isFinite(norm) && Math.abs(norm - 1.0f) <= 1e-3f;
     }

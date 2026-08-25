@@ -186,16 +186,24 @@ public final class FaceRecognitionManager implements AutoCloseable {
     }
 
     /**
-     * Enrolls a new face template by averaging multiple 512-dim embedding vectors and re-normalizing L2.
+     * Enrolls a new face template by averaging multiple embedding vectors and re-normalizing L2.
      */
     public FaceTemplate enrollFaceAverage(String id, String name, List<float[]> embeddings) {
         if (embeddings == null || embeddings.isEmpty()) return null;
 
-        float[] avgEmbedding = new float[FaceEmbeddingModel.EMBEDDING_DIM];
+        int dim = (embeddingModel != null) ? embeddingModel.getEmbeddingDim() : FaceEmbeddingModel.EMBEDDING_DIM;
+        for (float[] emb : embeddings) {
+            if (emb != null && emb.length > 0) {
+                dim = emb.length;
+                break;
+            }
+        }
+
+        float[] avgEmbedding = new float[dim];
         int validCount = 0;
         for (float[] emb : embeddings) {
-            if (emb != null && emb.length == FaceEmbeddingModel.EMBEDDING_DIM) {
-                for (int i = 0; i < FaceEmbeddingModel.EMBEDDING_DIM; i++) {
+            if (emb != null && emb.length == dim) {
+                for (int i = 0; i < dim; i++) {
                     avgEmbedding[i] += emb[i];
                 }
                 validCount++;
@@ -203,7 +211,7 @@ public final class FaceRecognitionManager implements AutoCloseable {
         }
         if (validCount == 0) return null;
 
-        for (int i = 0; i < FaceEmbeddingModel.EMBEDDING_DIM; i++) {
+        for (int i = 0; i < dim; i++) {
             avgEmbedding[i] /= (float) validCount;
         }
         FaceEmbeddingModel.normalizeL2(avgEmbedding);

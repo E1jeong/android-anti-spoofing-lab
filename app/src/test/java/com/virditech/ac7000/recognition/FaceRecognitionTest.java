@@ -12,14 +12,16 @@ import static org.junit.Assert.fail;
 public class FaceRecognitionTest {
 
     @Test
-    public void testDefaultDelegateIsCpu() {
-        assertEquals(FaceEmbeddingModel.DelegateType.CPU, FaceEmbeddingModel.DEFAULT_DELEGATE);
+    public void testDefaultDelegateIsNnapi() {
+        assertEquals(FaceEmbeddingModel.DelegateType.NNAPI, FaceEmbeddingModel.DEFAULT_DELEGATE);
     }
 
     @Test
     public void validTensorContractIsAccepted() {
         FaceEmbeddingModel.validateTensorContract(1, new int[]{1, 112, 112, 3}, DataType.INT8,
                 0.01f, 1, new int[]{1, 512}, DataType.INT8, 0.01f);
+        FaceEmbeddingModel.validateTensorContract(1, new int[]{1, 112, 112, 3}, DataType.INT8,
+                0.01f, 1, new int[]{1, 256}, DataType.INT8, 0.01f);
         FaceEmbeddingModel.validateTensorContract(1, new int[]{1, 112, 112, 3}, DataType.FLOAT32,
                 0f, 1, new int[]{1, 512}, DataType.FLOAT32, 0f);
         FaceEmbeddingModel.validateTensorContract(1, new int[]{1, 3, 112, 112}, DataType.FLOAT32,
@@ -37,7 +39,7 @@ public class FaceRecognitionTest {
         assertTensorContractRejected(1, new int[]{1, 112, 112, 3}, DataType.INT8, 0f,
                 1, new int[]{1, 512}, DataType.INT8, 0.01f);
         assertTensorContractRejected(1, new int[]{1, 112, 112, 3}, DataType.INT8, 0.01f,
-                1, new int[]{1, 256}, DataType.INT8, 0.01f);
+                1, new int[]{1, 128}, DataType.INT8, 0.01f);
         assertTensorContractRejected(1, new int[]{1, 112, 112, 3}, DataType.INT8, 0.01f,
                 1, new int[]{1, 512}, DataType.UINT8, 0.01f);
         assertTensorContractRejected(1, new int[]{1, 112, 112, 3}, DataType.INT8, 0.01f,
@@ -60,6 +62,7 @@ public class FaceRecognitionTest {
     public void testInvalidEmbeddingsAreRejected() {
         assertFalse(FaceEmbeddingModel.isValidEmbedding(null));
         assertFalse(FaceEmbeddingModel.isValidEmbedding(new float[0]));
+        assertFalse(FaceEmbeddingModel.isValidEmbedding(new float[255]));
         assertFalse(FaceEmbeddingModel.isValidEmbedding(new float[511]));
         assertFalse(FaceEmbeddingModel.isValidEmbedding(new float[512]));
 
@@ -77,6 +80,14 @@ public class FaceRecognitionTest {
 
         assertTrue(FaceEmbeddingModel.isValidEmbedding(embedding));
         assertEquals(1.0f, FaceEmbeddingModel.l2Norm(embedding), 1e-5f);
+
+        float[] embedding256 = new float[256];
+        embedding256[0] = 3.0f;
+        embedding256[1] = 4.0f;
+        FaceEmbeddingModel.normalizeL2(embedding256);
+
+        assertTrue(FaceEmbeddingModel.isValidEmbedding(embedding256));
+        assertEquals(1.0f, FaceEmbeddingModel.l2Norm(embedding256), 1e-5f);
     }
 
     @Test

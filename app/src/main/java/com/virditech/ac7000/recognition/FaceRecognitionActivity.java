@@ -210,6 +210,9 @@ public final class FaceRecognitionActivity extends Activity {
     }
 
     private String modelLabel(String modelPath) {
+        if (FaceEmbeddingModel.MODEL_MOBILENET_EMORE_INT8.equals(modelPath)) return "MobileNet Emore INT8";
+        if (FaceEmbeddingModel.MODEL_PURE_MBF_RELU_INT8.equals(modelPath)) return "Pure-MBF ReLU INT8";
+        if (FaceEmbeddingModel.MODEL_SE_RELU_INT8.equals(modelPath)) return "SE-MBF ReLU INT8";
         if (FaceEmbeddingModel.MODEL_NPU_INT8.equals(modelPath)) return "W600K INT8";
         if (FaceEmbeddingModel.MODEL_FLOAT16.equals(modelPath)) return "W600K FP16";
         if (FaceEmbeddingModel.MODEL_FLOAT32.equals(modelPath)) return "W600K FP32";
@@ -219,13 +222,15 @@ public final class FaceRecognitionActivity extends Activity {
     }
 
     private String nextModelPath(String modelPath) {
+        if (FaceEmbeddingModel.MODEL_MOBILENET_EMORE_INT8.equals(modelPath)) return FaceEmbeddingModel.MODEL_SE_RELU_INT8;
+        if (FaceEmbeddingModel.MODEL_SE_RELU_INT8.equals(modelPath)) return FaceEmbeddingModel.MODEL_NPU_INT8;
         if (FaceEmbeddingModel.MODEL_NPU_INT8.equals(modelPath)) return FaceEmbeddingModel.MODEL_FLOAT16;
         if (FaceEmbeddingModel.MODEL_FLOAT16.equals(modelPath)) return FaceEmbeddingModel.MODEL_FLOAT32;
         if (FaceEmbeddingModel.MODEL_FLOAT32.equals(modelPath)) return FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4;
         if (FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4.equals(modelPath)) {
             return FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4_INT8;
         }
-        return FaceEmbeddingModel.MODEL_NPU_INT8;
+        return FaceEmbeddingModel.MODEL_MOBILENET_EMORE_INT8;
     }
 
     private void confirmClear() {

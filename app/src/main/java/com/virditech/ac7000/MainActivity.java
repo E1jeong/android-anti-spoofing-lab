@@ -1252,6 +1252,15 @@ public final class MainActivity extends Activity {
 
     private static String recognitionModelLabel(String modelPath) {
         if (modelPath == null) return "N/A";
+        if (modelPath.contains("mobilenet_emore")) {
+            return "MobileNet Emore INT8";
+        }
+        if (modelPath.contains("pure_mbf")) {
+            return "Pure-MBF INT8";
+        }
+        if (modelPath.contains("se_mobilefacenet")) {
+            return "SE-MBF INT8";
+        }
         if (modelPath.contains("mobilenetv4")) {
             return modelPath.contains("int8") ? "MNV4 INT8 RESEARCH" : "MNV4 FP32 RESEARCH";
         }
