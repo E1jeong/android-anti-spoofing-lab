@@ -34,7 +34,7 @@
    - Isolated experimental package for MobileFaceNet (`w600k_mbf`).
    - `FaceAligner.align5PointsTo112` performs 2D affine similarity transform from FaceMe 5 landmarks to canonical 112x112 ArcFace coordinates.
    - Model loading and delegate reloads must run asynchronously on `modelInitExecutor` (never block the Android UI Main Thread).
-   - Default to CPU/XNNPACK. NNAPI remains an explicit diagnostic comparison because the PReLU graph measures 400–500 ms on this board versus about 300 ms on CPU.
+   - Default to NNAPI with `models/mobilenet_emore_npu_int8.tflite` (0.27 GFLOPs, 100% 31/31 nodes compiled to 1 NPU partition). Legacy PReLU models default to CPU/XNNPACK due to NPU graph fragmentation.
    - Keep embedding extraction off the anti-spoofing `inferenceExecutor` so recognition timing and failures can be measured independently. Transfer only an owned aligned 112x112 bitmap to the recognition executor.
    - During independent model validation, do not gate recognition or enrollment on an anti-spoofing result. Do not drop or replace requested samples through latest-wins scheduling or a fixed minimum interval; every accepted test request must produce a recorded result, explicit error, or explicit cancellation.
    - Face recognition and anti-spoofing are parallel evaluation tracks with no ordering or dependency. Anti-spoofing artifacts are trained/exported by `access-liveness-model`; the current recognition work acquires and converts a pretrained model rather than training one.
