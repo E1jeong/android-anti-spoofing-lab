@@ -28,6 +28,10 @@ public final class FaceEmbeddingModel implements AutoCloseable {
     public static final String MODEL_NPU_INT8 = "models/w600k_mbf_npu_int8.tflite";
     public static final String MODEL_FLOAT16 = "models/w600k_mbf_static_float16.tflite";
     public static final String MODEL_FLOAT32 = "models/w600k_mbf_static_float32.tflite";
+    public static final String MODEL_RESEARCH_MOBILENETV4 =
+            "models/frbench_mobilenetv4conv_m_arcface_ms1m_float_nchw.tflite";
+    public static final String MODEL_RESEARCH_MOBILENETV4_INT8 =
+            "models/frbench_mobilenetv4conv_m_arcface_ms1m_full_int8_nchw.tflite";
     public static final String DEFAULT_MODEL_PATH = MODEL_NPU_INT8;
     public static final int INPUT_SIZE = 112;
     public static final int EMBEDDING_DIM = 512;
@@ -224,6 +228,11 @@ public final class FaceEmbeddingModel implements AutoCloseable {
 
     public DataType getInputDataType() {
         return inputDataType;
+    }
+
+    public int[] getInputShape() {
+        return inputNchw ? new int[]{1, 3, INPUT_SIZE, INPUT_SIZE}
+                : new int[]{1, INPUT_SIZE, INPUT_SIZE, 3};
     }
 
     public DataType getOutputDataType() {

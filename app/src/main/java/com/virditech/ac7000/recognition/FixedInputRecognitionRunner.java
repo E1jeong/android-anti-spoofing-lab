@@ -154,8 +154,7 @@ public final class FixedInputRecognitionRunner {
             JSONObject delegate = new JSONObject();
             delegate.put("requestedDelegate", requestedDelegate.name());
             delegate.put("activeDelegate", model.getActiveDelegate());
-            delegate.put("inputShape", new JSONArray(new int[]{1, FaceEmbeddingModel.INPUT_SIZE,
-                    FaceEmbeddingModel.INPUT_SIZE, 3}));
+            delegate.put("inputShape", new JSONArray(model.getInputShape()));
             delegate.put("inputType", model.getInputDataType().name());
             delegate.put("outputShape", new JSONArray(new int[]{1, FaceEmbeddingModel.EMBEDDING_DIM}));
             delegate.put("outputType", model.getOutputDataType().name());

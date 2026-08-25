@@ -418,6 +418,10 @@ public final class MainActivity extends Activity {
             requestedModelPath = FaceEmbeddingModel.MODEL_FLOAT16;
         } else if (recogModelPath.equals(FaceEmbeddingModel.MODEL_FLOAT16)) {
             requestedModelPath = FaceEmbeddingModel.MODEL_FLOAT32;
+        } else if (recogModelPath.equals(FaceEmbeddingModel.MODEL_FLOAT32)) {
+            requestedModelPath = FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4;
+        } else if (recogModelPath.equals(FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4)) {
+            requestedModelPath = FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4_INT8;
         } else {
             requestedModelPath = FaceEmbeddingModel.MODEL_NPU_INT8;
         }
@@ -1266,6 +1270,9 @@ public final class MainActivity extends Activity {
 
     private static String recognitionModelLabel(String modelPath) {
         if (modelPath == null) return "N/A";
+        if (modelPath.contains("mobilenetv4")) {
+            return modelPath.contains("int8") ? "MNV4 INT8 RESEARCH" : "MNV4 FP32 RESEARCH";
+        }
         if (modelPath.contains("int8")) return "INT8";
         if (modelPath.contains("float16")) return "FP16";
         if (modelPath.contains("float32")) return "FP32";
