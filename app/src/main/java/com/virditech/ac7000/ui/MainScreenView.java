@@ -39,11 +39,11 @@ public final class MainScreenView {
     public final ImageView faceCropView;
     public final TextView noFaceLabel;
     public final TextView irAeModeLabel;
+    public final Button irAeToggleButton;
     public final TextView resultsLabel;
     public final TextView calibrationInstruction;
     public final Button switchButton;
     public final Button modelSwitchButton;
-    public final Button detectorSwitchButton;
     public final Button startCollectionButton;
     public final ImageButton pauseCollectionButton;
     public final ImageButton cancelCollectionButton;
@@ -62,6 +62,7 @@ public final class MainScreenView {
     private final Activity activity;
     private Bitmap currentPreviewFace;
     private boolean highQualityOnly;
+    private boolean irPreviewVisible;
     private CharSequence currentCleanResultText;
 
     public MainScreenView(Activity activity, Listener listener) {
@@ -80,6 +81,7 @@ public final class MainScreenView {
         faceCropView = new ImageView(activity);
         noFaceLabel = label(20f);
         irAeModeLabel = label(18f);
+        irAeToggleButton = new Button(activity);
         irLoadingSpinner = new ProgressBar(activity);
         controlsLayout = new LinearLayout(activity);
         collectionProgress = label(32f);
@@ -94,7 +96,6 @@ public final class MainScreenView {
         startCollectionButton = new Button(activity);
         switchButton = new Button(activity);
         modelSwitchButton = new Button(activity);
-        detectorSwitchButton = new Button(activity);
         calibrationInstruction = label(24f);
         calibrationConfirm = new Button(activity);
         calibrationCancel = new Button(activity);
@@ -106,7 +107,7 @@ public final class MainScreenView {
         buildPreview();
         buildCleanModeResultView();
         buildDiagnostics(buttonWidth);
-        buildIrCrop(buttonWidth);
+        buildIrCrop(listener, buttonWidth);
         buildCaptureIndicators(listener);
         buildControls(listener, buttonWidth);
         buildSettingsHotspot(listener);
@@ -153,7 +154,7 @@ public final class MainScreenView {
         uiContainer.addView(diagnosticsLayout, diagnosticsParams);
     }
 
-    private void buildIrCrop(int buttonWidth) {
+    private void buildIrCrop(Listener listener, int buttonWidth) {
         FrameLayout.LayoutParams irCropParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
         irCropParams.width = buttonWidth;
         irCropParams.height = buttonWidth;
@@ -177,6 +178,14 @@ public final class MainScreenView {
         irCropContainer.addView(irAeModeLabel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM));
+
+        irAeToggleButton.setText("IR AE TOGGLE");
+        irAeToggleButton.setVisibility(View.GONE);
+        irAeToggleButton.setOnClickListener(v -> listener.onToggleIrAutoExposure());
+        FrameLayout.LayoutParams irAeToggleParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
+        irAeToggleParams.width = buttonWidth;
+        irAeToggleParams.topMargin = buttonWidth + dp(8);
+        uiContainer.addView(irAeToggleButton, irAeToggleParams);
     }
 
     private void buildCaptureIndicators(Listener listener) {
@@ -222,8 +231,6 @@ public final class MainScreenView {
                 v -> listener.onSwitchPreview());
         configureControlButton(modelSwitchButton, "MODEL 1", buttonWidth,
                 v -> listener.onToggleModel());
-        configureControlButton(detectorSwitchButton, "DETECTOR: FACEME", buttonWidth,
-                v -> listener.onToggleDetector());
 
         uiContainer.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
     }
@@ -454,12 +461,14 @@ public final class MainScreenView {
     }
 
     public void setIrVisible(boolean showIr) {
+        irPreviewVisible = showIr;
         rgbView.setAlpha(showIr ? 0f : 1f);
         irView.setAlpha(showIr ? 1f : 0f);
         overlay.setShowIr(showIr);
         overlay.setTranslationX(0f);
         overlay.setTranslationY(0f);
         switchButton.setText(showIr ? "SHOW RGB" : "SHOW IR");
+        updateIrAeToggleVisibility();
     }
 
     public void setIrAeMode(String mode) {
@@ -481,6 +490,7 @@ public final class MainScreenView {
         calibrationInstruction.setVisibility(View.VISIBLE);
         calibrationConfirm.setVisibility(View.VISIBLE);
         calibrationCancel.setVisibility(View.VISIBLE);
+        updateIrAeToggleVisibility();
     }
 
     public void exitCalibrationMode(String normalStatusMessage) {
@@ -497,6 +507,7 @@ public final class MainScreenView {
         controlsLayout.setVisibility(View.VISIBLE);
         calibrationHotspot.setVisibility(View.VISIBLE);
         settingsHotspot.setVisibility(View.VISIBLE);
+        updateIrAeToggleVisibility();
     }
 
     public void setCollectionChromeVisible(boolean visible) {
@@ -508,6 +519,7 @@ public final class MainScreenView {
         controlsLayout.setVisibility(visibility);
         calibrationHotspot.setVisibility(visibility);
         settingsHotspot.setVisibility(visibility);
+        updateIrAeToggleVisibility();
     }
 
     public void setAuthMode(boolean authMode) {
@@ -519,6 +531,7 @@ public final class MainScreenView {
         controlsLayout.setVisibility(visibility);
         calibrationHotspot.setVisibility(visibility);
         settingsHotspot.setVisibility(View.VISIBLE);
+        updateIrAeToggleVisibility();
         overlay.setAuthMode(authMode);
         if (!authMode) {
             hideAuthResult();
@@ -536,6 +549,12 @@ public final class MainScreenView {
         collectionProgress.setVisibility(collecting ? View.VISIBLE : View.GONE);
         pauseCollectionButton.setVisibility(collecting ? View.VISIBLE : View.GONE);
         cancelCollectionButton.setVisibility(collecting ? View.VISIBLE : View.GONE);
+    }
+
+    private void updateIrAeToggleVisibility() {
+        boolean visible = irPreviewVisible && irCropContainer.getVisibility() == View.VISIBLE
+                && controlsLayout.getVisibility() == View.VISIBLE;
+        irAeToggleButton.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
     public void setCollectionPaused(boolean paused) {
@@ -624,7 +643,7 @@ public final class MainScreenView {
         void onStartCollection(String className);
         void onSwitchPreview();
         void onToggleModel();
-        void onToggleDetector();
+        void onToggleIrAutoExposure();
         void onCalibrationConfirm();
         void onCalibrationCancel();
         void onCalibrationTap();

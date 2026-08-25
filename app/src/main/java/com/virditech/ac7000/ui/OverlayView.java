@@ -25,6 +25,8 @@ public final class OverlayView extends View {
     private Rect irBox;
     private ClassificationResult result;
     private ClassificationResult irResult;
+    private String recognitionResult;
+    private boolean recognitionMatched;
     private boolean showIr;
     private boolean calibrationMode;
     private boolean isCollecting;
@@ -122,6 +124,17 @@ public final class OverlayView extends View {
         invalidate();
     }
 
+    public void showRecognitionResult(String text, boolean matched) {
+        recognitionResult = text;
+        recognitionMatched = matched;
+        invalidate();
+    }
+
+    public void clearRecognitionResult() {
+        recognitionResult = null;
+        invalidate();
+    }
+
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (calibrationMode) drawCalibrationGuide(canvas);
@@ -147,19 +160,25 @@ public final class OverlayView extends View {
         if (result == null) {
             textPaint.setColor(Color.WHITE);
             drawLabel(canvas, "FACE", box.left, titleY, textPaint);
-            return;
-        }
-        textPaint.setColor(color);
-        if (irResult == null) {
+        } else if (irResult == null) {
+            textPaint.setColor(color);
             drawLabel(canvas, formatResult(result), box.left, titleY, textPaint);
-            return;
+        } else {
+            textPaint.setColor(color);
+            String rgbText = formatResult(result);
+            String irText = formatResult(irResult);
+            float topLineY = Math.max(32f, box.top - 42f);
+            drawLabel(canvas, rgbText, box.left, topLineY, textPaint);
+            drawLabel(canvas, irText, box.left, Math.max(64f, box.top - 10f), irTextPaint);
         }
 
-        String rgbText = formatResult(result);
-        String irText = formatResult(irResult);
-        float topLineY = Math.max(32f, box.top - 42f);
-        drawLabel(canvas, rgbText, box.left, topLineY, textPaint);
-        drawLabel(canvas, irText, box.left, Math.max(64f, box.top - 10f), irTextPaint);
+        if (recognitionResult != null) {
+            textPaint.setColor(recognitionMatched ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82));
+            Paint.FontMetrics metrics = textPaint.getFontMetrics();
+            float baseline = Math.min(getHeight() - metrics.descent - 5f,
+                    box.bottom - metrics.ascent + 10f);
+            drawLabel(canvas, recognitionResult, box.left, baseline, textPaint);
+        }
 
     }
 

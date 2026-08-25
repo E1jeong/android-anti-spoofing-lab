@@ -110,6 +110,7 @@ public final class MainActivity extends Activity {
     private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
     private final AtomicBoolean inferenceWorkerRunning = new AtomicBoolean();
     private final RecognitionWorkCoordinator recognitionCoordinator = new RecognitionWorkCoordinator();
+    private final AtomicBoolean recognitionFaceVisible = new AtomicBoolean();
     private final AtomicLong inferenceMotionGeneration = new AtomicLong();
     private final FaceMotionGate inferenceMotionGate = new FaceMotionGate();
     private final AtomicBoolean calibrationRequested = new AtomicBoolean();
@@ -133,7 +134,6 @@ public final class MainActivity extends Activity {
     private TextView calibrationInstruction;
     private Button switchButton;
     private Button modelSwitchButton;
-    private Button detectorSwitchButton;
     private MainScreenView screen;
     private final Object classifierLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
@@ -214,12 +214,11 @@ public final class MainActivity extends Activity {
     private int inferenceFrames;
     private long trackingWindowStartNs;
     private long inferenceWindowStartNs;
-    private volatile long rgbConversionMs;
-    private volatile long irConversionMs;
     private volatile long detectionMs;
     private volatile long inferenceMs;
     private volatile long rgbInferenceMs = -1L;
     private volatile long irInferenceMs = -1L;
+    private volatile long recognitionInferenceMs = -1L;
     private final LatencyWindow preprocessLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
     private final LatencyWindow invokeLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
     private final LatencyWindow inferenceQueueLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
@@ -284,7 +283,7 @@ public final class MainActivity extends Activity {
 
             @Override public void onToggleModel() { toggleModel(); }
 
-            @Override public void onToggleDetector() { toggleFaceDetector(); }
+            @Override public void onToggleIrAutoExposure() { toggleIrAutoExposure(); }
 
             @Override public void onCalibrationConfirm() {
                 calibrationRequested.set(true);
@@ -310,7 +309,6 @@ public final class MainActivity extends Activity {
         calibrationInstruction = screen.calibrationInstruction;
         switchButton = screen.switchButton;
         modelSwitchButton = screen.modelSwitchButton;
-        detectorSwitchButton = screen.detectorSwitchButton;
         startCollectionButton = screen.startCollectionButton;
         pauseCollectionButton = screen.pauseCollectionButton;
         cancelCollectionButton = screen.cancelCollectionButton;
@@ -318,7 +316,7 @@ public final class MainActivity extends Activity {
         highQualityOnlyContainer = screen.highQualityOnlyContainer;
         highQualityOnlyButton = screen.highQualityOnlyButton;
         collectionProgress = screen.collectionProgress;
-        screen.setInitialPerformanceText(String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS\nBackend MODEL", 0, 0, 0, 0.0f, 0, 0.0f));
+        screen.setInitialPerformanceText(String.format(Locale.US, "Detect %d ms  %.1f FPS\nSpoof inference %d ms  %.1f FPS", 0, 0, 0.0f, 0, 0.0f));
         resetResultsLabelToZero();
         setContentView(screen.root);
     }
@@ -365,8 +363,8 @@ public final class MainActivity extends Activity {
         String[] items = {
                 "SETTINGS",
                 "WEBRTC TEST",
-                "IR AE TOGGLE (" + (irCenterAutoExposure ? "CENTER" : "FULL") + ")",
                 "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
+                "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE"),
                 "FACE MANAGEMENT"
         };
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -377,12 +375,9 @@ public final class MainActivity extends Activity {
                     } else if (which == 1) {
                         startActivity(new Intent(this, WebRtcCallActivity.class));
                     } else if (which == 2) {
-                        irCenterAutoExposure = !irCenterAutoExposure;
-                        applyIrAutoExposure();
-                        updateIrAeModeLabel();
-                        showTransientStatus("IR AE: " + (irCenterAutoExposure ? "CENTER" : "FULL"));
-                    } else if (which == 3) {
                         toggleAuthMode();
+                    } else if (which == 3) {
+                        toggleFaceDetector();
                     } else if (which == 4) {
                         openFaceManagement();
                     }
@@ -592,7 +587,6 @@ public final class MainActivity extends Activity {
                 String message = e.getMessage();
                 reportEngineError(message == null ? "MediaPipe detector unavailable" : message);
             } finally {
-                updateFaceDetectorSwitch();
                 onEngineLoadFinished();
             }
         });
@@ -649,7 +643,6 @@ public final class MainActivity extends Activity {
                 ModelSlotClassifier active = classifier;
                 if (active != null) modelSwitchButton.setText(active.label());
             }
-            updateFaceDetectorSwitch();
             if (classifier != null && cameras != null) cameras.setIrFramesEnabled(true);
         });
         if (classifier == null) reportEngineError("No model slots loaded");
@@ -712,6 +705,13 @@ public final class MainActivity extends Activity {
         } else {
             IrCameraExposureController.applyFullAutoExposure();
         }
+    }
+
+    private void toggleIrAutoExposure() {
+        irCenterAutoExposure = !irCenterAutoExposure;
+        applyIrAutoExposure();
+        updateIrAeModeLabel();
+        showTransientStatus("IR AE: " + (irCenterAutoExposure ? "CENTER" : "FULL"));
     }
 
     private void updateIrAeModeLabel() {
@@ -859,11 +859,10 @@ public final class MainActivity extends Activity {
         PointF[] currentLandmarks = activeDetector.getLastDetectedLandmarks();
         if (!isPipelineCurrent(frame.generation)) return;
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
-        rgbConversionMs = frame.rgb.conversionMs;
-        if (frame.ir != null) irConversionMs = frame.ir.conversionMs;
         updateTrackingFps();
         if (detected == null) {
             inferenceMotionGate.reset();
+            if (recognitionFaceVisible.getAndSet(false)) invalidateRecognitionWork();
             synchronized (authScoreBuffer) {
                 authScoreBuffer.clear();
                 authStartNs = 0L;
@@ -871,6 +870,8 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (!isPipelineCurrent(frame.generation)) return;
                 overlay.clearResult();
+                overlay.clearRecognitionResult();
+                recognitionInferenceMs = -1L;
                 if (screen != null) screen.clearCleanModeResult();
                 clearPreviewFace();
                 faceCropView.setScaleX(1f);
@@ -1343,6 +1344,7 @@ public final class MainActivity extends Activity {
             }
             return;
         }
+        recognitionFaceVisible.set(true);
         long invalidationGeneration = recognitionCoordinator.acquireWorkerGeneration();
         if (invalidationGeneration < 0L) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
@@ -1489,14 +1491,15 @@ public final class MainActivity extends Activity {
                 task.manager.getThreshold()));
         runOnUiThread(() -> {
             if (!isRecognitionTaskCurrent(task) || !faceRecognitionMode || authVerdictShowing) return;
+            recognitionInferenceMs = modelMs;
             if (recognition.isRecognized()) {
-                status.setText(String.format(Locale.US, "RECOGNIZED: %s (%.1f%%, %dms)",
-                        recognition.matchedTemplate().getName(),
-                        recognition.similarityScore() * 100f, recognition.elapsedMs()));
+                overlay.showRecognitionResult(String.format(Locale.US, "%s %.1f%%",
+                        recognition.matchedTemplate().getName(), recognition.similarityScore() * 100f), true);
             } else {
-                status.setText(String.format(Locale.US, "UNRECOGNIZED (%.1f%%, %dms)",
-                        recognition.similarityScore() * 100f, recognition.elapsedMs()));
+                overlay.showRecognitionResult(String.format(Locale.US, "UNRECOGNIZED %.1f%%",
+                        recognition.similarityScore() * 100f), false);
             }
+            performance.setText(formatPerformance());
         });
     }
 
@@ -1509,6 +1512,12 @@ public final class MainActivity extends Activity {
 
     private void invalidateRecognitionWork() {
         recognitionCoordinator.invalidate();
+        recognitionFaceVisible.set(false);
+        recognitionInferenceMs = -1L;
+        runOnUiThread(() -> {
+            if (overlay != null) overlay.clearRecognitionResult();
+            if (performance != null) performance.setText(formatPerformance());
+        });
     }
 
     private void cancelEnrollment() {
@@ -1602,7 +1611,6 @@ public final class MainActivity extends Activity {
         collectionPausedCountdownMs = 0L;
         collectionSessionId++;
         ioBusy = false;
-        updateFaceDetectorSwitch();
         overlay.setCollecting(false);
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
@@ -1626,7 +1634,6 @@ public final class MainActivity extends Activity {
         collectionPausedCountdownMs = 0L;
         collectionSessionId++;
         ioBusy = false;
-        updateFaceDetectorSwitch();
         overlay.setCollecting(false);
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
@@ -1747,7 +1754,6 @@ public final class MainActivity extends Activity {
         lastCollectionQuality = null;
         ioBusy = false;
         isCollecting = true;
-        updateFaceDetectorSwitch();
         overlay.setCollecting(true);
         screen.setCollectionPaused(false);
         updateCollectionUi(SystemClock.elapsedRealtime());
@@ -1780,7 +1786,6 @@ public final class MainActivity extends Activity {
         attackCaptureCount = 0;
         attackCaptureSaveBusy = false;
         isAttackLiveCapturing = true;
-        updateFaceDetectorSwitch();
         startCollectionButton.setEnabled(false);
         startCollectionButton.setText("START CAPTURE");
         stopAttackLiveCaptureButton.setVisibility(View.VISIBLE);
@@ -1796,7 +1801,6 @@ public final class MainActivity extends Activity {
             isAttackLiveCapturing = false;
         }
         stopAttackLiveCaptureButton.setVisibility(View.GONE);
-        updateFaceDetectorSwitch();
         FaceDetectionEngine detector = activeFaceDetector;
         startCollectionButton.setEnabled(detector != null);
         startCollectionButton.setText("START CAPTURE");
@@ -1927,20 +1931,22 @@ public final class MainActivity extends Activity {
                 switchButton.setEnabled(true);
             }
         }
-        String backend = classifier != null ? classifier.inferenceBackend() : "MODEL";
+        String recognitionText = faceRecognitionMode && recognitionInferenceMs >= 0L
+                ? String.format(Locale.US, "\nRecog inference %d ms", recognitionInferenceMs)
+                : "";
         if (rgbInferenceMs >= 0L && irInferenceMs >= 0L) {
             String prefix = String.format(Locale.US,
-                    "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference RGB %d ms  %.1f FPS\n",
-                    rgbConversionMs, irConversionMs, detectionMs, trackingFps, rgbInferenceMs, inferenceFps);
-            String irText = String.format(Locale.US, "Inference IR %d ms", irInferenceMs);
-            String suffix = String.format(Locale.US, "\nBackend %s", backend);
-            SpannableString text = new SpannableString(prefix + irText + suffix);
+                    "Detect %d ms  %.1f FPS\nSpoof RGB %d ms  %.1f FPS\n",
+                    detectionMs, trackingFps, rgbInferenceMs, inferenceFps);
+            String irText = String.format(Locale.US, "Spoof IR %d ms", irInferenceMs);
+            SpannableString text = new SpannableString(prefix + irText + recognitionText);
             text.setSpan(new ForegroundColorSpan(IR_RESULT_COLOR), prefix.length(),
                     prefix.length() + irText.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             return text;
         }
-        return String.format(Locale.US, "Convert RGB/IR %d/%d ms\nDetect %d ms  %.1f FPS\nInference %d ms  %.1f FPS\nBackend %s",
-                rgbConversionMs, irConversionMs, detectionMs, trackingFps, inferenceMs, inferenceFps, backend);
+        return String.format(Locale.US,
+                "Detect %d ms  %.1f FPS\nSpoof inference %d ms  %.1f FPS%s",
+                detectionMs, trackingFps, inferenceMs, inferenceFps, recognitionText);
     }
 
     private void recordInferenceMetrics(long preprocess, long invoke, long queue, long endToEnd) {
@@ -2039,20 +2045,9 @@ public final class MainActivity extends Activity {
             }
             activeFaceDetector = next;
         }
-        updateFaceDetectorSwitch();
         showTransientStatus(next == faceDetector
                 ? "FaceMe detector selected"
                 : "MediaPipe detector selected; live quality capture is unavailable");
-    }
-
-    private void updateFaceDetectorSwitch() {
-        runOnUiThread(() -> {
-            if (detectorSwitchButton == null) return;
-            FaceDetectionEngine active = activeFaceDetector;
-            detectorSwitchButton.setText("DETECTOR: " + (active != null ? active.label() : "UNAVAILABLE"));
-            detectorSwitchButton.setEnabled(faceDetector != null && mediaPipeFaceDetector != null
-                    && !isCollecting && !isAttackLiveCapturing && !calibrationMode);
-        });
     }
 
     private final Runnable restoreStatusRunnable = () -> {
