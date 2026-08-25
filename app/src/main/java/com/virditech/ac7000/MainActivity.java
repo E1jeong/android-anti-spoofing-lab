@@ -316,7 +316,7 @@ public final class MainActivity extends Activity {
         highQualityOnlyContainer = screen.highQualityOnlyContainer;
         highQualityOnlyButton = screen.highQualityOnlyButton;
         collectionProgress = screen.collectionProgress;
-        screen.setInitialPerformanceText(String.format(Locale.US, "Detect %d ms  %.1f FPS\nSpoof inference %d ms  %.1f FPS", 0, 0, 0.0f, 0, 0.0f));
+        screen.setInitialPerformanceText(String.format(Locale.US, "Detect %d ms  %.1f FPS\nSpoof inference %d ms  %.1f FPS", 0, 0.0f, 0, 0.0f));
         resetResultsLabelToZero();
         setContentView(screen.root);
     }
