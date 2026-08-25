@@ -411,11 +411,9 @@ public final class MainActivity extends Activity {
         String modelPath = manager.getModelAssetPath();
         intent.putExtra(FaceRecognitionActivity.EXTRA_MODEL_ASSET_PATH, modelPath);
         intent.putExtra(FaceRecognitionActivity.EXTRA_MODEL_CHECKSUM, recogModelChecksum);
-        intent.putExtra(FaceRecognitionActivity.EXTRA_MODEL_LABEL, recognitionModelLabel(modelPath)
-                + " · " + manager.getRequestedDelegate() + "→" + manager.getActiveDelegate());
+        intent.putExtra(FaceRecognitionActivity.EXTRA_MODEL_LABEL, recognitionModelLabel(modelPath));
         intent.putExtra(FaceRecognitionActivity.EXTRA_RECOGNITION_ENABLED, faceRecognitionMode);
-        intent.putExtra(FaceRecognitionActivity.EXTRA_DELEGATE_LABEL,
-                manager.getRequestedDelegate() + "→" + manager.getActiveDelegate());
+        intent.putExtra(FaceRecognitionActivity.EXTRA_DELEGATE_LABEL, manager.getActiveDelegate());
         startActivityForResult(intent, FACE_MANAGEMENT_REQUEST);
     }
 
