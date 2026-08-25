@@ -60,9 +60,11 @@ import com.virditech.ac7000.model.ModelSlotClassifier;
 import com.virditech.ac7000.model.SlotClassificationResult;
 import com.virditech.ac7000.performance.LatencyWindow;
 import com.virditech.ac7000.recognition.FaceEmbeddingModel;
+import com.virditech.ac7000.recognition.FaceModelFingerprint;
+import com.virditech.ac7000.recognition.FaceRecognitionActivity;
 import com.virditech.ac7000.recognition.FaceRecognitionManager;
 import com.virditech.ac7000.recognition.FaceTemplate;
-import com.virditech.ac7000.recognition.FixedInputRecognitionActivity;
+import com.virditech.ac7000.recognition.FaceTemplateRepository;
 import com.virditech.ac7000.recognition.RecognitionPolicy;
 import com.virditech.ac7000.recognition.RecognitionResult;
 import com.virditech.ac7000.recognition.RecognitionWorkCoordinator;
@@ -72,6 +74,7 @@ import com.virditech.ac7000.ui.OverlayView;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -86,6 +89,7 @@ public final class MainActivity extends Activity {
     private static final String SIGNALING_SERVER_URL = "ws://92.168.70.2:8080/ws";
     private static final String SIGNALING_PEER_ID = "device-test-01";
     private static final int CAMERA_PERMISSION_REQUEST = 10;
+    private static final int FACE_MANAGEMENT_REQUEST = 11;
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
     private static final int COLLECTION_TARGET_COUNT = CaptureSchedule.TARGET_COUNT;
     private static final int IR_RESULT_COLOR = Color.rgb(64, 196, 255);
@@ -191,8 +195,12 @@ public final class MainActivity extends Activity {
     private volatile FaceRecognitionManager faceRecognitionManager;
     private volatile boolean faceRecognitionMode;
     private final AtomicBoolean enrollRequested = new AtomicBoolean(false);
-    private static final int ENROLL_TARGET_FRAME_COUNT = 3;
+    private static final int ENROLL_TARGET_FRAME_COUNT = 5;
     private final List<float[]> enrollEmbeddingBuffer = new ArrayList<>();
+    private volatile String pendingEnrollmentId;
+    private volatile String pendingEnrollmentName;
+    private FaceTemplateRepository faceTemplateRepository;
+    private volatile String recogModelChecksum;
     private FaceEmbeddingModel.DelegateType recogDelegate = FaceEmbeddingModel.DEFAULT_DELEGATE;
     private String recogModelPath = FaceEmbeddingModel.DEFAULT_MODEL_PATH;
     private volatile boolean authMode;
@@ -235,6 +243,7 @@ public final class MainActivity extends Activity {
         getWindow().setAttributes(windowAttributes);
         appWatchdog.start();
         initializeCaptureTone();
+        faceTemplateRepository = new FaceTemplateRepository(getApplicationContext());
         buildUi();
         initializeEngines();
         signalingClient.setListener(signalingListener);
@@ -353,24 +362,12 @@ public final class MainActivity extends Activity {
             authScoreBuffer.clear();
             authStartNs = 0L;
         }
-        int enrolledCount = faceRecognitionManager != null ? faceRecognitionManager.getEnrolledCount() : 0;
-        String curDelegate = faceRecognitionManager != null
-                ? faceRecognitionManager.getRequestedDelegate() + "→" + faceRecognitionManager.getActiveDelegate()
-                : "N/A";
-        String activeModelPath = faceRecognitionManager != null
-                ? faceRecognitionManager.getModelAssetPath() : recogModelPath;
-        String curModel = recognitionModelLabel(activeModelPath);
         String[] items = {
                 "SETTINGS",
                 "WEBRTC TEST",
                 "IR AE TOGGLE (" + (irCenterAutoExposure ? "CENTER" : "FULL") + ")",
                 "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
-                "FACE RECOGNITION (" + (faceRecognitionMode ? "ON" : "OFF") + ")",
-                "RECOG DELEGATE (" + curDelegate + ")",
-                "RECOG MODEL (" + curModel + ")",
-                "ENROLL CURRENT FACE (" + ENROLL_TARGET_FRAME_COUNT + "-frame avg, Total: " + enrolledCount + ")",
-                "CLEAR ENROLLED FACES",
-                "FIXED-INPUT RECOG TEST"
+                "FACE MANAGEMENT"
         };
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("TEST MENU")
@@ -387,78 +384,7 @@ public final class MainActivity extends Activity {
                     } else if (which == 3) {
                         toggleAuthMode();
                     } else if (which == 4) {
-                        faceRecognitionMode = !faceRecognitionMode;
-                        invalidateRecognitionWork();
-                        showTransientStatus("FACE RECOGNITION: " + (faceRecognitionMode ? "ON" : "OFF"));
-                    } else if (which == 5) {
-                        FaceEmbeddingModel.DelegateType requestedDelegate =
-                                (recogDelegate == FaceEmbeddingModel.DelegateType.CPU)
-                                ? FaceEmbeddingModel.DelegateType.NNAPI
-                                : FaceEmbeddingModel.DelegateType.CPU;
-                        invalidateRecognitionWork();
-                        cancelEnrollment();
-                        String requestedModelPath = recogModelPath;
-                        showTransientStatus("Switching delegate to " + requestedDelegate + "...");
-                        modelInitExecutor.execute(() -> {
-                            FaceRecognitionManager manager = faceRecognitionManager;
-                            boolean reloaded = manager != null && manager.reloadModel(
-                                    getApplicationContext(), requestedModelPath, requestedDelegate);
-                            runOnUiThread(() -> {
-                                if (reloaded) recogDelegate = requestedDelegate;
-                                showTransientStatus(formatRecognitionReloadStatus(reloaded, manager,
-                                        requestedModelPath, requestedDelegate));
-                            });
-                        });
-                    } else if (which == 6) {
-                        String requestedModelPath;
-                        if (recogModelPath.equals(FaceEmbeddingModel.MODEL_NPU_INT8)) {
-                            requestedModelPath = FaceEmbeddingModel.MODEL_FLOAT16;
-                        } else if (recogModelPath.equals(FaceEmbeddingModel.MODEL_FLOAT16)) {
-                            requestedModelPath = FaceEmbeddingModel.MODEL_FLOAT32;
-                        } else {
-                            requestedModelPath = FaceEmbeddingModel.MODEL_NPU_INT8;
-                        }
-                        invalidateRecognitionWork();
-                        cancelEnrollment();
-                        FaceEmbeddingModel.DelegateType requestedDelegate = recogDelegate;
-                        String name = recognitionModelLabel(requestedModelPath);
-                        showTransientStatus("Loading model: " + name + "...");
-                        modelInitExecutor.execute(() -> {
-                            FaceRecognitionManager manager = faceRecognitionManager;
-                            boolean reloaded = manager != null && manager.reloadModel(
-                                    getApplicationContext(), requestedModelPath, requestedDelegate);
-                            runOnUiThread(() -> {
-                                if (reloaded) recogModelPath = requestedModelPath;
-                                showTransientStatus(formatRecognitionReloadStatus(reloaded, manager,
-                                        requestedModelPath, requestedDelegate));
-                            });
-                        });
-                    } else if (which == 7) {
-                        invalidateRecognitionWork();
-                        recognitionCoordinator.runExclusive(() -> {
-                            enrollEmbeddingBuffer.clear();
-                            enrollRequested.set(true);
-                        });
-                        showTransientStatus("Face the camera to enroll (" + ENROLL_TARGET_FRAME_COUNT + " frames)...");
-                    } else if (which == 8) {
-                        invalidateRecognitionWork();
-                        cancelEnrollment();
-                        if (faceRecognitionManager != null) {
-                            faceRecognitionManager.clearTemplates();
-                            showTransientStatus("Enrolled faces cleared");
-                        }
-                    } else if (which == 9) {
-                        if (!enginesWarmedUp || faceRecognitionManager == null
-                                || !faceRecognitionManager.isReady()) {
-                            showTransientStatus("Wait for recognition model loading to finish");
-                            return;
-                        }
-                        invalidateRecognitionWork();
-                        cancelEnrollment();
-                        String modelPath = faceRecognitionManager.getModelAssetPath();
-                        Intent intent = new Intent(this, FixedInputRecognitionActivity.class);
-                        intent.putExtra(FixedInputRecognitionActivity.EXTRA_MODEL_ASSET_PATH, modelPath);
-                        startActivity(intent);
+                        openFaceManagement();
                     }
                 })
                 .setNegativeButton("CANCEL", null)
@@ -471,6 +397,75 @@ public final class MainActivity extends Activity {
             }
         });
         dialog.show();
+    }
+
+    private void openFaceManagement() {
+        FaceRecognitionManager manager = faceRecognitionManager;
+        if (manager == null || !manager.isReady() || recogModelChecksum == null) {
+            showTransientStatus("Wait for recognition model loading to finish");
+            return;
+        }
+        invalidateRecognitionWork();
+        cancelEnrollment();
+        Intent intent = new Intent(this, FaceRecognitionActivity.class);
+        String modelPath = manager.getModelAssetPath();
+        intent.putExtra(FaceRecognitionActivity.EXTRA_MODEL_ASSET_PATH, modelPath);
+        intent.putExtra(FaceRecognitionActivity.EXTRA_MODEL_CHECKSUM, recogModelChecksum);
+        intent.putExtra(FaceRecognitionActivity.EXTRA_MODEL_LABEL, recognitionModelLabel(modelPath)
+                + " · " + manager.getRequestedDelegate() + "→" + manager.getActiveDelegate());
+        intent.putExtra(FaceRecognitionActivity.EXTRA_RECOGNITION_ENABLED, faceRecognitionMode);
+        intent.putExtra(FaceRecognitionActivity.EXTRA_DELEGATE_LABEL,
+                manager.getRequestedDelegate() + "→" + manager.getActiveDelegate());
+        startActivityForResult(intent, FACE_MANAGEMENT_REQUEST);
+    }
+
+    private void toggleRecognitionFromManagement() {
+        faceRecognitionMode = !faceRecognitionMode;
+        invalidateRecognitionWork();
+        showTransientStatus("FACE RECOGNITION: " + (faceRecognitionMode ? "ON" : "OFF"));
+    }
+
+    private void toggleRecognitionDelegateFromManagement() {
+        FaceEmbeddingModel.DelegateType requestedDelegate =
+                recogDelegate == FaceEmbeddingModel.DelegateType.CPU
+                        ? FaceEmbeddingModel.DelegateType.NNAPI
+                        : FaceEmbeddingModel.DelegateType.CPU;
+        reloadRecognitionModel(recogModelPath, requestedDelegate);
+    }
+
+    private void toggleRecognitionModelFromManagement() {
+        String requestedModelPath;
+        if (recogModelPath.equals(FaceEmbeddingModel.MODEL_NPU_INT8)) {
+            requestedModelPath = FaceEmbeddingModel.MODEL_FLOAT16;
+        } else if (recogModelPath.equals(FaceEmbeddingModel.MODEL_FLOAT16)) {
+            requestedModelPath = FaceEmbeddingModel.MODEL_FLOAT32;
+        } else {
+            requestedModelPath = FaceEmbeddingModel.MODEL_NPU_INT8;
+        }
+        reloadRecognitionModel(requestedModelPath, recogDelegate);
+    }
+
+    private void reloadRecognitionModel(String requestedModelPath,
+                                        FaceEmbeddingModel.DelegateType requestedDelegate) {
+        invalidateRecognitionWork();
+        cancelEnrollment();
+        showTransientStatus("Loading recognition model...");
+        modelInitExecutor.execute(() -> {
+            FaceRecognitionManager manager = faceRecognitionManager;
+            boolean reloaded = manager != null && manager.reloadModel(
+                    getApplicationContext(), requestedModelPath, requestedDelegate);
+            String checksum = reloaded ? modelChecksum(requestedModelPath) : null;
+            runOnUiThread(() -> {
+                if (reloaded && checksum != null) {
+                    recogModelPath = requestedModelPath;
+                    recogDelegate = requestedDelegate;
+                    recogModelChecksum = checksum;
+                    loadPersistedTemplates(manager, requestedModelPath, checksum);
+                }
+                showTransientStatus(formatRecognitionReloadStatus(reloaded, manager,
+                        requestedModelPath, requestedDelegate));
+            });
+        });
     }
 
     private final Handler authHandler = new Handler(Looper.getMainLooper());
@@ -616,12 +611,16 @@ public final class MainActivity extends Activity {
         try {
             FaceRecognitionManager recManager = new FaceRecognitionManager(getApplicationContext(), recogModelPath, recogDelegate);
             if (recManager.isReady()) {
+                String modelChecksum = modelChecksum(recManager.getModelAssetPath());
+                if (modelChecksum == null) throw new IllegalStateException("Model checksum unavailable");
                 synchronized (classifierLock) {
                     if (enginesShutDown) {
                         recManager.close();
                     } else {
                         faceRecognitionManager = recManager;
+                        recogModelChecksum = modelChecksum;
                         android.util.Log.i(TAG, "FaceRecognitionManager loaded successfully (" + recManager.getActiveDelegate() + ", " + recManager.getModelAssetPath() + ")");
+                        loadPersistedTemplates(recManager, recManager.getModelAssetPath(), modelChecksum);
                     }
                 }
             } else {
@@ -1303,6 +1302,30 @@ public final class MainActivity extends Activity {
                 + (error == null ? "unknown error" : error) + " (active " + active + ")";
     }
 
+    private void loadPersistedTemplates(FaceRecognitionManager manager, String modelAssetPath,
+                                        String modelChecksum) {
+        if (modelChecksum == null) return;
+        ioExecutor.execute(() -> {
+            List<FaceTemplate> templates = faceTemplateRepository.loadForModel(modelAssetPath, modelChecksum);
+            if (!enginesShutDown && manager == faceRecognitionManager
+                    && modelAssetPath.equals(manager.getModelAssetPath())
+                    && modelChecksum.equals(recogModelChecksum)) {
+                manager.replaceTemplates(templates);
+                android.util.Log.i(TAG, "Loaded " + templates.size()
+                        + " persisted face templates for " + modelAssetPath);
+            }
+        });
+    }
+
+    private String modelChecksum(String modelAssetPath) {
+        try {
+            return FaceModelFingerprint.sha256(getApplicationContext(), modelAssetPath);
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "Failed to calculate face model checksum: " + modelAssetPath, e);
+            return null;
+        }
+    }
+
     private void scheduleRecognition(TrackingFrame sourceFrame, Rect rgbFace, PointF[] landmarks) {
         FaceRecognitionManager manager = faceRecognitionManager;
         boolean enrollment = enrollRequested.get();
@@ -1354,7 +1377,11 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        submitRecognition(new RecognitionTask(alignedFace, manager, enrollment,
+        String enrollmentId = enrollment ? pendingEnrollmentId : null;
+        String enrollmentName = enrollment ? pendingEnrollmentName : null;
+        String modelChecksum = enrollment ? recogModelChecksum : null;
+        submitRecognition(new RecognitionTask(alignedFace, manager, enrollment, enrollmentId, enrollmentName,
+                modelChecksum,
                 sourceFrame.generation, invalidationGeneration, startNs, alignMs));
     }
 
@@ -1419,9 +1446,8 @@ public final class MainActivity extends Activity {
                         enrollEmbeddingBuffer.add(embedding);
                         collectedHolder[0] = enrollEmbeddingBuffer.size();
                         if (collectedHolder[0] >= ENROLL_TARGET_FRAME_COUNT) {
-                            int count = task.manager.getEnrolledCount() + 1;
                             templateHolder[0] = task.manager.enrollFaceAverage(
-                                    "USER_" + count, "User " + count, enrollEmbeddingBuffer);
+                                    task.enrollmentId, task.enrollmentName, enrollEmbeddingBuffer);
                             enrollEmbeddingBuffer.clear();
                             enrollRequested.set(false);
                         }
@@ -1446,6 +1472,7 @@ public final class MainActivity extends Activity {
                     showTransientStatus("Enrolled: " + enrolled.getName() + " ("
                             + ENROLL_TARGET_FRAME_COUNT + "-frame avg, Total: "
                             + task.manager.getEnrolledCount() + ")");
+                    persistEnrollmentAndReturn(task.manager, task.modelChecksum, enrolled);
                 } else if (enrollmentComplete) {
                     showTransientStatus("Enrollment failed: average error");
                 } else {
@@ -1490,6 +1517,25 @@ public final class MainActivity extends Activity {
         recognitionCoordinator.runExclusive(() -> {
             enrollRequested.set(false);
             enrollEmbeddingBuffer.clear();
+        });
+        pendingEnrollmentId = null;
+        pendingEnrollmentName = null;
+    }
+
+    private void persistEnrollmentAndReturn(FaceRecognitionManager manager, String modelChecksum,
+                                            FaceTemplate template) {
+        String modelAssetPath = manager.getModelAssetPath();
+        ioExecutor.execute(() -> {
+            try {
+                faceTemplateRepository.save(modelAssetPath, modelChecksum, template);
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) openFaceManagement();
+                });
+            } catch (RuntimeException e) {
+                manager.removeTemplate(template.getId());
+                android.util.Log.e(TAG, "Face template save failed", e);
+                runOnUiThread(() -> showTransientStatus("Enrollment save failed"));
+            }
         });
     }
 
@@ -2075,6 +2121,44 @@ public final class MainActivity extends Activity {
         else showTransientStatus("CAMERA permission denied");
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != FACE_MANAGEMENT_REQUEST) return;
+        if (resultCode == FaceRecognitionActivity.RESULT_TOGGLE_RECOGNITION) {
+            toggleRecognitionFromManagement();
+            return;
+        }
+        if (resultCode == FaceRecognitionActivity.RESULT_TOGGLE_DELEGATE) {
+            toggleRecognitionDelegateFromManagement();
+            return;
+        }
+        if (resultCode == FaceRecognitionActivity.RESULT_TOGGLE_MODEL) {
+            toggleRecognitionModelFromManagement();
+            return;
+        }
+        FaceRecognitionManager manager = faceRecognitionManager;
+        if (manager != null && manager.isReady()) {
+            manager.clearTemplates();
+            loadPersistedTemplates(manager, manager.getModelAssetPath(), recogModelChecksum);
+        }
+        if (resultCode != FaceRecognitionActivity.RESULT_ENROLL_REQUESTED || data == null) return;
+        String name = data.getStringExtra(FaceRecognitionActivity.EXTRA_ENROLL_NAME);
+        if (name == null || name.trim().isEmpty()) return;
+        if (manager == null || !manager.isReady()) {
+            showTransientStatus("Face recognition model not ready");
+            return;
+        }
+        pendingEnrollmentId = UUID.randomUUID().toString();
+        pendingEnrollmentName = name.trim();
+        invalidateRecognitionWork();
+        recognitionCoordinator.runExclusive(() -> {
+            enrollEmbeddingBuffer.clear();
+            enrollRequested.set(true);
+        });
+        showTransientStatus("Face the camera to enroll (" + ENROLL_TARGET_FRAME_COUNT + " frames)...");
+    }
+
     @Override protected void onDestroy() {
         signalingClient.clearListener(signalingListener);
         signalingClient.disconnect();
@@ -2196,6 +2280,9 @@ public final class MainActivity extends Activity {
         private Bitmap alignedFace;
         final FaceRecognitionManager manager;
         final boolean enrollment;
+        final String enrollmentId;
+        final String enrollmentName;
+        final String modelChecksum;
         final int pipelineGeneration;
         final long invalidationGeneration;
         final long startedNs;
@@ -2203,11 +2290,16 @@ public final class MainActivity extends Activity {
         final long alignMs;
 
         RecognitionTask(Bitmap alignedFace, FaceRecognitionManager manager, boolean enrollment,
+                        String enrollmentId, String enrollmentName,
+                        String modelChecksum,
                         int pipelineGeneration, long invalidationGeneration,
                         long startedNs, long alignMs) {
             this.alignedFace = alignedFace;
             this.manager = manager;
             this.enrollment = enrollment;
+            this.enrollmentId = enrollmentId;
+            this.enrollmentName = enrollmentName;
+            this.modelChecksum = modelChecksum;
             this.pipelineGeneration = pipelineGeneration;
             this.invalidationGeneration = invalidationGeneration;
             this.startedNs = startedNs;

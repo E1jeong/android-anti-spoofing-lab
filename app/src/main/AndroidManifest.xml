@@ -41,6 +41,10 @@
             android:name=".recognition.FixedInputRecognitionActivity"
             android:exported="false" />
         <activity
+            android:name=".recognition.FaceRecognitionActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+        <activity
             android:name=".call.WebRtcCallActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

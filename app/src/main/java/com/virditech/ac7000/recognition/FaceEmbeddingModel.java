@@ -46,6 +46,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
     private final DelegateType requestedDelegate;
     private final String activeDelegate;
     private final DataType inputDataType;
+    private final boolean inputNchw;
     private final float inputScale;
     private final int inputZeroPoint;
     private final DataType outputDataType;
@@ -127,6 +128,7 @@ public final class FaceEmbeddingModel implements AutoCloseable {
         this.interpreter = createdInterpreter;
         this.activeDelegate = delegateName;
         this.inputDataType = inputTensor.dataType();
+        this.inputNchw = isNchwInput(inputTensor.shape());
         if (inputTensor.quantizationParams() != null) {
             this.inputScale = inputTensor.quantizationParams().getScale();
             this.inputZeroPoint = inputTensor.quantizationParams().getZeroPoint();
@@ -185,7 +187,8 @@ public final class FaceEmbeddingModel implements AutoCloseable {
         if (inputCount != 1 || outputCount != 1) {
             throw new IllegalArgumentException("Face embedding model must have exactly one input and one output");
         }
-        if (!java.util.Arrays.equals(inputShape, new int[]{1, INPUT_SIZE, INPUT_SIZE, 3})) {
+        if (!java.util.Arrays.equals(inputShape, new int[]{1, INPUT_SIZE, INPUT_SIZE, 3})
+                && !isNchwInput(inputShape)) {
             throw new IllegalArgumentException("Unsupported face embedding input shape: "
                     + java.util.Arrays.toString(inputShape));
         }
@@ -205,6 +208,10 @@ public final class FaceEmbeddingModel implements AutoCloseable {
         if (outputType == DataType.INT8 && outputQuantizationScale <= 0f) {
             throw new IllegalArgumentException("INT8 face embedding output requires a positive quantization scale");
         }
+    }
+
+    private static boolean isNchwInput(int[] shape) {
+        return java.util.Arrays.equals(shape, new int[]{1, 3, INPUT_SIZE, INPUT_SIZE});
     }
 
     public String getActiveDelegate() {
@@ -271,31 +278,36 @@ public final class FaceEmbeddingModel implements AutoCloseable {
     private void preprocess(Bitmap bitmap) {
         inputBuffer.rewind();
         bitmap.getPixels(pixelBuffer, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE);
-        if (inputDataType == DataType.FLOAT32) {
-            for (int i = 0; i < pixelBuffer.length; i++) {
-                int pixel = pixelBuffer[i];
-                float r = (((pixel >> 16) & 0xFF) - NORM_MEAN) / NORM_STD;
-                float g = (((pixel >> 8) & 0xFF) - NORM_MEAN) / NORM_STD;
-                float b = ((pixel & 0xFF) - NORM_MEAN) / NORM_STD;
-                inputBuffer.putFloat(r);
-                inputBuffer.putFloat(g);
-                inputBuffer.putFloat(b);
+        if (inputNchw) {
+            for (int channel = 0; channel < 3; channel++) {
+                for (int pixel : pixelBuffer) putInputValue(normalizedChannel(pixel, channel));
             }
         } else {
-            float scale = inputScale > 0f ? inputScale : (1f / 127.5f);
             for (int i = 0; i < pixelBuffer.length; i++) {
                 int pixel = pixelBuffer[i];
-                float r = (((pixel >> 16) & 0xFF) - NORM_MEAN) / NORM_STD;
-                float g = (((pixel >> 8) & 0xFF) - NORM_MEAN) / NORM_STD;
-                float b = ((pixel & 0xFF) - NORM_MEAN) / NORM_STD;
-                int qr = Math.max(-128, Math.min(127, Math.round(r / scale) + inputZeroPoint));
-                int qg = Math.max(-128, Math.min(127, Math.round(g / scale) + inputZeroPoint));
-                int qb = Math.max(-128, Math.min(127, Math.round(b / scale) + inputZeroPoint));
-                inputBuffer.put((byte) qr);
-                inputBuffer.put((byte) qg);
-                inputBuffer.put((byte) qb);
+                putInputValue(normalizedChannel(pixel, 0));
+                putInputValue(normalizedChannel(pixel, 1));
+                putInputValue(normalizedChannel(pixel, 2));
             }
         }
+    }
+
+    private float normalizedChannel(int pixel, int channel) {
+        int value;
+        if (channel == 0) value = (pixel >> 16) & 0xFF;
+        else if (channel == 1) value = (pixel >> 8) & 0xFF;
+        else value = pixel & 0xFF;
+        return (value - NORM_MEAN) / NORM_STD;
+    }
+
+    private void putInputValue(float value) {
+        if (inputDataType == DataType.FLOAT32) {
+            inputBuffer.putFloat(value);
+            return;
+        }
+        float scale = inputScale > 0f ? inputScale : (1f / 127.5f);
+        int quantized = Math.max(-128, Math.min(127, Math.round(value / scale) + inputZeroPoint));
+        inputBuffer.put((byte) quantized);
     }
 
     public static void normalizeL2(float[] vector) {

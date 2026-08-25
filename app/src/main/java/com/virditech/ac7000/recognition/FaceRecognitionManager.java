@@ -106,6 +106,17 @@ public final class FaceRecognitionManager implements AutoCloseable {
         Log.i(TAG, "All enrolled face templates cleared");
     }
 
+    /** Replaces the in-memory search set with templates loaded for the active model. */
+    public void replaceTemplates(List<FaceTemplate> templates) {
+        enrolledTemplates.clear();
+        if (templates != null) enrolledTemplates.addAll(templates);
+    }
+
+    public void removeTemplate(String id) {
+        if (id == null) return;
+        enrolledTemplates.removeIf(template -> id.equals(template.getId()));
+    }
+
     /**
      * Extracts an embedding from an RGB Bitmap with 5-point landmark alignment or fallback crop.
      */

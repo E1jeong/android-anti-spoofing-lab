@@ -22,6 +22,8 @@ public class FaceRecognitionTest {
                 0.01f, 1, new int[]{1, 512}, DataType.INT8, 0.01f);
         FaceEmbeddingModel.validateTensorContract(1, new int[]{1, 112, 112, 3}, DataType.FLOAT32,
                 0f, 1, new int[]{1, 512}, DataType.FLOAT32, 0f);
+        FaceEmbeddingModel.validateTensorContract(1, new int[]{1, 3, 112, 112}, DataType.FLOAT32,
+                0f, 1, new int[]{1, 512}, DataType.FLOAT32, 0f);
     }
 
     @Test
