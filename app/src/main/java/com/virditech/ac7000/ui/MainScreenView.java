@@ -64,6 +64,7 @@ public final class MainScreenView {
     private boolean highQualityOnly;
     private boolean irPreviewVisible;
     private boolean recognitionEnrollmentMode;
+    private boolean collectionActive;
     private CharSequence currentCleanResultText;
 
     public MainScreenView(Activity activity, Listener listener) {
@@ -382,6 +383,10 @@ public final class MainScreenView {
     }
 
     public void toggleUiVisibility() {
+        if (collectionActive) {
+            setUiVisible(true);
+            return;
+        }
         setUiVisible(uiContainer.getVisibility() != View.VISIBLE);
     }
 
@@ -554,6 +559,8 @@ public final class MainScreenView {
     }
 
     public void setCollectionChromeVisible(boolean visible) {
+        collectionActive = !visible;
+        if (collectionActive) setUiVisible(true);
         int visibility = visible ? View.VISIBLE : View.GONE;
         performance.setVisibility(visibility);
         status.setVisibility(visibility);
