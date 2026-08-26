@@ -1,13 +1,16 @@
-# Project: ubio-anti-spoofing (android-anti-spoofing-lab)
+# Anti-Spoofing Viewer AI Guide
 
 ## Start Here
 
 - This is a navigation aid, not a history archive: help the AI locate the runtime flow, source entry points, and authoritative knowledge before working.
-- The Obsidian wiki `Dev/Project/Company/android-anti-spoofing-lab` is the source of truth for runtime contracts, hardware coupling, benchmark baselines, and experiment continuity.
-- Before resuming work or making non-trivial changes, read `overview.md` → `technical/code-structure-performance-diagnosis.md` → `issues/needs-verification.md`.
-- Read [`app/AGENTS.md`](app/AGENTS.md) for package-level code entry points, threading rules, and test boundaries.
+- The Obsidian wiki `Dev/Project/Company/android-anti-spoofing-lab` is the source of truth for runtime contracts, hardware coupling, benchmark baselines, and experiment continuity. Resolve the machine-specific vault through `_meta/routing-tables.md`; do not search arbitrary filesystem copies or use hardcoded `file:///` links.
+- Read its operating documents in order: `README.md` → `handoff.md` → applicable schemas (parent to nearest) → `index.md`. Read `issues/needs-verification.md` only when the task touches uncertainty or an unresolved claim.
+- Before multi-step or resumed implementation, ground the wiki context against the live code, propose `step → verify` checkpoints, and confirm them before editing.
+- Read [`app/AGENTS.md`](app/AGENTS.md) for package-level code entry points, threading rules, and test boundaries when changing the app module.
+- This company-PC checkout is the Android test-app repository; anti-spoofing training/export belongs to the paired `access-liveness-model` repository, while the shared signaling server and operator web belong to `ubio-webrtc`.
+- Use English for code comments, commit messages, maintained Project-wiki pages, and AI operating guides. Report work in the user's language unless they request otherwise.
 
-## Product & Runtime Pipeline
+## Product and Runtime/Pipeline Map
 
 Minimal Android testbed evaluating RGB/IR anti-spoofing TFLite models, MobileFaceNet recognition, and WebRTC on physical UBio-N Face Pro hardware (`com.virditech.ac7000`).
 
@@ -38,7 +41,7 @@ Dual Cameras (RGB + IR)
            └─► [ WebRtcCallActivity + VideoPeerConnection ] ── (Isolated 768x432 15fps video/audio call)
 ```
 
-## Domain Map & First Reads
+## Module/Domain Map and First Reads
 
 | Domain / Package | Ownership | First Source Entry Point | Wiki & Spec Documents |
 | --- | --- | --- | --- |

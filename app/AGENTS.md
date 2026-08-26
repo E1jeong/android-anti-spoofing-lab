@@ -17,7 +17,7 @@
     - Performance diagnostics & P50/P95: [`../docs/performance-guide.md`](../docs/performance-guide.md)
     - WebRTC signaling & handoff: [`../docs/webrtc-test.md`](../docs/webrtc-test.md)
 
-## Boundary & Package Architecture Rules
+## Boundary & Architecture Constraints
 
 1. **`camera` & `calibration`**:
    - `CameraStream` owns Camera2 session lifecycle. Teardown must always be serialized on the camera handler thread.
