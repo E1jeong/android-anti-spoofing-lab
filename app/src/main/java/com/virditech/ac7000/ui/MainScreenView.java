@@ -261,16 +261,18 @@ public final class MainScreenView {
         expandableLayout.addView(attackLiveCaptureButton, menuLayoutParams(buttonWidth));
 
         String[][] classes = {
-                {"live", "live"},
-                {"display", "display"},
-                {"picture", "picture"},
-                {"print", "print"},
-                {"mask", "mask"},
-                {"pmask", "pmask"},
-                {"C PICTURE", "curved_picture"},
-                {"C PRINT", "curved_print"},
-                {"C MASK", "curved_mask"},
-                {"C PMASK", "curved_pmask"}
+                {"live", "live", "#607D8B"},
+                {"display", "display", "#607D8B"},
+                {"picture", "picture", "#607D8B"},
+                {"print", "print", "#607D8B"},
+                {"mask", "mask", "#607D8B"},
+                {"pmask", "pmask", "#607D8B"},
+                {"C PICTURE", "curved_picture", "#607D8B"},
+                {"C PRINT", "curved_print", "#607D8B"},
+                {"C MASK", "curved_mask", "#607D8B"},
+                {"C PMASK", "curved_pmask", "#607D8B"},
+                {"DENTAL WHITE", "dental_white", "#607D8B"},
+                {"DENTAL BLACK", "dental_black", "#607D8B"}
         };
         for (String[] classOption : classes) {
             String buttonText = classOption[0];
@@ -278,7 +280,7 @@ public final class MainScreenView {
             Button button = new Button(activity);
             button.setText(buttonText);
             button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    Color.parseColor("#37474F")));
+                    Color.parseColor(classOption[2])));
             button.setTextColor(Color.WHITE);
             button.setOnClickListener(v -> {
                 listener.onStartCollection(className);
@@ -291,7 +293,7 @@ public final class MainScreenView {
     private LinearLayout.LayoutParams menuLayoutParams(int buttonWidth) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.bottomMargin = dp(4);
+        params.bottomMargin = dp(2);
         return params;
     }
 
@@ -300,8 +302,10 @@ public final class MainScreenView {
         button.setText(text);
         button.setEnabled(false);
         button.setOnClickListener(listener);
-        controlsLayout.addView(button, new LinearLayout.LayoutParams(
-                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = dp(-2);
+        controlsLayout.addView(button, params);
     }
 
     private void buildCalibrationControls(Listener listener, int buttonWidth) {

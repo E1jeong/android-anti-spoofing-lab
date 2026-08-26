@@ -6,8 +6,8 @@ Read this document before changing capture collection, FaceMe quality gating, sa
 
 - `START CAPTURE` writes exactly 100 valid samples per selected class.
 - For `live`, each save candidate must meet the selected FaceMe HIGH or MEDIUM quality threshold. Rejected frames do not increment the saved count or sector count.
-- Non-live classes (`display`, `picture`, `print`, `mask`, `pmask`, `curved_picture`, `curved_print`, `curved_mask`, `curved_pmask`) bypass FaceMe quality checks.
-- The class menu keeps the original six buttons first, followed by `C PICTURE`, `C PRINT`, `C MASK`, and `C PMASK` in that order.
+- Non-live classes (`display`, `picture`, `print`, `mask`, `pmask`, `curved_picture`, `curved_print`, `curved_mask`, `curved_pmask`, `dental_white`, `dental_black`) bypass FaceMe quality checks.
+- The class menu keeps the original six buttons first, followed by `C PICTURE`, `C PRINT`, `C MASK`, `C PMASK`, `DENTAL WHITE`, and `DENTAL BLACK` in that order.
 - Capture can be paused and resumed. Cancel invalidates queued work and deletes the current subject directory, including samples already saved during that session.
 - A sample count advances only after `RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, and `meta.json` all save successfully.
 
