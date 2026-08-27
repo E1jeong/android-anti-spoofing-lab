@@ -158,7 +158,7 @@ public final class MainScreenView {
         FrameLayout.LayoutParams irCropParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
         irCropParams.width = buttonWidth;
         irCropParams.height = buttonWidth;
-        uiContainer.addView(irCropContainer, irCropParams);
+        root.addView(irCropContainer, irCropParams);
 
         faceCropView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         faceCropView.setBackgroundColor(Color.parseColor("#44000000"));
@@ -406,8 +406,10 @@ public final class MainScreenView {
             ClassificationResult ir = slotResult.irResult;
             String rgbText = rgb != null ? formatResult(rgb) : "-";
             String irText = ir != null ? formatResult(ir) : "-";
-            int rgbColor = (rgb != null && rgb.topIndex == 0) ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
-            int irColor = (ir != null && ir.topIndex == 0) ? Color.rgb(64, 196, 255) : Color.rgb(255, 82, 82);
+            int rgbColor = (rgb != null && ClassificationResult.shouldHighlightFaceInGreen(rgb.topIndex))
+                    ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+            int irColor = (ir != null && ClassificationResult.shouldHighlightFaceInGreen(ir.topIndex))
+                    ? Color.rgb(64, 196, 255) : Color.rgb(255, 82, 82);
 
             String fullStr = "RGB: " + rgbText + "   IR: " + irText;
             SpannableString spannable = new SpannableString(fullStr);
@@ -424,7 +426,8 @@ public final class MainScreenView {
                 clearCleanModeResult();
                 return;
             }
-            int color = primary.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+            int color = ClassificationResult.shouldHighlightFaceInGreen(primary.topIndex)
+                    ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
             String text = formatResult(primary);
             SpannableString spannable = new SpannableString(text);
             spannable.setSpan(new ForegroundColorSpan(color), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -445,6 +448,7 @@ public final class MainScreenView {
                 && currentCleanResultText != null
                 && currentCleanResultText.length() > 0;
         cleanModeResultView.setVisibility(showClean ? View.VISIBLE : View.GONE);
+        if (showClean) root.bringChildToFront(cleanModeResultView);
     }
 
     private static String formatResult(ClassificationResult result) {
