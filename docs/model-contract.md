@@ -14,8 +14,8 @@ Read this document before changing models, manifests, tensor mapping, preprocess
 ## Tensor and Output Contract
 
 - The parser accepts `FLOAT32`, `UINT8`, and `INT8` inputs, but current deployment verification covers float and full INT8 only. UINT8 normalization/quantization semantics are not yet verified against an exported model.
-- The model must have one `FLOAT32` or `INT8` output with shape `[1,10]`.
-- Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `PMASK`, `CURVED_PRINT`, `CURVED_MASK`, `CURVED_PICTURE`, `CURVED_PMASK`. They must match `ClassificationResult.LABELS`; internal class identifiers and capture paths use lowercase names.
+- The model must have one `FLOAT32` or `INT8` output with shape `[1,12]`.
+- Output indices are fixed in this order: `LIVE`, `PRINT`, `PICTURE`, `MASK`, `DISPLAY`, `PMASK`, `CURVED_PRINT`, `CURVED_MASK`, `CURVED_PICTURE`, `CURVED_PMASK`, `DENTAL_WHITE`, `DENTAL_BLACK`. They must match `ClassificationResult.LABELS`; internal class identifiers and capture paths use lowercase names.
 - Spec JSONs control channel order (RGB/BGR), normalization values, delegate backend (`cpu`/`nnapi`), whether output contains logits, and crop margin ratio.
 - The current IR spec uses `[0.5]` mean/std normalization and `delegate: nnapi`.
 - Do not change preprocessing, output ordering, tensor assumptions, or normalization without updating the contract and verifying against the exact exported model assigned in the manifest.
@@ -32,7 +32,7 @@ Read this document before changing models, manifests, tensor mapping, preprocess
 - `master` is the current manifest-based evaluator supporting single 1-input, paired 1-input, dual 2-input, and 5-input slots. Model files, sidecar JSON, and `model_manifest.json` are ignored local assets; a fresh checkout has no selected slot until they are provisioned.
 - `codex/keras-5-input-tflite` is an earlier standard/NPU hot-swap and 5-input experiment. Do not copy its slot assumptions into `master` documentation.
 - The previous RGB fold3/IR fold4 INT8 pairing was observed on target hardware with both NNAPI backend labels and six-class output.
-- The local fixed IR 1-input slot now uses a 10-class NPU-friendly INT8 export. Its sidecar and TFLite tensors agree on IR input `[1,224,224,1]`, INT8 output logits `[1,10]`, and the fixed class order. Target-device NNAPI warmup, 10 probabilities, latency/FPS, and overlay verification remain required.
+- The local fixed IR 1-input asset remains a 10-class NPU-friendly INT8 export until the 12-class artifact and sidecar are copied into `assets/`; it will be rejected by the current `[1,12]` output contract. The replacement model must use IR input `[1,224,224,1]`, INT8 output logits `[1,12]`, and the fixed class order. Target-device NNAPI warmup, 12 probabilities, latency/FPS, and overlay verification remain required.
 
 ## Validation
 

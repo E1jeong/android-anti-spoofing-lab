@@ -3,7 +3,8 @@ package com.virditech.ac7000.model;
 public final class ClassificationResult {
     public static final String[] LABELS = {
             "LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK",
-            "CURVED_PRINT", "CURVED_MASK", "CURVED_PICTURE", "CURVED_PMASK"
+            "CURVED_PRINT", "CURVED_MASK", "CURVED_PICTURE", "CURVED_PMASK",
+            "DENTAL_WHITE", "DENTAL_BLACK"
     };
     public final float[] probabilities;
     public final int topIndex;
@@ -24,5 +25,9 @@ public final class ClassificationResult {
     public static String displayLabel(int index) {
         String label = LABELS[index];
         return label.startsWith("CURVED_") ? "C " + label.substring("CURVED_".length()) : label;
+    }
+
+    public static boolean shouldHighlightFaceInGreen(int index) {
+        return index == 0 || index == 10 || index == 11;
     }
 }

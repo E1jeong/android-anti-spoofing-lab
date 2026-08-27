@@ -156,7 +156,8 @@ public final class OverlayView extends View {
             color = Color.CYAN;
         } else {
             color = result == null ? Color.YELLOW
-                    : result.topIndex == 0 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+                    : ClassificationResult.shouldHighlightFaceInGreen(result.topIndex)
+                    ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         }
         boxPaint.setColor(color);
         canvas.drawRect(box, boxPaint);

@@ -11,7 +11,8 @@ public class ClassificationResultTest {
         assertArrayEquals(
                 new String[]{
                         "LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK",
-                        "CURVED_PRINT", "CURVED_MASK", "CURVED_PICTURE", "CURVED_PMASK"
+                        "CURVED_PRINT", "CURVED_MASK", "CURVED_PICTURE", "CURVED_PMASK",
+                        "DENTAL_WHITE", "DENTAL_BLACK"
                 },
                 ClassificationResult.LABELS);
     }
@@ -30,6 +31,15 @@ public class ClassificationResultTest {
     public void displayLabelShortensCurvedClassNames() {
         assertEquals("C PRINT", ClassificationResult.displayLabel(6));
         assertEquals("C PMASK", ClassificationResult.displayLabel(9));
+        assertEquals("DENTAL_WHITE", ClassificationResult.displayLabel(10));
+    }
+
+    @Test
+    public void dentalMaskClassesHighlightFaceInGreen() {
+        assertEquals(true, ClassificationResult.shouldHighlightFaceInGreen(0));
+        assertEquals(true, ClassificationResult.shouldHighlightFaceInGreen(10));
+        assertEquals(true, ClassificationResult.shouldHighlightFaceInGreen(11));
+        assertEquals(false, ClassificationResult.shouldHighlightFaceInGreen(1));
     }
 
     @Test
