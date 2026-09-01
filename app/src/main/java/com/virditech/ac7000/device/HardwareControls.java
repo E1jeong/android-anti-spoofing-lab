@@ -11,14 +11,29 @@ public final class HardwareControls {
     private static final String IR_LED_BRIGHTNESS = "/sys/class/backlight/irled_backlight/brightness";
     private static final String LCD_BRIGHTNESS = "/sys/class/backlight/dsi_backlight/brightness";
 
+    private static final Object IR_LED_LOCK = new Object();
+    private static Boolean currentIrLedState = null;
+
     private HardwareControls() {}
 
     public static void setIrLed(boolean enabled) {
-        write(IR_LED_BRIGHTNESS, enabled ? 100 : 0);
+        synchronized (IR_LED_LOCK) {
+            if (currentIrLedState != null && currentIrLedState == enabled) {
+                return;
+            }
+            write(IR_LED_BRIGHTNESS, enabled ? 100 : 0);
+            currentIrLedState = enabled;
+        }
     }
 
     public static void setLcdBrightness(int brightness) {
         write(LCD_BRIGHTNESS, clamp(brightness));
+    }
+
+    static void resetCacheForTest() {
+        synchronized (IR_LED_LOCK) {
+            currentIrLedState = null;
+        }
     }
 
     private static void write(String path, int value) {

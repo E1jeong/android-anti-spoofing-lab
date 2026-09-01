@@ -93,6 +93,7 @@ public final class MainActivity extends Activity {
     private static final int COLLECTION_MEDIUM_QUALITY_LEVEL = 1;
     private static final int LATENCY_WINDOW_SIZE = 120;
     private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
+    private static final long IR_LED_OFF_DELAY_MS = 1_000L;
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -673,7 +674,7 @@ public final class MainActivity extends Activity {
         if (!resumed || cameras != null || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
         final int generation = pipelineGeneration.advance();
         HardwareControls.setLcdBrightness(90);
-        HardwareControls.setIrLed(true);
+        HardwareControls.setIrLed(false);
         applyIrAutoExposure();
         cameras = new DualCameraController(this, rgbView, irView, new DualCameraController.Listener() {
             @Override public void onRgb(FrameData frame) { submitTracking(frame, generation); }
@@ -729,6 +730,7 @@ public final class MainActivity extends Activity {
             cameras = null;
         }
         HardwareControls.setIrLed(false);
+        lastFaceDetectedMs = 0L;
         clearPendingWork();
         overlay.clearResult();
         if (screen != null) screen.clearCleanModeResult();
@@ -847,6 +849,10 @@ public final class MainActivity extends Activity {
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         updateTrackingFps();
         if (detected == null) {
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastFaceDetectedMs >= IR_LED_OFF_DELAY_MS) {
+                HardwareControls.setIrLed(false);
+            }
             inferenceMotionGate.reset();
             if (recognitionFaceVisible.getAndSet(false)) invalidateRecognitionWork();
             synchronized (authScoreBuffer) {
@@ -881,6 +887,7 @@ public final class MainActivity extends Activity {
             return;
         } else {
             lastFaceDetectedMs = SystemClock.elapsedRealtime();
+            HardwareControls.setIrLed(true);
         }
         int irWidth = frame.ir == null ? frame.rgb.bitmap.getWidth() : frame.ir.bitmap.getWidth();
         int irHeight = frame.ir == null ? frame.rgb.bitmap.getHeight() : frame.ir.bitmap.getHeight();
