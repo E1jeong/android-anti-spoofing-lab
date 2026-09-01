@@ -19,6 +19,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.model.ClassificationResult;
 import com.virditech.ac7000.model.SlotClassificationResult;
 
@@ -31,6 +32,7 @@ public final class MainScreenView {
     public final TextureView irView;
     public final OverlayView overlay;
     public final TextView cleanModeResultView;
+    public final TextView cleanModeLightingView;
     public final ProgressBar loadingSpinner;
     public final ProgressBar irLoadingSpinner;
     public final TextView performance;
@@ -64,6 +66,10 @@ public final class MainScreenView {
     private boolean recognitionEnrollmentMode;
     private boolean collectionActive;
     private CharSequence currentCleanResultText;
+    private DualLightingDetector.Result currentLightingResult;
+    private boolean lightingTestEnabled;
+    private long lastLightingUiUpdateMs;
+    private DualLightingDetector.Condition lastLightingCondition;
 
     public MainScreenView(Activity activity, Listener listener) {
         this.activity = activity;
@@ -73,6 +79,7 @@ public final class MainScreenView {
         irView = new TextureView(activity);
         overlay = new OverlayView(activity);
         cleanModeResultView = new TextView(activity);
+        cleanModeLightingView = new TextView(activity);
         loadingSpinner = new ProgressBar(activity);
         performance = label(22f);
         resultsLabel = label(32f);
@@ -105,6 +112,7 @@ public final class MainScreenView {
         int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
         buildPreview();
         buildCleanModeResultView();
+        buildCleanModeLightingView();
         buildDiagnostics(buttonWidth);
         buildIrCrop(listener, buttonWidth);
         buildCaptureIndicators(listener);
@@ -373,10 +381,28 @@ public final class MainScreenView {
         root.addView(cleanModeResultView, params);
     }
 
+    private void buildCleanModeLightingView() {
+        cleanModeLightingView.setTextSize(18f);
+        cleanModeLightingView.setTypeface(Typeface.DEFAULT_BOLD);
+        cleanModeLightingView.setShadowLayer(6f, 1f, 1f, Color.BLACK);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor("#B0000000"));
+        bg.setCornerRadius(dp(12));
+        cleanModeLightingView.setBackground(bg);
+        cleanModeLightingView.setPadding(dp(18), dp(10), dp(18), dp(10));
+        cleanModeLightingView.setVisibility(View.GONE);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START);
+        params.setMargins(dp(16), 0, dp(16), dp(24));
+        root.addView(cleanModeLightingView, params);
+    }
+
     private void buildTapListener() {
         uiContainer.setOnClickListener(v -> toggleUiVisibility());
         root.setOnClickListener(v -> toggleUiVisibility());
         cleanModeResultView.setOnClickListener(v -> toggleUiVisibility());
+        cleanModeLightingView.setOnClickListener(v -> toggleUiVisibility());
     }
 
     public void toggleUiVisibility() {
@@ -390,10 +416,60 @@ public final class MainScreenView {
     public void setUiVisible(boolean visible) {
         uiContainer.setVisibility(visible ? View.VISIBLE : View.GONE);
         updateCleanModeResultVisibility();
+        updateCleanModeLightingVisibility();
     }
 
     public boolean isUiVisible() {
         return uiContainer.getVisibility() == View.VISIBLE;
+    }
+
+    public void showCleanModeLighting(DualLightingDetector.Result lighting, boolean enabled) {
+        this.currentLightingResult = lighting;
+        this.lightingTestEnabled = enabled;
+        if (lighting == null || !enabled) {
+            cleanModeLightingView.setText("");
+            lastLightingCondition = null;
+            updateCleanModeLightingVisibility();
+            return;
+        }
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (lighting.condition == lastLightingCondition && (now - lastLightingUiUpdateMs < 100L)) {
+            updateCleanModeLightingVisibility();
+            return;
+        }
+        lastLightingUiUpdateMs = now;
+        lastLightingCondition = lighting.condition;
+
+        String title = "[LIGHT] " + lighting.condition.label;
+        String faceLabel = lighting.hasFace ? "Face" : "Center";
+        String detail = String.format(Locale.US,
+                "\nRGB %s:%.0f  Bg:%.0f (%.1fx, Sat:%.1f%%)\nIR Mean:%.0f (Sat:%.1f%%)",
+                faceLabel, lighting.rgbFaceMean, lighting.rgbBgMean, lighting.rgbRatio, lighting.rgbSatPct,
+                lighting.irFullMean, lighting.irSatPct);
+
+        SpannableString spannable = new SpannableString(title + detail);
+        spannable.setSpan(new ForegroundColorSpan(lighting.condition.color), 0, title.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        spannable.setSpan(new ForegroundColorSpan(Color.WHITE), title.length(), spannable.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        cleanModeLightingView.setText(spannable);
+        updateCleanModeLightingVisibility();
+    }
+
+    public void clearCleanModeLighting() {
+        this.currentLightingResult = null;
+        this.lastLightingCondition = null;
+        cleanModeLightingView.setText("");
+        updateCleanModeLightingVisibility();
+    }
+
+    private void updateCleanModeLightingVisibility() {
+        boolean show = uiContainer.getVisibility() != View.VISIBLE
+                && lightingTestEnabled
+                && currentLightingResult != null;
+        cleanModeLightingView.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) root.bringChildToFront(cleanModeLightingView);
     }
 
     public void showCleanModeResult(SlotClassificationResult slotResult) {
@@ -427,7 +503,7 @@ public final class MainScreenView {
                 return;
             }
             int color = ClassificationResult.shouldHighlightFaceInGreen(primary.topIndex)
-                    ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+                ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
             String text = formatResult(primary);
             SpannableString spannable = new SpannableString(text);
             spannable.setSpan(new ForegroundColorSpan(color), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);

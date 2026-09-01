@@ -48,6 +48,7 @@ import com.virditech.ac7000.concurrent.GenerationGuard;
 import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.face.FaceDetectionEngine;
 import com.virditech.ac7000.face.MediaPipeFaceDetector;
+import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.HardwareControls;
 import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
@@ -202,6 +203,7 @@ public final class MainActivity extends Activity {
     private String recogModelPath = FaceEmbeddingModel.DEFAULT_MODEL_PATH;
     private volatile boolean authMode;
     private volatile boolean motionGateEnabled = false;
+    private volatile boolean lightingTestEnabled = false;
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
     private final List<float[]> authScoreBuffer = new ArrayList<>();
@@ -356,6 +358,7 @@ public final class MainActivity extends Activity {
                 "WEBRTC",
                 "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
                 "MOTION GATE (" + (motionGateEnabled ? "ON" : "OFF") + ")",
+                "LIGHTING TEST (" + (lightingTestEnabled ? "ON" : "OFF") + ")",
                 "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE"),
                 "FACE MANAGEMENT"
         };
@@ -371,8 +374,10 @@ public final class MainActivity extends Activity {
                     } else if (which == 3) {
                         toggleMotionGate();
                     } else if (which == 4) {
-                        toggleFaceDetector();
+                        toggleLightingTest();
                     } else if (which == 5) {
+                        toggleFaceDetector();
+                    } else if (which == 6) {
                         openFaceManagement();
                     }
                 })
@@ -397,6 +402,14 @@ public final class MainActivity extends Activity {
         if (screen != null) screen.clearCleanModeResult();
         resetResultsLabelToZero();
         showTransientStatus("Motion Gate " + (motionGateEnabled ? "ON" : "OFF"));
+    }
+
+    private void toggleLightingTest() {
+        lightingTestEnabled = !lightingTestEnabled;
+        if (!lightingTestEnabled && screen != null) {
+            screen.clearCleanModeLighting();
+        }
+        showTransientStatus("Lighting Test " + (lightingTestEnabled ? "ON" : "OFF"));
     }
 
     private void openFaceManagement() {
@@ -859,12 +872,32 @@ public final class MainActivity extends Activity {
                 authScoreBuffer.clear();
                 authStartNs = 0L;
             }
+
+            DualLightingDetector.Result noFaceLighting = null;
+            if (lightingTestEnabled) {
+                if (frame.ir != null) {
+                    noFaceLighting = DualLightingDetector.evaluate(
+                            frame.rgb.bitmap, frame.ir.bitmap, null, null);
+                } else {
+                    synchronized (irPreviewLock) {
+                        Bitmap fallback = (latestIrBitmapForCrop != null && !latestIrBitmapForCrop.isRecycled())
+                                ? latestIrBitmapForCrop : null;
+                        noFaceLighting = DualLightingDetector.evaluate(
+                                frame.rgb.bitmap, fallback, null, null);
+                    }
+                }
+            }
+            final DualLightingDetector.Result finalNoFaceLighting = noFaceLighting;
+
             runOnUiThread(() -> {
                 if (!isPipelineCurrent(frame.generation)) return;
                 overlay.clearResult();
                 overlay.clearRecognitionResult();
                 recognitionInferenceMs = -1L;
-                if (screen != null) screen.clearCleanModeResult();
+                if (screen != null) {
+                    screen.clearCleanModeResult();
+                    screen.showCleanModeLighting(finalNoFaceLighting, lightingTestEnabled);
+                }
                 clearPreviewFace();
                 faceCropView.setScaleX(1f);
                 noFaceLabel.setVisibility(View.VISIBLE);
@@ -874,10 +907,10 @@ public final class MainActivity extends Activity {
                 if (captureCalibration) {
                     calibrationInstruction.setText("Exactly one RGB face is required. Try again.");
                 } else {
-                    long now = SystemClock.elapsedRealtime();
-                    if (now - lastUiUpdateTimeMs >= 150L) {
+                    long nowUi = SystemClock.elapsedRealtime();
+                    if (nowUi - lastUiUpdateTimeMs >= 150L) {
                         performance.setText(formatPerformance());
-                        lastUiUpdateTimeMs = now;
+                        lastUiUpdateTimeMs = nowUi;
                     }
                     if (SystemClock.elapsedRealtime() - lastFaceDetectedMs > 10_000L) {
                         resetResultsLabelToZero();
@@ -960,12 +993,31 @@ public final class MainActivity extends Activity {
         final Bitmap finalPreviewFace = previewFace;
         final boolean finalPreviewRgb = previewRgb;
 
+        DualLightingDetector.Result lightingResult = null;
+        if (lightingTestEnabled) {
+            if (frame.ir != null) {
+                lightingResult = DualLightingDetector.evaluate(
+                        frame.rgb.bitmap, frame.ir.bitmap, detected, irDetected);
+            } else {
+                synchronized (irPreviewLock) {
+                    Bitmap fallback = (latestIrBitmapForCrop != null && !latestIrBitmapForCrop.isRecycled())
+                            ? latestIrBitmapForCrop : null;
+                    lightingResult = DualLightingDetector.evaluate(
+                            frame.rgb.bitmap, fallback, detected, irDetected);
+                }
+            }
+        }
+        final DualLightingDetector.Result finalLightingResult = lightingResult;
+
         runOnUiThread(() -> {
             if (!isPipelineCurrent(frame.generation)) {
                 if (finalPreviewFace != null) finalPreviewFace.recycle();
                 return;
             }
             overlay.showFace(detected, irDetected);
+            if (screen != null) {
+                screen.showCleanModeLighting(finalLightingResult, lightingTestEnabled);
+            }
             if (isCollecting) {
                 updateCollectionUi(SystemClock.elapsedRealtime());
             }
