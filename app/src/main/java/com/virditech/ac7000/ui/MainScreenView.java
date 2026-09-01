@@ -33,6 +33,7 @@ public final class MainScreenView {
     public final OverlayView overlay;
     public final TextView cleanModeResultView;
     public final TextView cleanModeLightingView;
+    public final Button cleanModeSnapshotButton;
     public final ProgressBar loadingSpinner;
     public final ProgressBar irLoadingSpinner;
     public final TextView performance;
@@ -80,6 +81,7 @@ public final class MainScreenView {
         overlay = new OverlayView(activity);
         cleanModeResultView = new TextView(activity);
         cleanModeLightingView = new TextView(activity);
+        cleanModeSnapshotButton = new Button(activity);
         loadingSpinner = new ProgressBar(activity);
         performance = label(22f);
         resultsLabel = label(32f);
@@ -112,7 +114,7 @@ public final class MainScreenView {
         int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
         buildPreview();
         buildCleanModeResultView();
-        buildCleanModeLightingView();
+        buildCleanModeLightingView(listener);
         buildDiagnostics(buttonWidth);
         buildIrCrop(listener, buttonWidth);
         buildCaptureIndicators(listener);
@@ -381,21 +383,40 @@ public final class MainScreenView {
         root.addView(cleanModeResultView, params);
     }
 
-    private void buildCleanModeLightingView() {
-        cleanModeLightingView.setTextSize(18f);
+    private void buildCleanModeLightingView(Listener listener) {
+        cleanModeLightingView.setTextSize(17f);
         cleanModeLightingView.setTypeface(Typeface.DEFAULT_BOLD);
         cleanModeLightingView.setShadowLayer(6f, 1f, 1f, Color.BLACK);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#B0000000"));
+        bg.setColor(Color.parseColor("#C8000000"));
         bg.setCornerRadius(dp(12));
+        bg.setStroke(dp(1), Color.parseColor("#44FFFFFF"));
         cleanModeLightingView.setBackground(bg);
-        cleanModeLightingView.setPadding(dp(18), dp(10), dp(18), dp(10));
+        cleanModeLightingView.setPadding(dp(16), dp(10), dp(16), dp(10));
         cleanModeLightingView.setVisibility(View.GONE);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM | Gravity.START);
-        params.setMargins(dp(16), 0, dp(16), dp(24));
+        params.setMargins(dp(16), 0, dp(16), dp(20));
         root.addView(cleanModeLightingView, params);
+
+        cleanModeSnapshotButton.setText("📸 SNAPSHOT");
+        cleanModeSnapshotButton.setTextColor(Color.WHITE);
+        cleanModeSnapshotButton.setTextSize(15f);
+        cleanModeSnapshotButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        GradientDrawable btnBg = new GradientDrawable();
+        btnBg.setColor(Color.parseColor("#E6E65100")); // Deep Orange translucent
+        btnBg.setCornerRadius(dp(12));
+        btnBg.setStroke(dp(1), Color.WHITE);
+        cleanModeSnapshotButton.setBackground(btnBg);
+        cleanModeSnapshotButton.setPadding(dp(16), dp(10), dp(16), dp(10));
+        cleanModeSnapshotButton.setVisibility(View.GONE);
+        cleanModeSnapshotButton.setOnClickListener(v -> listener.onLightingSnapshotRequested());
+        FrameLayout.LayoutParams btnParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.END);
+        btnParams.setMargins(dp(16), 0, dp(16), dp(20));
+        root.addView(cleanModeSnapshotButton, btnParams);
     }
 
     private void buildTapListener() {
@@ -440,12 +461,13 @@ public final class MainScreenView {
         lastLightingUiUpdateMs = now;
         lastLightingCondition = lighting.condition;
 
-        String title = "[LIGHT] " + lighting.condition.label;
+        String title = "[LIGHT EXP] " + lighting.condition.label;
         String faceLabel = lighting.hasFace ? "Face" : "Center";
         String detail = String.format(Locale.US,
-                "\nRGB %s:%.0f  Bg:%.0f (%.1fx, Sat:%.1f%%)\nIR Mean:%.0f (Sat:%.1f%%)",
-                faceLabel, lighting.rgbFaceMean, lighting.rgbBgMean, lighting.rgbRatio, lighting.rgbSatPct,
-                lighting.irFullMean, lighting.irSatPct);
+                "\nMean:%.0f  P90:%.0f  P10:%.0f  (CR:%.1fx)\nRGB %s:%.0f  Bg:%.0f (Sat:%.1f%%) | IR:%.0f",
+                lighting.rgbGlobalMean, lighting.rgbP90, lighting.rgbP10, lighting.rgbContrastRatio,
+                faceLabel, lighting.rgbFaceMean, lighting.rgbBgMean, lighting.rgbSatPct,
+                lighting.irFullMean);
 
         SpannableString spannable = new SpannableString(title + detail);
         spannable.setSpan(new ForegroundColorSpan(lighting.condition.color), 0, title.length(),
@@ -469,7 +491,11 @@ public final class MainScreenView {
                 && lightingTestEnabled
                 && currentLightingResult != null;
         cleanModeLightingView.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (show) root.bringChildToFront(cleanModeLightingView);
+        cleanModeSnapshotButton.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            root.bringChildToFront(cleanModeLightingView);
+            root.bringChildToFront(cleanModeSnapshotButton);
+        }
     }
 
     public void showCleanModeResult(SlotClassificationResult slotResult) {
@@ -763,5 +789,6 @@ public final class MainScreenView {
         void onRecognitionEnrollmentStart();
         void onCalibrationTap();
         void onSettingsTap();
+        void onLightingSnapshotRequested();
     }
 }

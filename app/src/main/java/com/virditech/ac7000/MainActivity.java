@@ -50,6 +50,7 @@ import com.virditech.ac7000.face.FaceDetectionEngine;
 import com.virditech.ac7000.face.MediaPipeFaceDetector;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.HardwareControls;
+import com.virditech.ac7000.device.LightingExperimentLogger;
 import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
@@ -204,6 +205,7 @@ public final class MainActivity extends Activity {
     private volatile boolean authMode;
     private volatile boolean motionGateEnabled = false;
     private volatile boolean lightingTestEnabled = false;
+    private volatile DualLightingDetector.Result latestLightingResult;
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
     private final List<float[]> authScoreBuffer = new ArrayList<>();
@@ -288,6 +290,8 @@ public final class MainActivity extends Activity {
             @Override public void onCalibrationTap() { recordCalibrationTap(); }
 
             @Override public void onSettingsTap() { recordSettingsTap(); }
+
+            @Override public void onLightingSnapshotRequested() { recordLightingSnapshot(); }
         });
         rgbView = screen.rgbView;
         irView = screen.irView;
@@ -359,6 +363,7 @@ public final class MainActivity extends Activity {
                 "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
                 "MOTION GATE (" + (motionGateEnabled ? "ON" : "OFF") + ")",
                 "LIGHTING TEST (" + (lightingTestEnabled ? "ON" : "OFF") + ")",
+                "LOG LIGHTING SNAPSHOT",
                 "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE"),
                 "FACE MANAGEMENT"
         };
@@ -376,8 +381,10 @@ public final class MainActivity extends Activity {
                     } else if (which == 4) {
                         toggleLightingTest();
                     } else if (which == 5) {
-                        toggleFaceDetector();
+                        recordLightingSnapshot();
                     } else if (which == 6) {
+                        toggleFaceDetector();
+                    } else if (which == 7) {
                         openFaceManagement();
                     }
                 })
@@ -410,6 +417,30 @@ public final class MainActivity extends Activity {
             screen.clearCleanModeLighting();
         }
         showTransientStatus("Lighting Test " + (lightingTestEnabled ? "ON" : "OFF"));
+    }
+
+    private void recordLightingSnapshot() {
+        DualLightingDetector.Result result = latestLightingResult;
+        if (result == null) {
+            showTransientStatus("No active lighting frame data");
+            return;
+        }
+        if (captureTone != null) {
+            try {
+                captureTone.startTone(ToneGenerator.TONE_PROP_BEEP, 60);
+            } catch (Exception ignored) {}
+        }
+        LightingExperimentLogger.recordSnapshot(result, "EXP", new LightingExperimentLogger.LogCallback() {
+            @Override
+            public void onLogged(int sampleId, String message) {
+                runOnUiThread(() -> showTransientStatus("Saved " + message));
+            }
+
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> showTransientStatus("Log Error: " + error));
+            }
+        });
     }
 
     private void openFaceManagement() {
@@ -888,6 +919,7 @@ public final class MainActivity extends Activity {
                 }
             }
             final DualLightingDetector.Result finalNoFaceLighting = noFaceLighting;
+            latestLightingResult = finalNoFaceLighting;
 
             runOnUiThread(() -> {
                 if (!isPipelineCurrent(frame.generation)) return;
@@ -1008,6 +1040,7 @@ public final class MainActivity extends Activity {
             }
         }
         final DualLightingDetector.Result finalLightingResult = lightingResult;
+        latestLightingResult = finalLightingResult;
 
         runOnUiThread(() -> {
             if (!isPipelineCurrent(frame.generation)) {
