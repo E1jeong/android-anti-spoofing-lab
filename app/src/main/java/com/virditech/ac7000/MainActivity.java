@@ -184,7 +184,7 @@ public final class MainActivity extends Activity {
     private long lastCalibrationTapMs;
     private int settingsTapCount;
     private long lastSettingsTapMs;
-    private boolean irCenterAutoExposure = true;
+    private boolean irCenterAutoExposure = false;
     private static final int AUTH_FRAME_COUNT = 5;
     private static final float AUTH_LIVE_THRESHOLD = 0.85f;
     private volatile FaceRecognitionManager faceRecognitionManager;
@@ -200,7 +200,7 @@ public final class MainActivity extends Activity {
     private FaceEmbeddingModel.DelegateType recogDelegate = FaceEmbeddingModel.DEFAULT_DELEGATE;
     private String recogModelPath = FaceEmbeddingModel.DEFAULT_MODEL_PATH;
     private volatile boolean authMode;
-    private volatile boolean motionGateEnabled = true;
+    private volatile boolean motionGateEnabled = false;
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
     private final List<float[]> authScoreBuffer = new ArrayList<>();
