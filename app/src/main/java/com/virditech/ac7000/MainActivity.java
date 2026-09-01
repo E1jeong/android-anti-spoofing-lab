@@ -206,6 +206,7 @@ public final class MainActivity extends Activity {
     private volatile boolean motionGateEnabled = false;
     private volatile boolean lightingTestEnabled = false;
     private volatile DualLightingDetector.Result latestLightingResult;
+    private final AtomicBoolean lightingSnapshotRequested = new AtomicBoolean(false);
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
     private final List<float[]> authScoreBuffer = new ArrayList<>();
@@ -420,27 +421,45 @@ public final class MainActivity extends Activity {
     }
 
     private void recordLightingSnapshot() {
-        DualLightingDetector.Result result = latestLightingResult;
-        if (result == null) {
-            showTransientStatus("No active lighting frame data");
-            return;
-        }
         if (captureTone != null) {
             try {
                 captureTone.startTone(ToneGenerator.TONE_PROP_BEEP, 60);
             } catch (Exception ignored) {}
         }
-        LightingExperimentLogger.recordSnapshot(result, "EXP", new LightingExperimentLogger.LogCallback() {
-            @Override
-            public void onLogged(int sampleId, String message) {
-                runOnUiThread(() -> showTransientStatus("Saved " + message));
-            }
+        lightingSnapshotRequested.set(true);
+        showTransientStatus("Capturing lighting snapshot & photos...");
+    }
 
-            @Override
-            public void onError(String error) {
-                runOnUiThread(() -> showTransientStatus("Log Error: " + error));
+    private void saveLightingSnapshot(TrackingFrame frame, DualLightingDetector.Result result) {
+        if (frame == null || frame.rgb == null || frame.rgb.bitmap == null || frame.rgb.bitmap.isRecycled()) {
+            return;
+        }
+        Bitmap rgbCopy = Bitmap.createBitmap(frame.rgb.bitmap);
+        Bitmap irCopy = null;
+        if (frame.ir != null && frame.ir.bitmap != null && !frame.ir.bitmap.isRecycled()) {
+            irCopy = Bitmap.createBitmap(frame.ir.bitmap);
+        } else {
+            synchronized (irPreviewLock) {
+                if (latestIrBitmapForCrop != null && !latestIrBitmapForCrop.isRecycled()) {
+                    irCopy = Bitmap.createBitmap(latestIrBitmapForCrop);
+                }
             }
-        });
+        }
+        DualLightingDetector.Result effectiveResult = result != null ? result
+                : DualLightingDetector.evaluate(frame.rgb.bitmap, irCopy, null, null);
+
+        LightingExperimentLogger.recordSnapshot(effectiveResult, rgbCopy, irCopy, "EXP",
+                new LightingExperimentLogger.LogCallback() {
+                    @Override
+                    public void onLogged(int sampleId, String rgbFileName, String message) {
+                        runOnUiThread(() -> showTransientStatus("Saved " + rgbFileName + " (" + message + ")"));
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        runOnUiThread(() -> showTransientStatus("Log Error: " + error));
+                    }
+                });
     }
 
     private void openFaceManagement() {
@@ -920,6 +939,9 @@ public final class MainActivity extends Activity {
             }
             final DualLightingDetector.Result finalNoFaceLighting = noFaceLighting;
             latestLightingResult = finalNoFaceLighting;
+            if (lightingSnapshotRequested.compareAndSet(true, false)) {
+                saveLightingSnapshot(frame, finalNoFaceLighting);
+            }
 
             runOnUiThread(() -> {
                 if (!isPipelineCurrent(frame.generation)) return;
@@ -1041,6 +1063,9 @@ public final class MainActivity extends Activity {
         }
         final DualLightingDetector.Result finalLightingResult = lightingResult;
         latestLightingResult = finalLightingResult;
+        if (lightingSnapshotRequested.compareAndSet(true, false)) {
+            saveLightingSnapshot(frame, finalLightingResult);
+        }
 
         runOnUiThread(() -> {
             if (!isPipelineCurrent(frame.generation)) {

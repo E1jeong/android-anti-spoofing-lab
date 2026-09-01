@@ -13,10 +13,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class LightingExperimentLoggerTest {
 
     @Test
-    public void csvFileReturnsValidFileObject() {
-        File file = LightingExperimentLogger.getCsvFile();
-        assertNotNull(file);
-        assertTrue(file.getName().endsWith(".csv"));
+    public void csvFileAndSnapshotsDirReturnValidFileObjects() {
+        File csvFile = LightingExperimentLogger.getCsvFile();
+        assertNotNull(csvFile);
+        assertTrue(csvFile.getName().endsWith(".csv"));
+
+        File snapshotsDir = LightingExperimentLogger.getSnapshotsDir();
+        assertNotNull(snapshotsDir);
+        assertTrue(snapshotsDir.getName().equals("lighting_snapshots"));
     }
 
     @Test
@@ -24,9 +28,9 @@ public class LightingExperimentLoggerTest {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean errorReported = new AtomicBoolean(false);
 
-        LightingExperimentLogger.recordSnapshot(null, "TEST", new LightingExperimentLogger.LogCallback() {
+        LightingExperimentLogger.recordSnapshot(null, null, null, "TEST", new LightingExperimentLogger.LogCallback() {
             @Override
-            public void onLogged(int sampleId, String message) {
+            public void onLogged(int sampleId, String rgbFileName, String message) {
                 latch.countDown();
             }
 
