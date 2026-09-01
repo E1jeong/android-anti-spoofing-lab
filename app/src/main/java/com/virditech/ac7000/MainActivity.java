@@ -200,6 +200,7 @@ public final class MainActivity extends Activity {
     private FaceEmbeddingModel.DelegateType recogDelegate = FaceEmbeddingModel.DEFAULT_DELEGATE;
     private String recogModelPath = FaceEmbeddingModel.DEFAULT_MODEL_PATH;
     private volatile boolean authMode;
+    private volatile boolean motionGateEnabled = true;
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
     private final List<float[]> authScoreBuffer = new ArrayList<>();
@@ -353,6 +354,7 @@ public final class MainActivity extends Activity {
                 "SETTINGS",
                 "WEBRTC",
                 "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
+                "MOTION GATE (" + (motionGateEnabled ? "ON" : "OFF") + ")",
                 "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE"),
                 "FACE MANAGEMENT"
         };
@@ -366,8 +368,10 @@ public final class MainActivity extends Activity {
                     } else if (which == 2) {
                         toggleAuthMode();
                     } else if (which == 3) {
-                        toggleFaceDetector();
+                        toggleMotionGate();
                     } else if (which == 4) {
+                        toggleFaceDetector();
+                    } else if (which == 5) {
                         openFaceManagement();
                     }
                 })
@@ -381,6 +385,17 @@ public final class MainActivity extends Activity {
             }
         });
         dialog.show();
+    }
+
+    private void toggleMotionGate() {
+        motionGateEnabled = !motionGateEnabled;
+        inferenceMotionGate.reset();
+        inferenceBlockedByMotion = false;
+        inferenceMotionGeneration.incrementAndGet();
+        overlay.clearClassificationResult();
+        if (screen != null) screen.clearCleanModeResult();
+        resetResultsLabelToZero();
+        showTransientStatus("Motion Gate " + (motionGateEnabled ? "ON" : "OFF"));
     }
 
     private void openFaceManagement() {
@@ -1096,7 +1111,7 @@ public final class MainActivity extends Activity {
         }
 
         if (isCollecting || authVerdictShowing || testMenuShowing || rgbCrop == null || irCrop == null || frame.ir == null) return;
-        if (!authMode) {
+        if (!authMode && motionGateEnabled) {
             FaceMotionGate.Decision motion = inferenceMotionGate.evaluate(detected.left, detected.top,
                     detected.right, detected.bottom, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(),
                     frame.rgb.timestampNs);
