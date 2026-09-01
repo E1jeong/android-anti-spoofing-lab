@@ -4,7 +4,7 @@
 
 - This is a navigation aid, not a history archive: help the AI locate the runtime flow, source entry points, and authoritative knowledge before working.
 - The Obsidian wiki `Dev/Project/Company/android-anti-spoofing-lab` is the source of truth for runtime contracts, hardware coupling, benchmark baselines, and experiment continuity. Resolve the machine-specific vault through `_meta/routing-tables.md`; do not search arbitrary filesystem copies or use hardcoded `file:///` links.
-- Read its operating documents in order: `README.md` → `handoff.md` → applicable schemas (parent to nearest) → `index.md`. Read `issues/needs-verification.md` only when the task touches uncertainty or an unresolved claim.
+- Read its operating documents in order: `README.md` → `handoff.md` → applicable schemas (parent to nearest) → `index.md`. Read `roadmap.md` only when the task touches backlog, uncertainty, or an unresolved claim.
 - Before multi-step or resumed implementation, ground the wiki context against the live code, propose `step → verify` checkpoints, and confirm them before editing.
 - Read [`app/AGENTS.md`](app/AGENTS.md) for package-level code entry points, threading rules, and test boundaries when changing the app module.
 - This company-PC checkout is the Android test-app repository; anti-spoofing training/export belongs to the paired `access-liveness-model` repository, while the shared signaling server and operator web belong to `ubio-webrtc`.
