@@ -205,7 +205,6 @@ public final class MainActivity extends Activity {
     private volatile boolean authMode;
     private volatile boolean motionGateEnabled = false;
     private volatile boolean lightingTestEnabled = false;
-    private volatile DualLightingDetector.Result latestLightingResult;
     private final AtomicBoolean lightingSnapshotRequested = new AtomicBoolean(false);
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
@@ -364,7 +363,6 @@ public final class MainActivity extends Activity {
                 "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
                 "MOTION GATE (" + (motionGateEnabled ? "ON" : "OFF") + ")",
                 "LIGHTING TEST (" + (lightingTestEnabled ? "ON" : "OFF") + ")",
-                "LOG LIGHTING SNAPSHOT",
                 "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE"),
                 "FACE MANAGEMENT"
         };
@@ -382,10 +380,8 @@ public final class MainActivity extends Activity {
                     } else if (which == 4) {
                         toggleLightingTest();
                     } else if (which == 5) {
-                        recordLightingSnapshot();
-                    } else if (which == 6) {
                         toggleFaceDetector();
-                    } else if (which == 7) {
+                    } else if (which == 6) {
                         openFaceManagement();
                     }
                 })
@@ -416,6 +412,7 @@ public final class MainActivity extends Activity {
         lightingTestEnabled = !lightingTestEnabled;
         if (!lightingTestEnabled && screen != null) {
             screen.clearCleanModeLighting();
+            overlay.setVirtualCenterGuide(false);
         }
         showTransientStatus("Lighting Test " + (lightingTestEnabled ? "ON" : "OFF"));
     }
@@ -446,7 +443,7 @@ public final class MainActivity extends Activity {
             }
         }
         DualLightingDetector.Result effectiveResult = result != null ? result
-                : DualLightingDetector.evaluate(frame.rgb.bitmap, irCopy, null, null);
+                : DualLightingDetector.evaluate(frame.rgb.bitmap, irCopy, null);
 
         LightingExperimentLogger.recordSnapshot(effectiveResult, rgbCopy, irCopy, "EXP",
                 new LightingExperimentLogger.LogCallback() {
@@ -927,18 +924,17 @@ public final class MainActivity extends Activity {
             if (lightingTestEnabled) {
                 if (frame.ir != null) {
                     noFaceLighting = DualLightingDetector.evaluate(
-                            frame.rgb.bitmap, frame.ir.bitmap, null, null);
+                            frame.rgb.bitmap, frame.ir.bitmap, null);
                 } else {
                     synchronized (irPreviewLock) {
                         Bitmap fallback = (latestIrBitmapForCrop != null && !latestIrBitmapForCrop.isRecycled())
                                 ? latestIrBitmapForCrop : null;
                         noFaceLighting = DualLightingDetector.evaluate(
-                                frame.rgb.bitmap, fallback, null, null);
+                                frame.rgb.bitmap, fallback, null);
                     }
                 }
             }
             final DualLightingDetector.Result finalNoFaceLighting = noFaceLighting;
-            latestLightingResult = finalNoFaceLighting;
             if (lightingSnapshotRequested.compareAndSet(true, false)) {
                 saveLightingSnapshot(frame, finalNoFaceLighting);
             }
@@ -947,6 +943,7 @@ public final class MainActivity extends Activity {
                 if (!isPipelineCurrent(frame.generation)) return;
                 overlay.clearResult();
                 overlay.clearRecognitionResult();
+                overlay.setVirtualCenterGuide(lightingTestEnabled && screen != null && !screen.isUiVisible());
                 recognitionInferenceMs = -1L;
                 if (screen != null) {
                     screen.clearCleanModeResult();
@@ -1051,18 +1048,17 @@ public final class MainActivity extends Activity {
         if (lightingTestEnabled) {
             if (frame.ir != null) {
                 lightingResult = DualLightingDetector.evaluate(
-                        frame.rgb.bitmap, frame.ir.bitmap, detected, irDetected);
+                        frame.rgb.bitmap, frame.ir.bitmap, detected);
             } else {
                 synchronized (irPreviewLock) {
                     Bitmap fallback = (latestIrBitmapForCrop != null && !latestIrBitmapForCrop.isRecycled())
                             ? latestIrBitmapForCrop : null;
                     lightingResult = DualLightingDetector.evaluate(
-                            frame.rgb.bitmap, fallback, detected, irDetected);
+                            frame.rgb.bitmap, fallback, detected);
                 }
             }
         }
         final DualLightingDetector.Result finalLightingResult = lightingResult;
-        latestLightingResult = finalLightingResult;
         if (lightingSnapshotRequested.compareAndSet(true, false)) {
             saveLightingSnapshot(frame, finalLightingResult);
         }
@@ -1073,6 +1069,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             overlay.showFace(detected, irDetected);
+            overlay.setVirtualCenterGuide(false);
             if (screen != null) {
                 screen.showCleanModeLighting(finalLightingResult, lightingTestEnabled);
             }

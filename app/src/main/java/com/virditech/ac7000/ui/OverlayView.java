@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.view.View;
 
+import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.model.ClassificationResult;
 
 import java.util.Locale;
@@ -32,6 +33,7 @@ public final class OverlayView extends View {
     private boolean guideOnlyMode;
     private boolean isCollecting;
     private boolean authMode;
+    private boolean showVirtualCenterGuide;
     private int collectionSector;
     private int collectionCountdownSeconds;
 
@@ -108,6 +110,12 @@ public final class OverlayView extends View {
         invalidate();
     }
 
+    public void setVirtualCenterGuide(boolean show) {
+        if (showVirtualCenterGuide == show) return;
+        showVirtualCenterGuide = show;
+        invalidate();
+    }
+
     public void showResult(ClassificationResult result) {
         showResult(result, null);
     }
@@ -146,6 +154,7 @@ public final class OverlayView extends View {
         if (calibrationMode) drawCalibrationGuide(canvas);
         if (guideOnlyMode) return;
         if (isCollecting) drawCollectionGuide(canvas);
+        if (showVirtualCenterGuide) drawVirtualCenterGuide(canvas);
         Rect source = showIr ? irBox : rgbBox;
         if (source == null) return;
         Rect box = map(source, 432, 768, getWidth(), getHeight(), true);
@@ -241,6 +250,19 @@ public final class OverlayView extends View {
         float left = (getWidth() - size) / 2f;
         float top = getHeight() * 0.3125f;
         canvas.drawRect(left, top, left + size, top + size, guidePaint);
+    }
+
+    private void drawVirtualCenterGuide(Canvas canvas) {
+        Rect guide = map(DualLightingDetector.virtualCenterRoi(432, 768),
+                432, 768, getWidth(), getHeight(), true);
+        guidePaint.setColor(Color.rgb(255, 145, 0));
+        guidePaint.setStrokeWidth(4f);
+        canvas.drawRect(guide, guidePaint);
+        textPaint.setColor(Color.rgb(255, 145, 0));
+        drawLabel(canvas, "BACKLIGHT CHECK AREA", guide.left,
+                Math.max(32f, guide.top - 10f), textPaint);
+        guidePaint.setColor(Color.WHITE);
+        guidePaint.setStrokeWidth(6f);
     }
 
     private static Rect map(Rect source, int imageWidth, int imageHeight, int viewWidth, int viewHeight, boolean mirror) {

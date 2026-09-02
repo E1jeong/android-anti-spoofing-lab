@@ -25,7 +25,7 @@ public final class LightingExperimentLogger {
 
     private static final String TAG = "LightingExperiment";
     private static final String CSV_HEADER =
-            "timestamp_iso,sample_id,tag,rgb_image,ir_image,condition,has_face,rgb_mean,rgb_p99,rgb_p90,rgb_p50,rgb_p10,contrast_ratio,rgb_sat_pct,face_luma,bg_luma,ir_mean,ir_sat_pct";
+            "timestamp_iso,sample_id,tag,rgb_image,ir_image,condition,has_face,has_ir_frame,rgb_mean,rgb_p99,rgb_p90,rgb_p50,rgb_p10,contrast_ratio,rgb_sat_pct,face_luma,bg_luma,ir_mean,ir_sat_pct";
 
     private static final ExecutorService logExecutor = Executors.newSingleThreadExecutor();
     private static final AtomicInteger sampleCounter = new AtomicInteger(0);
@@ -112,9 +112,9 @@ public final class LightingExperimentLogger {
                     String isoTime = sdf.format(new Date(result.timestampMs));
 
                     String row = String.format(Locale.US,
-                            "%s,%d,%s,%s,%s,%s,%b,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f",
+                            "%s,%d,%s,%s,%s,%s,%b,%b,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f",
                             isoTime, sampleId, effectiveTag, rgbFileName, irFileName,
-                            result.condition.name(), result.hasFace, result.rgbGlobalMean,
+                            result.condition.name(), result.hasFace, result.hasIrFrame, result.rgbGlobalMean,
                             result.rgbP99, result.rgbP90, result.rgbP50, result.rgbP10,
                             result.rgbContrastRatio, result.rgbSatPct, result.rgbFaceMean,
                             result.rgbBgMean, result.irFullMean, result.irSatPct);

@@ -11,13 +11,14 @@ public class DualLightingDetectorTest {
 
     @Test
     public void evaluateWithNullBitmapReturnsNormalResult() {
-        DualLightingDetector.Result result = DualLightingDetector.evaluate(null, null, null, null);
+        DualLightingDetector.Result result = DualLightingDetector.evaluate(null, null, null);
         assertNotNull(result);
         assertEquals(DualLightingDetector.Condition.NORMAL, result.condition);
         assertFalse(result.hasFace);
         assertEquals(0f, result.rgbFaceMean, 0.001f);
         assertEquals(0f, result.rgbBgMean, 0.001f);
         assertEquals(0f, result.irFullMean, 0.001f);
+        assertFalse(result.hasIrFrame);
         assertEquals(0f, result.rgbGlobalMean, 0.001f);
         assertEquals(1.0f, result.rgbContrastRatio, 0.001f);
     }
@@ -32,25 +33,35 @@ public class DualLightingDetectorTest {
     }
 
     @Test
-    public void resultSummaryAndCsvContainExpectedFields() {
+    public void resultRetainsSnapshotAnalysisFields() {
         DualLightingDetector.Result result = new DualLightingDetector.Result(
-                DualLightingDetector.Condition.DIRECT_SUNLIGHT,
+                DualLightingDetector.Condition.BACKLIGHT,
                 true,
-                80f, 240f, 3.0f, 25f,
-                180f, 150f, 20f,
+                80f, 240f, 25f,
+                180f, 20f, true,
                 160f, 255f, 230f, 140f, 50f,
                 4.6f, 1725184912000L
         );
 
-        String summary = result.toSummary();
-        assertTrue(summary.contains("DIRECT SUNLIGHT"));
-        assertTrue(summary.contains("Mean:160"));
-        assertTrue(summary.contains("P90:230"));
-        assertTrue(summary.contains("CR:4.6x"));
-
-        String csvRow = result.toCsvRow(1, "INDOOR_WHITE");
-        assertTrue(csvRow.contains("INDOOR_WHITE"));
-        assertTrue(csvRow.contains("DIRECT_SUNLIGHT"));
-        assertTrue(csvRow.contains("4.60"));
+        assertEquals(DualLightingDetector.Condition.BACKLIGHT, result.condition);
+        assertEquals(255f, result.rgbP99, 0.001f);
+        assertEquals(140f, result.rgbP50, 0.001f);
+        assertEquals(20f, result.irSatPct, 0.001f);
+        assertTrue(result.hasIrFrame);
     }
+
+    @Test
+    public void classifyRgbRequiresAllBacklightThresholds() {
+        assertEquals(DualLightingDetector.Condition.BACKLIGHT,
+                DualLightingDetector.classifyRgb(100f, 200f));
+        assertEquals(DualLightingDetector.Condition.BACKLIGHT,
+                DualLightingDetector.classifyRgb(0f, 160f));
+        assertEquals(DualLightingDetector.Condition.NORMAL,
+                DualLightingDetector.classifyRgb(106f, 220f));
+        assertEquals(DualLightingDetector.Condition.NORMAL,
+                DualLightingDetector.classifyRgb(80f, 159f));
+        assertEquals(DualLightingDetector.Condition.NORMAL,
+                DualLightingDetector.classifyRgb(100f, 199f));
+    }
+
 }
