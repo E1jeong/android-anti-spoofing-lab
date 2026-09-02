@@ -58,7 +58,7 @@ The preferred path is `/sdcard/devlocal/CalibConfig.dat`; internal app storage i
 
 ## WebRTC test scaffold
 
-Tap the invisible lower-left hotspot five times to open `TEST MENU`.
+Tap the invisible lower-left hotspot three times to open `TEST MENU`.
 
 - `SETTINGS` opens the Android settings home screen.
 - `WEBRTC TEST` opens `WebRtcCallActivity`. Entering it pauses and closes the main RGB/IR camera pipeline; closing it returns to `MainActivity`, which resumes the pipeline.

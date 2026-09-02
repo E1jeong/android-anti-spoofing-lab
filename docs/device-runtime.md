@@ -28,7 +28,7 @@ Read this document before changing cameras, RGB/IR pairing, calibration, FaceMe 
 - If `/sdcard/devlocal/CalibConfig.dat` still cannot be read or written, calibration transparently falls back to `getFilesDir()/CalibConfig.dat`.
 - The hidden calibration flow opens after five taps on the upper-left hotspot, measures one RGB face and one synchronized IR face, and writes the npro-compatible 64-byte calibration file.
 - IR LED and LCD controls use device sysfs paths, and watchdog behavior uses the UBio daemon. These paths and protocols are hardware-specific.
-- The lower-left five-tap test menu toggles the PI6008K IR AE Full/Center profile without restarting the camera. Keep the selected mode for the process lifetime, show it at the bottom of the upper-right crop preview only while IR is the main preview, and do not treat the label or a successful write as proof that AE converged.
+- The lower-left three-tap test menu toggles the PI6008K IR AE Full/Center profile without restarting the camera. Keep the selected mode for the process lifetime, show it at the bottom of the upper-right crop preview only while IR is the main preview, and do not treat the label or a successful write as proof that AE converged.
 - The application ID and namespace are `com.virditech.ac7000`. The test app cannot coexist with the production UBio-N Face Pro app on one device.
 - Camera previews are mirrored on screen. RGB is mirrored, and IR uses `irPreviewView.setScaleX(-1f)`. `OverlayView.onDraw()` must always pass `true` as the `mirror` argument to `map()` so the green face box aligns with the preview.
 

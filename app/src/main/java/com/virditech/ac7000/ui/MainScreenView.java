@@ -20,6 +20,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import com.virditech.ac7000.device.DualLightingDetector;
+import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.virditech.ac7000.model.ClassificationResult;
 import com.virditech.ac7000.model.SlotClassificationResult;
 
@@ -33,6 +34,7 @@ public final class MainScreenView {
     public final OverlayView overlay;
     public final TextView cleanModeResultView;
     public final TextView cleanModeLightingView;
+    public final TextView cleanModeForegroundEntryView;
     public final Button cleanModeSnapshotButton;
     public final ProgressBar loadingSpinner;
     public final ProgressBar irLoadingSpinner;
@@ -68,7 +70,9 @@ public final class MainScreenView {
     private boolean collectionActive;
     private CharSequence currentCleanResultText;
     private DualLightingDetector.Result currentLightingResult;
+    private ForegroundEntryDetector.Result currentForegroundEntryResult;
     private boolean lightingTestEnabled;
+    private boolean foregroundEntryTestEnabled;
     private long lastLightingUiUpdateMs;
     private DualLightingDetector.Condition lastLightingCondition;
 
@@ -81,6 +85,7 @@ public final class MainScreenView {
         overlay = new OverlayView(activity);
         cleanModeResultView = new TextView(activity);
         cleanModeLightingView = new TextView(activity);
+        cleanModeForegroundEntryView = new TextView(activity);
         cleanModeSnapshotButton = new Button(activity);
         loadingSpinner = new ProgressBar(activity);
         performance = label(22f);
@@ -115,6 +120,7 @@ public final class MainScreenView {
         buildPreview();
         buildCleanModeResultView();
         buildCleanModeLightingView(listener);
+        buildCleanModeForegroundEntryView();
         buildDiagnostics(buttonWidth);
         buildIrCrop(listener, buttonWidth);
         buildCaptureIndicators(listener);
@@ -419,11 +425,30 @@ public final class MainScreenView {
         root.addView(cleanModeSnapshotButton, btnParams);
     }
 
+    private void buildCleanModeForegroundEntryView() {
+        cleanModeForegroundEntryView.setTextSize(17f);
+        cleanModeForegroundEntryView.setTypeface(Typeface.DEFAULT_BOLD);
+        cleanModeForegroundEntryView.setShadowLayer(6f, 1f, 1f, Color.BLACK);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor("#C8000000"));
+        bg.setCornerRadius(dp(12));
+        bg.setStroke(dp(1), Color.parseColor("#44FFFFFF"));
+        cleanModeForegroundEntryView.setBackground(bg);
+        cleanModeForegroundEntryView.setPadding(dp(16), dp(10), dp(16), dp(10));
+        cleanModeForegroundEntryView.setVisibility(View.GONE);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START);
+        params.setMargins(dp(16), 0, dp(16), dp(130));
+        root.addView(cleanModeForegroundEntryView, params);
+    }
+
     private void buildTapListener() {
         uiContainer.setOnClickListener(v -> toggleUiVisibility());
         root.setOnClickListener(v -> toggleUiVisibility());
         cleanModeResultView.setOnClickListener(v -> toggleUiVisibility());
         cleanModeLightingView.setOnClickListener(v -> toggleUiVisibility());
+        cleanModeForegroundEntryView.setOnClickListener(v -> toggleUiVisibility());
     }
 
     public void toggleUiVisibility() {
@@ -438,6 +463,7 @@ public final class MainScreenView {
         uiContainer.setVisibility(visible ? View.VISIBLE : View.GONE);
         updateCleanModeResultVisibility();
         updateCleanModeLightingVisibility();
+        updateCleanModeForegroundEntryVisibility();
     }
 
     public boolean isUiVisible() {
@@ -451,11 +477,13 @@ public final class MainScreenView {
             cleanModeLightingView.setText("");
             lastLightingCondition = null;
             updateCleanModeLightingVisibility();
+            updateCleanModeForegroundEntryVisibility();
             return;
         }
         long now = android.os.SystemClock.elapsedRealtime();
         if (lighting.condition == lastLightingCondition && (now - lastLightingUiUpdateMs < 100L)) {
             updateCleanModeLightingVisibility();
+            updateCleanModeForegroundEntryVisibility();
             return;
         }
         lastLightingUiUpdateMs = now;
@@ -477,6 +505,7 @@ public final class MainScreenView {
 
         cleanModeLightingView.setText(spannable);
         updateCleanModeLightingVisibility();
+        updateCleanModeForegroundEntryVisibility();
     }
 
     public void clearCleanModeLighting() {
@@ -484,6 +513,33 @@ public final class MainScreenView {
         this.lastLightingCondition = null;
         cleanModeLightingView.setText("");
         updateCleanModeLightingVisibility();
+        updateCleanModeForegroundEntryVisibility();
+    }
+
+    public void showCleanModeForegroundEntry(ForegroundEntryDetector.Result entry, boolean enabled) {
+        currentForegroundEntryResult = entry;
+        foregroundEntryTestEnabled = enabled;
+        if (entry == null || !enabled) {
+            cleanModeForegroundEntryView.setText("");
+            updateCleanModeForegroundEntryVisibility();
+            return;
+        }
+        String title = "[ENTRY EXP] " + entry.state.label;
+        String detail = String.format(Locale.US,
+                "\nRGB Δ:%.1f", entry.rgbDelta);
+        SpannableString spannable = new SpannableString(title + detail);
+        spannable.setSpan(new ForegroundColorSpan(entry.state.color), 0, title.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        spannable.setSpan(new ForegroundColorSpan(Color.WHITE), title.length(), spannable.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        cleanModeForegroundEntryView.setText(spannable);
+        updateCleanModeForegroundEntryVisibility();
+    }
+
+    public void clearCleanModeForegroundEntry() {
+        currentForegroundEntryResult = null;
+        cleanModeForegroundEntryView.setText("");
+        updateCleanModeForegroundEntryVisibility();
     }
 
     private void updateCleanModeLightingVisibility() {
@@ -491,11 +547,38 @@ public final class MainScreenView {
                 && lightingTestEnabled
                 && currentLightingResult != null;
         cleanModeLightingView.setVisibility(show ? View.VISIBLE : View.GONE);
-        cleanModeSnapshotButton.setVisibility(show ? View.VISIBLE : View.GONE);
+        updateSnapshotButtonVisibility();
         if (show) {
             root.bringChildToFront(cleanModeLightingView);
-            root.bringChildToFront(cleanModeSnapshotButton);
         }
+    }
+
+    private void updateCleanModeForegroundEntryVisibility() {
+        boolean show = uiContainer.getVisibility() != View.VISIBLE
+                && foregroundEntryTestEnabled
+                && currentForegroundEntryResult != null;
+        boolean lightingShown = uiContainer.getVisibility() != View.VISIBLE
+                && lightingTestEnabled
+                && currentLightingResult != null;
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) cleanModeForegroundEntryView.getLayoutParams();
+        int bottomMargin = dp(lightingShown ? 130 : 20);
+        if (params.bottomMargin != bottomMargin) {
+            params.bottomMargin = bottomMargin;
+            cleanModeForegroundEntryView.setLayoutParams(params);
+        }
+        cleanModeForegroundEntryView.setVisibility(show ? View.VISIBLE : View.GONE);
+        updateSnapshotButtonVisibility();
+        if (show) {
+            root.bringChildToFront(cleanModeForegroundEntryView);
+        }
+    }
+
+    private void updateSnapshotButtonVisibility() {
+        boolean show = uiContainer.getVisibility() != View.VISIBLE
+                && lightingTestEnabled
+                && currentLightingResult != null;
+        cleanModeSnapshotButton.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) root.bringChildToFront(cleanModeSnapshotButton);
     }
 
     public void showCleanModeResult(SlotClassificationResult slotResult) {

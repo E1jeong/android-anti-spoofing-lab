@@ -26,6 +26,7 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.ArrayAdapter;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -49,6 +50,7 @@ import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.face.FaceDetectionEngine;
 import com.virditech.ac7000.face.MediaPipeFaceDetector;
 import com.virditech.ac7000.device.DualLightingDetector;
+import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.virditech.ac7000.device.HardwareControls;
 import com.virditech.ac7000.device.LightingExperimentLogger;
 import com.virditech.ac7000.device.IrCameraExposureController;
@@ -205,7 +207,9 @@ public final class MainActivity extends Activity {
     private volatile boolean authMode;
     private volatile boolean motionGateEnabled = false;
     private volatile boolean lightingTestEnabled = false;
+    private volatile boolean foregroundEntryTestEnabled = false;
     private final AtomicBoolean lightingSnapshotRequested = new AtomicBoolean(false);
+    private final ForegroundEntryDetector foregroundEntryDetector = new ForegroundEntryDetector();
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
     private final List<float[]> authScoreBuffer = new ArrayList<>();
@@ -342,7 +346,7 @@ public final class MainActivity extends Activity {
         long now = SystemClock.elapsedRealtime();
         if (now - lastSettingsTapMs > 2_000L) settingsTapCount = 0;
         lastSettingsTapMs = now;
-        if (++settingsTapCount >= 5) {
+        if (++settingsTapCount >= 3) {
             settingsTapCount = 0;
             showHiddenTestMenu();
         }
@@ -357,21 +361,21 @@ public final class MainActivity extends Activity {
             authScoreBuffer.clear();
             authStartNs = 0L;
         }
-        String[] items = {
-                "SETTINGS",
-                "WEBRTC",
-                "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
-                "MOTION GATE (" + (motionGateEnabled ? "ON" : "OFF") + ")",
-                "LIGHTING TEST (" + (lightingTestEnabled ? "ON" : "OFF") + ")",
-                "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE"),
-                "FACE MANAGEMENT"
-        };
+        String[] items = testMenuItems();
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_list_item_1, items);
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("MENU")
-                .setItems(items, (d, which) -> {
+                .setAdapter(adapter, null)
+                .setNegativeButton("CLOSE", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
+                (parent, view, which, id) -> {
                     if (which == 0) {
+                        dialog.dismiss();
                         startActivity(new Intent(Settings.ACTION_SETTINGS));
                     } else if (which == 1) {
+                        dialog.dismiss();
                         startActivity(new Intent(this, WebRtcCallActivity.class));
                     } else if (which == 2) {
                         toggleAuthMode();
@@ -380,13 +384,19 @@ public final class MainActivity extends Activity {
                     } else if (which == 4) {
                         toggleLightingTest();
                     } else if (which == 5) {
-                        toggleFaceDetector();
+                        toggleForegroundEntryTest();
                     } else if (which == 6) {
+                        toggleFaceDetector();
+                    } else if (which == 7) {
+                        dialog.dismiss();
                         openFaceManagement();
+                    } else {
+                        return;
                     }
-                })
-                .setNegativeButton("CANCEL", null)
-                .create();
+                    if (which >= 2 && which <= 6) {
+                        refreshTestMenuItems(items, adapter);
+                    }
+                }));
         dialog.setOnDismissListener(d -> {
             testMenuShowing = false;
             synchronized (authScoreBuffer) {
@@ -395,6 +405,25 @@ public final class MainActivity extends Activity {
             }
         });
         dialog.show();
+    }
+
+    private String[] testMenuItems() {
+        return new String[] {
+                "SETTINGS",
+                "WEBRTC",
+                "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
+                "MOTION GATE (" + (motionGateEnabled ? "ON" : "OFF") + ")",
+                "LIGHTING TEST (" + (lightingTestEnabled ? "ON" : "OFF") + ")",
+                "ENTRY DETECTOR (" + (foregroundEntryTestEnabled ? "ON" : "OFF") + ")",
+                "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE"),
+                "FACE MANAGEMENT"
+        };
+    }
+
+    private void refreshTestMenuItems(String[] items, ArrayAdapter<String> adapter) {
+        String[] currentItems = testMenuItems();
+        System.arraycopy(currentItems, 0, items, 0, items.length);
+        adapter.notifyDataSetChanged();
     }
 
     private void toggleMotionGate() {
@@ -410,11 +439,22 @@ public final class MainActivity extends Activity {
 
     private void toggleLightingTest() {
         lightingTestEnabled = !lightingTestEnabled;
+        if (!lightingTestEnabled) lightingSnapshotRequested.set(false);
         if (!lightingTestEnabled && screen != null) {
             screen.clearCleanModeLighting();
-            overlay.setVirtualCenterGuide(false);
+            overlay.setObservationGuides(false, foregroundEntryTestEnabled && !screen.isUiVisible());
         }
         showTransientStatus("Lighting Test " + (lightingTestEnabled ? "ON" : "OFF"));
+    }
+
+    private void toggleForegroundEntryTest() {
+        foregroundEntryTestEnabled = !foregroundEntryTestEnabled;
+        foregroundEntryDetector.reset();
+        if (!foregroundEntryTestEnabled && screen != null) {
+            screen.clearCleanModeForegroundEntry();
+            overlay.setObservationGuides(lightingTestEnabled && !screen.isUiVisible(), false);
+        }
+        showTransientStatus("Entry Detector " + (foregroundEntryTestEnabled ? "ON" : "OFF"));
     }
 
     private void recordLightingSnapshot() {
@@ -908,6 +948,8 @@ public final class MainActivity extends Activity {
         if (!isPipelineCurrent(frame.generation)) return;
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         updateTrackingFps();
+        ForegroundEntryDetector.Result foregroundEntryResult = foregroundEntryTestEnabled
+                ? foregroundEntryDetector.evaluate(frame.rgb.bitmap) : null;
         if (detected == null) {
             long now = SystemClock.elapsedRealtime();
             if (now - lastFaceDetectedMs >= IR_LED_OFF_DELAY_MS) {
@@ -935,7 +977,7 @@ public final class MainActivity extends Activity {
                 }
             }
             final DualLightingDetector.Result finalNoFaceLighting = noFaceLighting;
-            if (lightingSnapshotRequested.compareAndSet(true, false)) {
+            if (lightingTestEnabled && lightingSnapshotRequested.compareAndSet(true, false)) {
                 saveLightingSnapshot(frame, finalNoFaceLighting);
             }
 
@@ -943,11 +985,14 @@ public final class MainActivity extends Activity {
                 if (!isPipelineCurrent(frame.generation)) return;
                 overlay.clearResult();
                 overlay.clearRecognitionResult();
-                overlay.setVirtualCenterGuide(lightingTestEnabled && screen != null && !screen.isUiVisible());
+                boolean showObservationGuides = screen != null && !screen.isUiVisible();
+                overlay.setObservationGuides(lightingTestEnabled && showObservationGuides,
+                        foregroundEntryTestEnabled && showObservationGuides);
                 recognitionInferenceMs = -1L;
                 if (screen != null) {
                     screen.clearCleanModeResult();
                     screen.showCleanModeLighting(finalNoFaceLighting, lightingTestEnabled);
+                    screen.showCleanModeForegroundEntry(foregroundEntryResult, foregroundEntryTestEnabled);
                 }
                 clearPreviewFace();
                 faceCropView.setScaleX(1f);
@@ -1059,7 +1104,7 @@ public final class MainActivity extends Activity {
             }
         }
         final DualLightingDetector.Result finalLightingResult = lightingResult;
-        if (lightingSnapshotRequested.compareAndSet(true, false)) {
+        if (lightingTestEnabled && lightingSnapshotRequested.compareAndSet(true, false)) {
             saveLightingSnapshot(frame, finalLightingResult);
         }
 
@@ -1069,9 +1114,11 @@ public final class MainActivity extends Activity {
                 return;
             }
             overlay.showFace(detected, irDetected);
-            overlay.setVirtualCenterGuide(false);
+            overlay.setObservationGuides(false,
+                    foregroundEntryTestEnabled && screen != null && !screen.isUiVisible());
             if (screen != null) {
                 screen.showCleanModeLighting(finalLightingResult, lightingTestEnabled);
+                screen.showCleanModeForegroundEntry(foregroundEntryResult, foregroundEntryTestEnabled);
             }
             if (isCollecting) {
                 updateCollectionUi(SystemClock.elapsedRealtime());

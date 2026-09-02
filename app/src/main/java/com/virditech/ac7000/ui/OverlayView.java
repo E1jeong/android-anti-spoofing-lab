@@ -8,6 +8,7 @@ import android.graphics.Rect;
 import android.view.View;
 
 import com.virditech.ac7000.device.DualLightingDetector;
+import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.virditech.ac7000.model.ClassificationResult;
 
 import java.util.Locale;
@@ -33,7 +34,8 @@ public final class OverlayView extends View {
     private boolean guideOnlyMode;
     private boolean isCollecting;
     private boolean authMode;
-    private boolean showVirtualCenterGuide;
+    private boolean showLightingGuide;
+    private boolean showForegroundEntryGuide;
     private int collectionSector;
     private int collectionCountdownSeconds;
 
@@ -110,9 +112,11 @@ public final class OverlayView extends View {
         invalidate();
     }
 
-    public void setVirtualCenterGuide(boolean show) {
-        if (showVirtualCenterGuide == show) return;
-        showVirtualCenterGuide = show;
+    public void setObservationGuides(boolean showLightingGuide, boolean showForegroundEntryGuide) {
+        if (this.showLightingGuide == showLightingGuide
+                && this.showForegroundEntryGuide == showForegroundEntryGuide) return;
+        this.showLightingGuide = showLightingGuide;
+        this.showForegroundEntryGuide = showForegroundEntryGuide;
         invalidate();
     }
 
@@ -154,7 +158,7 @@ public final class OverlayView extends View {
         if (calibrationMode) drawCalibrationGuide(canvas);
         if (guideOnlyMode) return;
         if (isCollecting) drawCollectionGuide(canvas);
-        if (showVirtualCenterGuide) drawVirtualCenterGuide(canvas);
+        if (showLightingGuide || showForegroundEntryGuide) drawObservationGuides(canvas);
         Rect source = showIr ? irBox : rgbBox;
         if (source == null) return;
         Rect box = map(source, 432, 768, getWidth(), getHeight(), true);
@@ -252,17 +256,34 @@ public final class OverlayView extends View {
         canvas.drawRect(left, top, left + size, top + size, guidePaint);
     }
 
-    private void drawVirtualCenterGuide(Canvas canvas) {
-        Rect guide = map(DualLightingDetector.virtualCenterRoi(432, 768),
-                432, 768, getWidth(), getHeight(), true);
-        guidePaint.setColor(Color.rgb(255, 145, 0));
-        guidePaint.setStrokeWidth(4f);
-        canvas.drawRect(guide, guidePaint);
-        textPaint.setColor(Color.rgb(255, 145, 0));
-        drawLabel(canvas, "BACKLIGHT CHECK AREA", guide.left,
-                Math.max(32f, guide.top - 10f), textPaint);
+    private void drawObservationGuides(Canvas canvas) {
+        Rect lightingRoi = DualLightingDetector.virtualCenterRoi(432, 768);
+        Rect entryRoi = ForegroundEntryDetector.virtualCenterRoi(432, 768);
+        if (showLightingGuide && showForegroundEntryGuide && lightingRoi.equals(entryRoi)) {
+            drawObservationGuide(canvas, lightingRoi, Color.rgb(255, 145, 0),
+                    "LIGHTING / ENTRY CHECK AREA");
+        } else {
+            if (showLightingGuide) {
+                drawObservationGuide(canvas, lightingRoi, Color.rgb(255, 145, 0),
+                        "LIGHTING CHECK AREA");
+            }
+            if (showForegroundEntryGuide) {
+                drawObservationGuide(canvas, entryRoi, Color.rgb(64, 196, 255),
+                        "ENTRY CHECK AREA");
+            }
+        }
         guidePaint.setColor(Color.WHITE);
         guidePaint.setStrokeWidth(6f);
+    }
+
+    private void drawObservationGuide(Canvas canvas, Rect source, int color, String label) {
+        Rect guide = map(source, 432, 768, getWidth(), getHeight(), true);
+        guidePaint.setColor(color);
+        guidePaint.setStrokeWidth(4f);
+        canvas.drawRect(guide, guidePaint);
+        textPaint.setColor(color);
+        drawLabel(canvas, label, guide.left,
+                Math.max(32f, guide.top - 10f), textPaint);
     }
 
     private static Rect map(Rect source, int imageWidth, int imageHeight, int viewWidth, int viewHeight, boolean mirror) {
