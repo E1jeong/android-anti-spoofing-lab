@@ -492,9 +492,9 @@ public final class MainScreenView {
         String title = "[LIGHT EXP] " + lighting.condition.label;
         String faceLabel = lighting.hasFace ? "Face" : "Center";
         String detail = String.format(Locale.US,
-                "\nMean:%.0f  P90:%.0f  P10:%.0f  (CR:%.1fx)\nRGB %s:%.0f  Bg:%.0f (Sat:%.1f%%) | IR:%.0f",
+                "\nMean:%.0f  P90:%.0f  P10:%.0f  (CR:%.1fx)\nRGB %s:%.0f  Bg:%.0f P90:%.0f (Sat:%.1f%%) | IR:%.0f",
                 lighting.rgbGlobalMean, lighting.rgbP90, lighting.rgbP10, lighting.rgbContrastRatio,
-                faceLabel, lighting.rgbFaceMean, lighting.rgbBgMean, lighting.rgbSatPct,
+                faceLabel, lighting.rgbFaceMean, lighting.rgbBgMean, lighting.rgbBgP90, lighting.rgbSatPct,
                 lighting.irFullMean);
 
         SpannableString spannable = new SpannableString(title + detail);

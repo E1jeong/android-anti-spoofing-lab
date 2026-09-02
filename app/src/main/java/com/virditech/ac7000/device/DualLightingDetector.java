@@ -7,8 +7,8 @@ import java.util.Arrays;
 
 /**
  * Evaluates RGB backlight conditions while retaining IR measurements for analysis.
- * Computes global distribution percentiles (P10, P50, P90, P99) and contrast ratios
- * for empirical lighting research and optimal threshold discovery.
+ * Computes global and target-excluded background distribution percentiles for empirical
+ * lighting research and threshold discovery.
  */
 public final class DualLightingDetector {
 
@@ -30,6 +30,7 @@ public final class DualLightingDetector {
         public final boolean hasFace;
         public final float rgbFaceMean;
         public final float rgbBgMean;
+        public final float rgbBgP90;
         public final float rgbSatPct;
         public final float irFullMean;
         public final float irSatPct;
@@ -45,7 +46,7 @@ public final class DualLightingDetector {
         public final long timestampMs;
 
         public Result(Condition condition, boolean hasFace,
-                      float rgbFaceMean, float rgbBgMean, float rgbSatPct,
+                      float rgbFaceMean, float rgbBgMean, float rgbBgP90, float rgbSatPct,
                       float irFullMean, float irSatPct, boolean hasIrFrame,
                       float rgbGlobalMean, float rgbP99, float rgbP90, float rgbP50, float rgbP10,
                       float rgbContrastRatio, long timestampMs) {
@@ -53,6 +54,7 @@ public final class DualLightingDetector {
             this.hasFace = hasFace;
             this.rgbFaceMean = rgbFaceMean;
             this.rgbBgMean = rgbBgMean;
+            this.rgbBgP90 = rgbBgP90;
             this.rgbSatPct = rgbSatPct;
             this.irFullMean = irFullMean;
             this.irSatPct = irSatPct;
@@ -70,17 +72,15 @@ public final class DualLightingDetector {
     private static final int SAMPLE_STEP = 16; // 16-pixel step (~1300 samples for 432x768, <0.3ms)
     private static final int SATURATION_THRESHOLD = 245;
 
-    // Provisional RGB-only thresholds. Tune only from labeled device snapshots.
-    public static final float BACKLIGHT_RATIO_THRESHOLD = 2.0f;
-    public static final float BACKLIGHT_BG_MEAN_MIN = 160.0f;
-    public static final float BACKLIGHT_FACE_MEAN_MAX = 105.0f;
+    // Provisional RGB-only threshold. Tune only from labeled device snapshots.
+    public static final int BACKLIGHT_BG_P90_THRESHOLD = 245;
 
     private DualLightingDetector() {}
 
     public static Result evaluate(Bitmap rgb, Bitmap ir, Rect rgbFace) {
         long now = System.currentTimeMillis();
         if (rgb == null) {
-            return new Result(Condition.NORMAL, false, 0f, 0f, 0f, 0f, 0f, false,
+            return new Result(Condition.NORMAL, false, 0f, 0f, 0f, 0f, 0f, 0f, false,
                     0f, 0f, 0f, 0f, 0f, 1.0f, now);
         }
 
@@ -92,9 +92,11 @@ public final class DualLightingDetector {
 
         int maxSamples = ((rgbW / SAMPLE_STEP) + 2) * ((rgbH / SAMPLE_STEP) + 2);
         int[] lumaSamples = new int[maxSamples];
+        int[] bgLumaSamples = new int[maxSamples];
 
         long rgbFaceSum = 0; int rgbFaceCount = 0;
         long rgbBgSum = 0;   int rgbBgCount = 0;
+        int rgbBgTotal = 0;
         long rgbGlobalSum = 0;
         int rgbSatCount = 0; int rgbTotal = 0;
 
@@ -122,12 +124,18 @@ public final class DualLightingDetector {
                 } else {
                     rgbBgSum += luma;
                     rgbBgCount++;
+                    bgLumaSamples[rgbBgTotal++] = luma;
                 }
             }
         }
 
         float rgbFaceMean = rgbFaceCount > 0 ? (float) rgbFaceSum / rgbFaceCount : 0f;
         float rgbBgMean = rgbBgCount > 0 ? (float) rgbBgSum / rgbBgCount : 0f;
+        float rgbBgP90 = 0f;
+        if (rgbBgTotal > 0) {
+            Arrays.sort(bgLumaSamples, 0, rgbBgTotal);
+            rgbBgP90 = bgLumaSamples[Math.min((int) (rgbBgTotal * 0.90f), rgbBgTotal - 1)];
+        }
         float rgbSatPct = rgbTotal > 0 ? ((float) rgbSatCount / rgbTotal) * 100f : 0f;
         float rgbGlobalMean = rgbTotal > 0 ? (float) rgbGlobalSum / rgbTotal : 0f;
 
@@ -169,18 +177,15 @@ public final class DualLightingDetector {
             irSatPct = irFullCount > 0 ? ((float) irSatCount / irFullCount) * 100f : 0f;
         }
 
-        Condition condition = classifyRgb(rgbFaceMean, rgbBgMean);
+        Condition condition = classifyRgb(rgbBgP90);
 
-        return new Result(condition, hasFace, rgbFaceMean, rgbBgMean, rgbSatPct,
+        return new Result(condition, hasFace, rgbFaceMean, rgbBgMean, rgbBgP90, rgbSatPct,
                 irFullMean, irSatPct, ir != null,
                 rgbGlobalMean, rgbP99, rgbP90, rgbP50, rgbP10, rgbContrastRatio, now);
     }
 
-    static Condition classifyRgb(float targetMean, float backgroundMean) {
-        float ratio = backgroundMean / Math.max(targetMean, 1.0f);
-        return ratio >= BACKLIGHT_RATIO_THRESHOLD
-                && backgroundMean >= BACKLIGHT_BG_MEAN_MIN
-                && targetMean <= BACKLIGHT_FACE_MEAN_MAX
+    static Condition classifyRgb(float backgroundP90) {
+        return backgroundP90 >= BACKLIGHT_BG_P90_THRESHOLD
                 ? Condition.BACKLIGHT : Condition.NORMAL;
     }
 

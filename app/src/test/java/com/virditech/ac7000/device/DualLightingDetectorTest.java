@@ -37,7 +37,7 @@ public class DualLightingDetectorTest {
         DualLightingDetector.Result result = new DualLightingDetector.Result(
                 DualLightingDetector.Condition.BACKLIGHT,
                 true,
-                80f, 240f, 25f,
+                80f, 240f, 255f, 25f,
                 180f, 20f, true,
                 160f, 255f, 230f, 140f, 50f,
                 4.6f, 1725184912000L
@@ -45,23 +45,18 @@ public class DualLightingDetectorTest {
 
         assertEquals(DualLightingDetector.Condition.BACKLIGHT, result.condition);
         assertEquals(255f, result.rgbP99, 0.001f);
+        assertEquals(255f, result.rgbBgP90, 0.001f);
         assertEquals(140f, result.rgbP50, 0.001f);
         assertEquals(20f, result.irSatPct, 0.001f);
         assertTrue(result.hasIrFrame);
     }
 
     @Test
-    public void classifyRgbRequiresAllBacklightThresholds() {
+    public void classifyRgbUsesOnlyBackgroundP90Threshold() {
         assertEquals(DualLightingDetector.Condition.BACKLIGHT,
-                DualLightingDetector.classifyRgb(100f, 200f));
-        assertEquals(DualLightingDetector.Condition.BACKLIGHT,
-                DualLightingDetector.classifyRgb(0f, 160f));
+                DualLightingDetector.classifyRgb(245f));
         assertEquals(DualLightingDetector.Condition.NORMAL,
-                DualLightingDetector.classifyRgb(106f, 220f));
-        assertEquals(DualLightingDetector.Condition.NORMAL,
-                DualLightingDetector.classifyRgb(80f, 159f));
-        assertEquals(DualLightingDetector.Condition.NORMAL,
-                DualLightingDetector.classifyRgb(100f, 199f));
+                DualLightingDetector.classifyRgb(244f));
     }
 
 }

@@ -4,8 +4,12 @@ import android.graphics.Bitmap;
 import android.os.Environment;
 import android.util.Log;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -25,10 +29,11 @@ public final class LightingExperimentLogger {
 
     private static final String TAG = "LightingExperiment";
     private static final String CSV_HEADER =
-            "timestamp_iso,sample_id,tag,rgb_image,ir_image,condition,has_face,has_ir_frame,rgb_mean,rgb_p99,rgb_p90,rgb_p50,rgb_p10,contrast_ratio,rgb_sat_pct,face_luma,bg_luma,ir_mean,ir_sat_pct";
+            "timestamp_iso,sample_id,tag,rgb_image,ir_image,condition,has_face,has_ir_frame,rgb_mean,rgb_p99,rgb_p90,rgb_p50,rgb_p10,contrast_ratio,rgb_sat_pct,face_luma,bg_luma,bg_p90,ir_mean,ir_sat_pct";
 
     private static final ExecutorService logExecutor = Executors.newSingleThreadExecutor();
     private static final AtomicInteger sampleCounter = new AtomicInteger(0);
+    private static boolean sampleCounterInitialized;
 
     public interface LogCallback {
         void onLogged(int sampleId, String rgbFileName, String message);
@@ -57,6 +62,38 @@ public final class LightingExperimentLogger {
         return new File(getPicturesDir(), "lighting_experiment.csv");
     }
 
+    private static synchronized int nextSampleId() throws IOException {
+        if (!sampleCounterInitialized) {
+            sampleCounter.set(readMaxSampleId(getCsvFile()));
+            sampleCounterInitialized = true;
+        }
+        return sampleCounter.incrementAndGet();
+    }
+
+    static int readMaxSampleId(File csvFile) throws IOException {
+        if (!csvFile.isFile()) {
+            return 0;
+        }
+
+        int maxSampleId = 0;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(csvFile), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] fields = line.split(",", 3);
+                if (fields.length < 2) {
+                    continue;
+                }
+                try {
+                    maxSampleId = Math.max(maxSampleId, Integer.parseInt(fields[1]));
+                } catch (NumberFormatException ignored) {
+                    // Ignore the header and malformed rows while retaining valid sample IDs.
+                }
+            }
+        }
+        return maxSampleId;
+    }
+
     public static void recordSnapshot(DualLightingDetector.Result result,
                                        Bitmap rgbBitmap,
                                        Bitmap irBitmap,
@@ -69,11 +106,11 @@ public final class LightingExperimentLogger {
             return;
         }
 
-        final int sampleId = sampleCounter.incrementAndGet();
         final String effectiveTag = (tag != null && !tag.trim().isEmpty()) ? tag.trim() : "EXP";
 
         logExecutor.execute(() -> {
             try {
+                final int sampleId = nextSampleId();
                 File snapshotsDir = getSnapshotsDir();
                 String rgbFileName = String.format(Locale.US, "exp_%03d_RGB.jpg", sampleId);
                 String irFileName = (irBitmap != null)
@@ -112,12 +149,12 @@ public final class LightingExperimentLogger {
                     String isoTime = sdf.format(new Date(result.timestampMs));
 
                     String row = String.format(Locale.US,
-                            "%s,%d,%s,%s,%s,%s,%b,%b,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f",
+                            "%s,%d,%s,%s,%s,%s,%b,%b,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f",
                             isoTime, sampleId, effectiveTag, rgbFileName, irFileName,
                             result.condition.name(), result.hasFace, result.hasIrFrame, result.rgbGlobalMean,
                             result.rgbP99, result.rgbP90, result.rgbP50, result.rgbP10,
                             result.rgbContrastRatio, result.rgbSatPct, result.rgbFaceMean,
-                            result.rgbBgMean, result.irFullMean, result.irSatPct);
+                            result.rgbBgMean, result.rgbBgP90, result.irFullMean, result.irSatPct);
 
                     writer.println(row);
                     writer.flush();
