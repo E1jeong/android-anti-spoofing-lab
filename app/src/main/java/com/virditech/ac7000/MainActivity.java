@@ -2209,6 +2209,11 @@ public final class MainActivity extends Activity {
     }
 
     private CharSequence formatClassificationResults(SlotClassificationResult result) {
+        if (MainScreenView.EVENT_DISPLAY_MODE) {
+            StringBuilder sb = new StringBuilder();
+            appendClassificationResult(sb, null, result.primaryResult());
+            return sb.toString();
+        }
         if (result.hasPairedResults()) {
             StringBuilder sb = new StringBuilder();
             appendClassificationResult(sb, null, result.rgbResult);

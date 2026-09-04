@@ -30,6 +30,7 @@ public final class OverlayView extends View {
     private String recognitionResult;
     private boolean recognitionMatched;
     private boolean showIr;
+    private boolean dualPreviewMode;
     private boolean calibrationMode;
     private boolean guideOnlyMode;
     private boolean isCollecting;
@@ -70,6 +71,11 @@ public final class OverlayView extends View {
 
     public void setShowIr(boolean showIr) {
         this.showIr = showIr;
+        invalidate();
+    }
+
+    public void setDualPreviewMode(boolean dualPreviewMode) {
+        this.dualPreviewMode = dualPreviewMode;
         invalidate();
     }
 
@@ -155,6 +161,10 @@ public final class OverlayView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        if (dualPreviewMode) {
+            drawDualPreviewFaces(canvas);
+            return;
+        }
         if (calibrationMode) drawCalibrationGuide(canvas);
         if (guideOnlyMode) return;
         if (isCollecting) drawCollectionGuide(canvas);
@@ -162,16 +172,7 @@ public final class OverlayView extends View {
         Rect source = showIr ? irBox : rgbBox;
         if (source == null) return;
         Rect box = map(source, 432, 768, getWidth(), getHeight(), true);
-        int color;
-        if (isCollecting) {
-            color = Color.WHITE;
-        } else if (authMode) {
-            color = Color.CYAN;
-        } else {
-            color = result == null ? Color.YELLOW
-                    : ClassificationResult.shouldHighlightFaceInGreen(result.topIndex)
-                    ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
-        }
+        int color = faceColor(result);
         boxPaint.setColor(color);
         canvas.drawRect(box, boxPaint);
 
@@ -201,6 +202,37 @@ public final class OverlayView extends View {
             drawLabel(canvas, recognitionResult, box.left, baseline, textPaint);
         }
 
+    }
+
+    private void drawDualPreviewFaces(Canvas canvas) {
+        int rgbWidth = Math.min(Math.round(getHeight() * 9f / 16f), getWidth() / 2);
+        int irLeft = rgbWidth;
+        int irWidth = rgbWidth;
+        drawEventFace(canvas, rgbBox, result, 0, rgbWidth);
+        drawEventFace(canvas, irBox, irResult != null ? irResult : result, irLeft, irWidth);
+    }
+
+    private void drawEventFace(Canvas canvas, Rect source, ClassificationResult faceResult,
+                               int left, int width) {
+        if (source == null || width <= 0) return;
+        Rect box = map(source, 432, 768, width, getHeight(), true);
+        box.offset(left, 0);
+        int color = faceColor(faceResult);
+        boxPaint.setColor(color);
+        canvas.drawRect(box, boxPaint);
+
+        if (isCollecting || authMode) return;
+        textPaint.setColor(faceResult == null ? Color.WHITE : color);
+        String text = faceResult == null ? "FACE" : formatResult(faceResult);
+        drawLabel(canvas, text, box.left, Math.max(32f, box.top - 10f), textPaint);
+    }
+
+    private int faceColor(ClassificationResult faceResult) {
+        if (isCollecting) return Color.WHITE;
+        if (authMode) return Color.CYAN;
+        if (faceResult == null) return Color.YELLOW;
+        return ClassificationResult.shouldHighlightFaceInGreen(faceResult.topIndex)
+                ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
     }
 
     private void drawLabel(Canvas canvas, String text, float x, float baseline, Paint paint) {

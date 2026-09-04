@@ -3,11 +3,13 @@ package com.virditech.ac7000.ui;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.TextureView;
 import android.view.View;
@@ -27,6 +29,8 @@ import com.virditech.ac7000.model.SlotClassificationResult;
 import java.util.Locale;
 
 public final class MainScreenView {
+    public static final boolean EVENT_DISPLAY_MODE = true;
+
     public final FrameLayout root;
     public final FrameLayout uiContainer;
     public final TextureView rgbView;
@@ -116,20 +120,136 @@ public final class MainScreenView {
         settingsHotspot = new View(activity);
         authResultView = new TextView(activity);
 
-        int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
-        buildPreview();
-        buildCleanModeResultView();
-        buildCleanModeLightingView(listener);
-        buildCleanModeForegroundEntryView();
-        buildDiagnostics(buttonWidth);
-        buildIrCrop(listener, buttonWidth);
-        buildCaptureIndicators(listener);
-        buildControls(listener, buttonWidth);
-        buildSettingsHotspot(listener);
-        buildCalibrationControls(listener, buttonWidth);
-        buildAuthResultView();
-        buildTapListener();
+        if (EVENT_DISPLAY_MODE) {
+            buildEventDisplay();
+        } else {
+            int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
+            buildPreview();
+            buildCleanModeResultView();
+            buildCleanModeLightingView(listener);
+            buildCleanModeForegroundEntryView();
+            buildDiagnostics(buttonWidth);
+            buildIrCrop(listener, buttonWidth);
+            buildCaptureIndicators(listener);
+            buildControls(listener, buttonWidth);
+            buildSettingsHotspot(listener);
+            buildCalibrationControls(listener, buttonWidth);
+            buildAuthResultView();
+            buildTapListener();
+        }
         root.bringChildToFront(overlay);
+    }
+
+    private void buildEventDisplay() {
+        root.setBackgroundColor(Color.BLACK);
+
+        LinearLayout eventLayout = new EventDisplayLayout(activity);
+
+        FrameLayout rgbPane = eventCameraPane(rgbView, "COLOR CAMERA");
+        FrameLayout irPane = eventCameraPane(irView, "IR CAMERA");
+        FrameLayout resultPane = new FrameLayout(activity);
+        resultPane.setBackgroundColor(Color.parseColor("#151515"));
+
+        LinearLayout resultContent = new LinearLayout(activity);
+        resultContent.setOrientation(LinearLayout.VERTICAL);
+        resultContent.setPadding(dp(12), dp(12), dp(12), dp(12));
+
+        TextView resultTitle = label(20f);
+        resultTitle.setText("INFERENCE");
+        resultTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        resultTitle.setGravity(Gravity.CENTER);
+        resultContent.addView(resultTitle, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        resultsLabel.setTextSize(18f);
+        resultsLabel.setTypeface(Typeface.MONOSPACE);
+        resultsLabel.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        resultsLabel.setIncludeFontPadding(false);
+        resultsLabel.setHorizontallyScrolling(true);
+        resultsLabel.setMaxLines(ClassificationResult.LABELS.length);
+        resultsLabel.addOnLayoutChangeListener((view, left, top, right, bottom,
+                                                oldLeft, oldTop, oldRight, oldBottom) ->
+                fitEventResultText());
+        resultContent.addView(resultsLabel, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        resultPane.addView(resultContent, match());
+
+        loadingSpinner.setIndeterminate(true);
+        resultPane.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
+        irLoadingSpinner.setIndeterminate(true);
+        irPane.addView(irLoadingSpinner, wrap(Gravity.CENTER, 0, 0));
+
+        eventLayout.addView(rgbPane, eventColumn());
+        eventLayout.addView(irPane, eventColumn());
+        eventLayout.addView(resultPane, eventColumn());
+        root.addView(eventLayout, match());
+
+        rgbView.setAlpha(1f);
+        irView.setAlpha(1f);
+        overlay.setDualPreviewMode(true);
+        root.addView(overlay, match());
+    }
+
+    private FrameLayout eventCameraPane(TextureView preview, String title) {
+        FrameLayout pane = new FrameLayout(activity);
+        pane.addView(preview, match());
+
+        TextView titleView = label(18f);
+        titleView.setText(title);
+        titleView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        titleView.setGravity(Gravity.CENTER);
+        titleView.setBackgroundColor(Color.argb(160, 0, 0, 0));
+        titleView.setPadding(dp(12), dp(6), dp(12), dp(6));
+        pane.addView(titleView, wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, dp(8), dp(8)));
+        return pane;
+    }
+
+    private void fitEventResultText() {
+        int availableWidth = resultsLabel.getWidth();
+        int availableHeight = resultsLabel.getHeight();
+        if (availableWidth <= 0 || availableHeight <= 0) return;
+
+        float referenceSizePx = 100f;
+        Paint measurePaint = new Paint(resultsLabel.getPaint());
+        measurePaint.setTextSize(referenceSizePx);
+        float widthAtReference = measurePaint.measureText("DENTAL_WHITE 100.0%");
+        Paint.FontMetrics metrics = measurePaint.getFontMetrics();
+        float lineHeightAtReference = metrics.descent - metrics.ascent;
+        float widthLimitedPx = referenceSizePx * availableWidth / widthAtReference;
+        float heightLimitedPx = referenceSizePx * availableHeight
+                / (lineHeightAtReference * ClassificationResult.LABELS.length);
+        float textSizePx = (float) Math.floor(Math.min(widthLimitedPx, heightLimitedPx));
+        if (Math.abs(resultsLabel.getTextSize() - textSizePx) >= 1f) {
+            resultsLabel.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSizePx);
+        }
+    }
+
+    private static LinearLayout.LayoutParams eventColumn() {
+        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT);
+    }
+
+    private static final class EventDisplayLayout extends LinearLayout {
+        EventDisplayLayout(Activity activity) {
+            super(activity);
+            setOrientation(HORIZONTAL);
+        }
+
+        @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int width = MeasureSpec.getSize(widthMeasureSpec);
+            int height = MeasureSpec.getSize(heightMeasureSpec);
+            int cameraWidth = Math.min(Math.round(height * 9f / 16f), width / 2);
+            if (getChildCount() == 3) {
+                setChildWidth(getChildAt(0), cameraWidth);
+                setChildWidth(getChildAt(1), cameraWidth);
+                setChildWidth(getChildAt(2), width - cameraWidth * 2);
+            }
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        }
+
+        private static void setChildWidth(View child, int width) {
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) child.getLayoutParams();
+            if (params.width != width) params.width = width;
+        }
     }
 
     private void buildPreview() {
@@ -554,6 +674,10 @@ public final class MainScreenView {
     }
 
     private void updateCleanModeForegroundEntryVisibility() {
+        if (EVENT_DISPLAY_MODE) {
+            cleanModeForegroundEntryView.setVisibility(View.GONE);
+            return;
+        }
         boolean show = uiContainer.getVisibility() != View.VISIBLE
                 && foregroundEntryTestEnabled
                 && currentForegroundEntryResult != null;
@@ -660,6 +784,12 @@ public final class MainScreenView {
     }
 
     public void setIrVisible(boolean showIr) {
+        if (EVENT_DISPLAY_MODE) {
+            rgbView.setAlpha(1f);
+            irView.setAlpha(1f);
+            overlay.setDualPreviewMode(true);
+            return;
+        }
         rgbView.setAlpha(showIr ? 0f : 1f);
         irView.setAlpha(showIr ? 1f : 0f);
         overlay.setShowIr(showIr);
