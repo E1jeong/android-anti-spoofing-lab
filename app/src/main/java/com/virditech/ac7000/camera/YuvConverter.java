@@ -25,9 +25,11 @@ final class YuvConverter implements AutoCloseable {
     private final Paint colorPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint grayscalePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Matrix rotation = new Matrix();
+    private final Matrix eventRotation = new Matrix();
     private final ArrayDeque<Bitmap> portraitPool = new ArrayDeque<>(PORTRAIT_POOL_LIMIT);
     private byte[] nv21;
     private Bitmap landscape;
+    private Bitmap portraitStage;
     private Allocation inputAllocation;
     private Allocation outputAllocation;
     private int width;
@@ -52,13 +54,7 @@ final class YuvConverter implements AutoCloseable {
         outputAllocation.copyTo(landscape);
 
         Bitmap portrait = obtainPortraitBitmap();
-        rotation.reset();
-        rotation.setRotate(-90f);
-        rotation.postTranslate(0f, width);
-        if (flipHorizontal) {
-            rotation.postScale(-1f, 1f, height / 2f, width / 2f);
-        }
-        new Canvas(portrait).drawBitmap(landscape, rotation, grayscale ? grayscalePaint : colorPaint);
+        drawPortraitFrame(portrait, grayscale, flipHorizontal);
         long conversionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         return new FrameData(portrait, image.getTimestamp(), conversionMs, this::releasePortraitBitmap);
     }
@@ -72,15 +68,30 @@ final class YuvConverter implements AutoCloseable {
         outputAllocation.copyTo(landscape);
 
         Bitmap portrait = obtainPortraitBitmap();
+        drawPortraitFrame(portrait, grayscale, flipHorizontal);
+        long conversionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
+        return new FrameData(portrait, timestampNs, conversionMs, this::releasePortraitBitmap);
+    }
+
+    private void drawPortraitFrame(Bitmap portrait, boolean grayscale, boolean flipHorizontal) {
+        Bitmap rotationTarget = CameraStream.EVENT_LANDSCAPE_DEVICE_MODE ? portraitStage : portrait;
         rotation.reset();
         rotation.setRotate(-90f);
         rotation.postTranslate(0f, width);
         if (flipHorizontal) {
             rotation.postScale(-1f, 1f, height / 2f, width / 2f);
         }
-        new Canvas(portrait).drawBitmap(landscape, rotation, grayscale ? grayscalePaint : colorPaint);
-        long conversionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
-        return new FrameData(portrait, timestampNs, conversionMs, this::releasePortraitBitmap);
+        new Canvas(rotationTarget).drawBitmap(
+                landscape, rotation, grayscale ? grayscalePaint : colorPaint);
+        if (!CameraStream.EVENT_LANDSCAPE_DEVICE_MODE) return;
+
+        float centerX = height / 2f;
+        float centerY = width / 2f;
+        float scale = width / (float) height;
+        eventRotation.reset();
+        eventRotation.setRotate(-90f, centerX, centerY);
+        eventRotation.postScale(scale, scale, centerX, centerY);
+        new Canvas(portrait).drawBitmap(portraitStage, eventRotation, colorPaint);
     }
 
     private void ensureBuffers(int newWidth, int newHeight) {
@@ -92,6 +103,9 @@ final class YuvConverter implements AutoCloseable {
         nv21 = new byte[width * height * 3 / 2];
         inputAllocation = Allocation.createSized(renderScript, Element.U8(renderScript), nv21.length);
         landscape = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        if (CameraStream.EVENT_LANDSCAPE_DEVICE_MODE) {
+            portraitStage = Bitmap.createBitmap(height, width, Bitmap.Config.ARGB_8888);
+        }
         outputAllocation = Allocation.createFromBitmap(renderScript, landscape);
     }
 
@@ -167,6 +181,7 @@ final class YuvConverter implements AutoCloseable {
         if (outputAllocation != null) outputAllocation.destroy();
         if (inputAllocation != null) inputAllocation.destroy();
         if (landscape != null) landscape.recycle();
+        if (portraitStage != null) portraitStage.recycle();
         synchronized (portraitPool) {
             while (!portraitPool.isEmpty()) {
                 Bitmap bitmap = portraitPool.removeFirst();
@@ -176,6 +191,7 @@ final class YuvConverter implements AutoCloseable {
         outputAllocation = null;
         inputAllocation = null;
         landscape = null;
+        portraitStage = null;
         nv21 = null;
     }
 

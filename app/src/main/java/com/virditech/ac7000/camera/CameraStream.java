@@ -30,6 +30,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 
 final class CameraStream {
+    static final boolean EVENT_LANDSCAPE_DEVICE_MODE = true;
+
     interface Listener {
         void onFrame(FrameData frame);
         void onError(String message);
@@ -218,7 +220,16 @@ final class CameraStream {
         matrix.postRotate(degrees, width / 2f, height / 2f);
         matrix.postScale(width / height, height / width, width / 2f, height / 2f);
         textureView.setTransform(matrix);
-        textureView.setScaleX(1f);
+        if (EVENT_LANDSCAPE_DEVICE_MODE) {
+            float scale = height / width;
+            textureView.setRotation(-90f);
+            textureView.setScaleX(scale);
+            textureView.setScaleY(scale);
+        } else {
+            textureView.setRotation(0f);
+            textureView.setScaleX(1f);
+            textureView.setScaleY(1f);
+        }
     }
 
     private boolean mirrorHorizontally() {
