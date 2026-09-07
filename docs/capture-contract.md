@@ -1,39 +1,6 @@
-# Capture Contract Guidance
+# Capture Verification
 
-Read this document before changing capture collection, FaceMe quality gating, sample storage, metadata, BMP writing, progress/countdown behavior, pause/resume, or cancel.
-
-## Collection Contract
-
-- `START CAPTURE` writes exactly 100 valid samples per selected class.
-- For `live`, each save candidate must meet the selected FaceMe HIGH or MEDIUM quality threshold. Rejected frames do not increment the saved count or sector count.
-- Non-live classes (`display`, `picture`, `print`, `mask`, `pmask`, `curved_picture`, `curved_print`, `curved_mask`, `curved_pmask`, `dental_white`, `dental_black`) bypass FaceMe quality checks.
-- The class menu keeps the original six buttons first, followed by `C PICTURE`, `C PRINT`, `C MASK`, `C PMASK`, `DENTAL WHITE`, and `DENTAL BLACK` in that order.
-- Capture can be paused and resumed. Cancel invalidates queued work and deletes the current subject directory, including samples already saved during that session.
-- A sample count advances only after `RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, and `meta.json` all save successfully.
-
-## Attack False-Live Capture
-
-- The `ATTACK` menu mode keeps normal inference and result UI active. It saves only when the active slot's primary result has `LIVE >= 80%`.
-- Attack samples use `/sdcard/Pictures/raw/attack_live/attack_live_<subject>/<index>/` and save the same four BMP files plus `meta.json`. Its metadata uses `qualityMode: "attack_live"`; FaceMe quality levels are `-1` and score is `0.0`.
-- Attack writing uses its own single-thread executor. While it owns a detached `FramePair`, later qualifying candidates must be skipped rather than queued.
-- The red X stops accepting new candidates but preserves the subject directory and lets an already submitted write complete. Do not reuse normal-capture cancellation or its delete/session-invalidation behavior.
-- After all four BMP files plus `meta.json` save successfully, ATTACK plays the same short `TONE_PROP_BEEP` as a normal non-sector sample. Threshold misses and failed writes remain silent; an in-flight save that completes after X still plays its completion beep.
-
-## Storage Contract
-
-- Capture uses direct filesystem writes under `/sdcard/Pictures/raw`; there is no internal-storage fallback.
-- `live` paths are `live/high/live_<subject>` or `live/medium/live_<subject>`. Other classes use `<class>/<class>_<subject>`.
-- A write probe must succeed before capture starts.
-- Internal class identifiers and paths use lowercase `pmask`, `curved_picture`, `curved_print`, `curved_mask`, and `curved_pmask`.
-- `meta.json` must remain consistent with the saved BMP coordinate space and the active crop margin.
-
-## Current Ownership and Writer Behavior
-
-- Live save candidates reuse one FaceMe extraction for tracking box and quality landmark/pose data. Preserve non-live bypass and the selected thresholds.
-- Capture I/O owns a detached RGB/IR `FramePair` until save completion or discard.
-- Full and crop BMPs are written directly from source bitmaps through a reusable 16-row stripe buffer and `BufferedOutputStream`; do not restore the two full-frame copies or two crop bitmap creations without a verified reason.
-- BMP output is 24-bit, bottom-up, with four-byte row padding.
-- Frames must be returned on success, validation failure, cancel/session invalidation, queued-task discard, and executor rejection.
+Version-bound execution checklist for the checked-out Android evaluator. Resolve the project wiki through root `AGENTS.md`; `features/camera-and-calibration` owns the contracts, rationale, and dated results. Record the tested commit, APK/model hashes, device, scenario, and outcome. A documentation review does not rerun these checks.
 
 ## Troubleshooting and Validation
 

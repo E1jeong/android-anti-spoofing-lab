@@ -7,15 +7,14 @@
 
 ## Orient First
 
-- Read `technical/code-structure-performance-diagnosis` and `overview` before modifying core runtime loops or camera pipelines.
-- Source entry points:
-  - Application orchestration: `MainActivity.java` (lifecycle, executors, hotspot gesture dispatcher), `IntroActivity.java`
-  - Deep technical specifications:
-    - Model contracts & manifests: [`../docs/model-contract.md`](../docs/model-contract.md)
-    - Device runtime & teardown: [`../docs/device-runtime.md`](../docs/device-runtime.md)
-    - Dataset capture & BMP stream: [`../docs/capture-contract.md`](../docs/capture-contract.md)
-    - Performance diagnostics & P50/P95: [`../docs/performance-guide.md`](../docs/performance-guide.md)
-    - WebRTC signaling & handoff: [`../docs/webrtc-test.md`](../docs/webrtc-test.md)
+All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
+
+- Orchestration and loading: `MainActivity.java`, `IntroActivity.java`.
+- Model slots and tensors: `model/ModelSlotClassifier.java`, `model/AntiSpoofingClassifier.java`, `model/ClassificationResult.java`.
+- Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `face/FaceDetector.java`, `calibration/Calibration.java`.
+- Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
+- Recognition: `recognition/FaceRecognitionManager.java`, `recognition/FixedInputRecognitionRunner.java`.
+- Calls and device UI: `call/WebRtcCallActivity.java`, `api/call/SignalingClient.java`, `device/HardwareControls.java`, `ui/MainScreenView.java`.
 
 ## Boundary & Architecture Constraints
 
@@ -26,7 +25,7 @@
    - Screen displays mirrored preview (`setScaleX(-1f)`); `OverlayView` must pass `mirror=true` to `map()` to align canvas boxes with visible faces.
 
 2. **`model`**:
-   - `AntiSpoofingClassifier` supports NHWC Float32/Int8 models with 1, 2, or 5 inputs and fixed `[1, 10]` output.
+   - `AntiSpoofingClassifier` supports NHWC Float32/Int8 models with 1, 2, or 5 inputs and output matching `ClassificationResult.LABELS` (currently `[1,12]`).
    - `ModelSlotClassifier` loads entries from `assets/model_manifest.json`. Only the active slot runs per frame on `inferenceExecutor`.
    - `FaceMotionGate` halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame.
 
@@ -38,8 +37,8 @@
    - Keep embedding extraction off the anti-spoofing `inferenceExecutor` so recognition timing and failures can be measured independently. Transfer only an owned aligned 112x112 bitmap to the recognition executor.
    - During independent model validation, do not gate recognition or enrollment on an anti-spoofing result. Do not drop or replace requested samples through latest-wins scheduling or a fixed minimum interval; every accepted test request must produce a recorded result, explicit error, or explicit cancellation.
    - Face recognition and anti-spoofing are parallel evaluation tracks with no ordering or dependency. Anti-spoofing artifacts are trained/exported by `access-liveness-model`; the current recognition work acquires and converts a pretrained model rather than training one.
-   - Stop the current recognition scope at standalone load/inference, conversion/delegate agreement, alignment inspection, embedding repeatability, score distributions, and latency. Liveness gating, rate limiting, latest-wins scheduling, template persistence, and authentication-score composition are separate future integration work.
-   - `FixedInputRecognitionActivity` / `FixedInputRecognitionRunner` own camera-free CPU/NNAPI comparison on external 112x112 inputs; follow `docs/performance-guide.md` and keep biometric fixtures out of Git and the APK.
+   - Stop the current recognition scope at standalone load/inference, conversion/delegate agreement, alignment inspection, embedding repeatability, score distributions, and latency. Liveness gating, rate limiting, latest-wins scheduling, and authentication-score composition remain separate future integration work; the existing lab-only template DB is not production authentication.
+   - `FixedInputRecognitionActivity` / `FixedInputRecognitionRunner` own camera-free CPU/NNAPI comparison on external 112x112 inputs; follow `../docs/performance-guide.md` and keep biometric fixtures out of Git and the APK.
    - Treat the 0.70 identity threshold and the observed self 91% versus other 19–20% result as preliminary experiment evidence, not proof of model acceptance or a production authentication boundary.
 
 4. **`capture`**:
