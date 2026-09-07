@@ -39,6 +39,7 @@ public final class FaceRecognitionActivity extends Activity {
     private String selectedModelChecksum;
     private FaceEmbeddingModel.DelegateType selectedDelegate;
     private boolean selectedRecognitionEnabled;
+    private List<RecognitionModelConfig> availableModels;
     private TextView summary;
     private LinearLayout templateList;
     private final List<View> actionControls = new ArrayList<>();
@@ -48,6 +49,7 @@ public final class FaceRecognitionActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        availableModels = RecognitionModelConfig.loadAll(getApplicationContext());
         modelAssetPath = getIntent().getStringExtra(EXTRA_MODEL_ASSET_PATH);
         if (modelAssetPath == null || modelAssetPath.isEmpty()) modelAssetPath = FaceEmbeddingModel.DEFAULT_MODEL_PATH;
         modelChecksum = getIntent().getStringExtra(EXTRA_MODEL_CHECKSUM);
@@ -85,21 +87,15 @@ public final class FaceRecognitionActivity extends Activity {
         actionControls.add(recognitionMode);
         root.addView(recognitionMode, fullWidthParams());
 
-        Button delegate = new Button(this);
-        updateDelegateText(delegate);
-        delegate.setOnClickListener(view -> {
-            selectedDelegate = selectedDelegate == FaceEmbeddingModel.DelegateType.CPU
-                    ? FaceEmbeddingModel.DelegateType.NNAPI
-                    : FaceEmbeddingModel.DelegateType.CPU;
-            updateDelegateText(delegate);
-        });
-        actionControls.add(delegate);
-        root.addView(delegate, fullWidthParams());
-
         Button modelSwitch = new Button(this);
         updateModelText(modelSwitch);
+        modelSwitch.setEnabled(availableModels != null && availableModels.size() > 1);
         modelSwitch.setOnClickListener(view -> {
-            selectedModelAssetPath = nextModelPath(selectedModelAssetPath);
+            if (availableModels == null || availableModels.size() <= 1) return;
+            RecognitionModelConfig next = nextModelConfig(selectedModelAssetPath);
+            if (next == null) return;
+            selectedModelAssetPath = next.getModelPath();
+            selectedDelegate = next.getDelegateType();
             selectedModelChecksum = null;
             updateModelText(modelSwitch);
             model.setText("Model: " + modelLabel(selectedModelAssetPath));
@@ -124,7 +120,7 @@ public final class FaceRecognitionActivity extends Activity {
         fixedInput.setText("FIXED-INPUT RECOG TEST");
         fixedInput.setOnClickListener(view -> {
             Intent intent = new Intent(this, FixedInputRecognitionActivity.class);
-            intent.putExtra(FixedInputRecognitionActivity.EXTRA_MODEL_ASSET_PATH, modelAssetPath);
+            intent.putExtra(FixedInputRecognitionActivity.EXTRA_MODEL_ASSET_PATH, selectedModelAssetPath);
             startActivity(intent);
         });
         actionControls.add(fixedInput);
@@ -201,36 +197,35 @@ public final class FaceRecognitionActivity extends Activity {
         button.setText("FACE RECOGNITION: " + (selectedRecognitionEnabled ? "ON" : "OFF"));
     }
 
-    private void updateDelegateText(Button button) {
-        button.setText("RECOG DELEGATE: " + selectedDelegate.name());
-    }
-
     private void updateModelText(Button button) {
         button.setText("RECOG MODEL: " + modelLabel(selectedModelAssetPath));
     }
 
     private String modelLabel(String modelPath) {
-        if (FaceEmbeddingModel.MODEL_MOBILENET_EMORE_INT8.equals(modelPath)) return "MobileNet Emore INT8";
-        if (FaceEmbeddingModel.MODEL_PURE_MBF_RELU_INT8.equals(modelPath)) return "Pure-MBF ReLU INT8";
-        if (FaceEmbeddingModel.MODEL_SE_RELU_INT8.equals(modelPath)) return "SE-MBF ReLU INT8";
-        if (FaceEmbeddingModel.MODEL_NPU_INT8.equals(modelPath)) return "W600K INT8";
-        if (FaceEmbeddingModel.MODEL_FLOAT16.equals(modelPath)) return "W600K FP16";
-        if (FaceEmbeddingModel.MODEL_FLOAT32.equals(modelPath)) return "W600K FP32";
-        if (FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4.equals(modelPath)) return "MobileNetV4 FP32";
-        if (FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4_INT8.equals(modelPath)) return "MobileNetV4 INT8";
+        if (availableModels != null) {
+            for (RecognitionModelConfig config : availableModels) {
+                if (config.getModelPath().equals(modelPath)) {
+                    return config.getLabel();
+                }
+            }
+        }
+        if (FaceEmbeddingModel.MODEL_MOBILENET_EMORE_INT8.equals(modelPath)) {
+            return "MobileNet Emore INT8";
+        }
         return modelPath;
     }
 
-    private String nextModelPath(String modelPath) {
-        if (FaceEmbeddingModel.MODEL_MOBILENET_EMORE_INT8.equals(modelPath)) return FaceEmbeddingModel.MODEL_SE_RELU_INT8;
-        if (FaceEmbeddingModel.MODEL_SE_RELU_INT8.equals(modelPath)) return FaceEmbeddingModel.MODEL_NPU_INT8;
-        if (FaceEmbeddingModel.MODEL_NPU_INT8.equals(modelPath)) return FaceEmbeddingModel.MODEL_FLOAT16;
-        if (FaceEmbeddingModel.MODEL_FLOAT16.equals(modelPath)) return FaceEmbeddingModel.MODEL_FLOAT32;
-        if (FaceEmbeddingModel.MODEL_FLOAT32.equals(modelPath)) return FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4;
-        if (FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4.equals(modelPath)) {
-            return FaceEmbeddingModel.MODEL_RESEARCH_MOBILENETV4_INT8;
+    private RecognitionModelConfig nextModelConfig(String currentModelPath) {
+        if (availableModels == null || availableModels.isEmpty()) return null;
+        int currentIndex = -1;
+        for (int i = 0; i < availableModels.size(); i++) {
+            if (availableModels.get(i).getModelPath().equals(currentModelPath)) {
+                currentIndex = i;
+                break;
+            }
         }
-        return FaceEmbeddingModel.MODEL_MOBILENET_EMORE_INT8;
+        int nextIndex = (currentIndex + 1) % availableModels.size();
+        return availableModels.get(nextIndex);
     }
 
     private void confirmClear() {

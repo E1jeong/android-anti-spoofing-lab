@@ -701,6 +701,7 @@ public final class MainScreenView {
         status.setText(normalStatusMessage);
         status.setVisibility(View.VISIBLE);
         resultsLabel.setVisibility(View.VISIBLE);
+        irCropContainer.setVisibility(View.VISIBLE);
         controlsLayout.setVisibility(View.VISIBLE);
         calibrationHotspot.setVisibility(View.VISIBLE);
         settingsHotspot.setVisibility(View.VISIBLE);

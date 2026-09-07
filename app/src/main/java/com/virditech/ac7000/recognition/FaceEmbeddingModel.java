@@ -26,15 +26,6 @@ import java.nio.channels.FileChannel;
 public final class FaceEmbeddingModel implements AutoCloseable {
     private static final String TAG = "FaceEmbeddingModel";
     public static final String MODEL_MOBILENET_EMORE_INT8 = "models/mobilenet_emore_npu_int8.tflite";
-    public static final String MODEL_PURE_MBF_RELU_INT8 = "models/pure_mbf_relu_npu_int8.tflite";
-    public static final String MODEL_SE_RELU_INT8 = "models/se_mobilefacenet_relu_npu_int8.tflite";
-    public static final String MODEL_NPU_INT8 = "models/w600k_mbf_npu_int8.tflite";
-    public static final String MODEL_FLOAT16 = "models/w600k_mbf_static_float16.tflite";
-    public static final String MODEL_FLOAT32 = "models/w600k_mbf_static_float32.tflite";
-    public static final String MODEL_RESEARCH_MOBILENETV4 =
-            "models/frbench_mobilenetv4conv_m_arcface_ms1m_float_nchw.tflite";
-    public static final String MODEL_RESEARCH_MOBILENETV4_INT8 =
-            "models/frbench_mobilenetv4conv_m_arcface_ms1m_full_int8_nchw.tflite";
     public static final String DEFAULT_MODEL_PATH = MODEL_MOBILENET_EMORE_INT8;
     public static final int INPUT_SIZE = 112;
     public static final int EMBEDDING_DIM = 512;

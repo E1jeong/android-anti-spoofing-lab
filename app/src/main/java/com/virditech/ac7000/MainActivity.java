@@ -68,6 +68,7 @@ import com.virditech.ac7000.recognition.FaceRecognitionActivity;
 import com.virditech.ac7000.recognition.FaceRecognitionManager;
 import com.virditech.ac7000.recognition.FaceTemplate;
 import com.virditech.ac7000.recognition.FaceTemplateRepository;
+import com.virditech.ac7000.recognition.RecognitionModelConfig;
 import com.virditech.ac7000.recognition.RecognitionPolicy;
 import com.virditech.ac7000.recognition.RecognitionResult;
 import com.virditech.ac7000.recognition.RecognitionWorkCoordinator;
@@ -689,6 +690,12 @@ public final class MainActivity extends Activity {
             reportEngineError("MODEL LOAD FAILED: " + e.getMessage());
         }
         try {
+            List<RecognitionModelConfig> recogConfigs = RecognitionModelConfig.loadAll(getApplicationContext());
+            if (!recogConfigs.isEmpty()) {
+                RecognitionModelConfig defaultRecog = recogConfigs.get(0);
+                recogModelPath = defaultRecog.getModelPath();
+                recogDelegate = defaultRecog.getDelegateType();
+            }
             FaceRecognitionManager recManager = new FaceRecognitionManager(getApplicationContext(), recogModelPath, recogDelegate);
             if (recManager.isReady()) {
                 String modelChecksum = modelChecksum(recManager.getModelAssetPath());
