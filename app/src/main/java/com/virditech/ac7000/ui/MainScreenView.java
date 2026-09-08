@@ -68,6 +68,7 @@ public final class MainScreenView {
     private boolean highQualityOnly;
     private boolean recognitionEnrollmentMode;
     private boolean collectionActive;
+    private boolean uiVisibilityLocked;
     private CharSequence currentCleanResultText;
     private DualLightingDetector.Result currentLightingResult;
     private ForegroundEntryDetector.Result currentForegroundEntryResult;
@@ -452,7 +453,7 @@ public final class MainScreenView {
     }
 
     public void toggleUiVisibility() {
-        if (collectionActive) {
+        if (collectionActive || uiVisibilityLocked) {
             setUiVisible(true);
             return;
         }
@@ -674,6 +675,8 @@ public final class MainScreenView {
     }
 
     public void enterCalibrationMode() {
+        uiVisibilityLocked = true;
+        setUiVisible(true);
         overlay.clearResult();
         clearCleanModeResult();
         overlay.setCalibrationMode(true);
@@ -690,6 +693,7 @@ public final class MainScreenView {
     }
 
     public void exitCalibrationMode(String normalStatusMessage) {
+        uiVisibilityLocked = false;
         overlay.setCalibrationMode(false);
         overlay.setGuideOnlyMode(false);
         overlay.clearResult();
@@ -709,6 +713,7 @@ public final class MainScreenView {
 
     public void enterRecognitionEnrollmentMode() {
         recognitionEnrollmentMode = true;
+        uiVisibilityLocked = true;
         setUiVisible(true);
         overlay.clearResult();
         clearCleanModeResult();

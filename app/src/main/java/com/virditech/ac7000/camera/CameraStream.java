@@ -16,6 +16,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
+import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
@@ -23,13 +24,13 @@ import android.view.TextureView;
 import com.virditech.ac7000.concurrent.GenerationGuard;
 
 import java.util.Arrays;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.RejectedExecutionException;
 
 final class CameraStream {
+    private static final String TAG = "CameraStream";
     interface Listener {
         void onFrame(FrameData frame);
         void onError(String message);
@@ -49,8 +50,9 @@ final class CameraStream {
     private ImageReader reader;
     private Surface preview;
     private Handler handler;
-    private CountDownLatch closeLatch;
     private boolean closing;
+    private final AtomicBoolean resourcesFinished = new AtomicBoolean(false);
+    private volatile Runnable stopCallback;
     private volatile boolean frameDeliveryEnabled = true;
     // Reused NV21 buffer; safe because frames are dropped while a conversion is in flight,
     // so the camera thread only rewrites it after the previous conversion finished.
@@ -104,10 +106,12 @@ final class CameraStream {
                     createSession(generation, camera);
                 }
                 @Override public void onDisconnected(CameraDevice camera) {
+                    closing = true;
                     camera.close();
                     if (generationGuard.isCurrent(generation)) listener.onError("Camera disconnected");
                 }
                 @Override public void onError(CameraDevice camera, int error) {
+                    closing = true;
                     camera.close();
                     if (generationGuard.isCurrent(generation)) listener.onError("Camera error " + error);
                 }
@@ -183,7 +187,8 @@ final class CameraStream {
                 @Override public void onConfigured(CameraCaptureSession configured) {
                     if (!generationGuard.isCurrent(generation)) {
                         configured.close();
-                        generationReader.close();
+                        closing = true;
+                        camera.close();
                         return;
                     }
                     session = configured;
@@ -198,13 +203,16 @@ final class CameraStream {
                 }
                 @Override public void onConfigureFailed(CameraCaptureSession failed) {
                     failed.close();
-                    generationReader.close();
+                    closing = true;
+                    camera.close();
                     if (generationGuard.isCurrent(generation)) {
                         listener.onError("Camera session configuration failed");
                     }
                 }
             }, handler);
         } catch (CameraAccessException e) {
+            closing = true;
+            camera.close();
             if (generationGuard.isCurrent(generation)) listener.onError(e.getMessage());
         }
     }
@@ -225,46 +233,41 @@ final class CameraStream {
         return !color;
     }
 
-    void stop() {
+    void stop(Runnable onStopped) {
         generationGuard.advance();
         frameDeliveryEnabled = false;
         textureView.setSurfaceTextureListener(null);
-        closeCameraOnHandler();
-
-        conversionExecutor.shutdown();
-        try {
-            if (!conversionExecutor.awaitTermination(500, TimeUnit.MILLISECONDS)) {
-                conversionExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            conversionExecutor.shutdownNow();
+        stopCallback = onStopped;
+        if (resourcesFinished.get()) {
+            notifyStopped();
+            return;
         }
-
-        converter.close();
+        closeCameraOnHandler();
     }
 
     private void closeCameraOnHandler() {
         Handler cameraHandler = handler;
         if (cameraHandler == null) {
-            forceCloseCameraResources();
+            closing = true;
+            if (device != null) {
+                device.close();
+            } else {
+                finishCameraClose();
+            }
             return;
         }
-        CountDownLatch closed = new CountDownLatch(1);
-        closeLatch = closed;
         if (!cameraHandler.post(() -> {
             closing = true;
             beginCameraClose();
+            cameraHandler.postDelayed(() -> {
+                if (!resourcesFinished.get()) {
+                    Log.e(TAG, "Camera onClosed callback is still pending; reader/surface retained");
+                }
+            }, 1_500L);
         })) {
-            forceCloseCameraResources();
-            return;
-        }
-        try {
-            if (!closed.await(1, TimeUnit.SECONDS)) {
-                cameraHandler.post(this::forceCloseCameraResources);
-                closed.await(500, TimeUnit.MILLISECONDS);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            closing = true;
+            Log.e(TAG, "Camera handler rejected close request; retaining reader/surface until onClosed");
+            if (device != null) device.close();
         }
     }
 
@@ -283,6 +286,11 @@ final class CameraStream {
     }
 
     private void finishCameraClose() {
+        if (!resourcesFinished.compareAndSet(false, true)) return;
+        if (session != null) {
+            session.close();
+            session = null;
+        }
         if (reader != null) {
             reader.close();
             reader = null;
@@ -292,22 +300,21 @@ final class CameraStream {
             preview = null;
         }
         handler = null;
-        CountDownLatch closed = closeLatch;
-        closeLatch = null;
-        if (closed != null) closed.countDown();
+        try {
+            conversionExecutor.execute(() -> {
+                converter.close();
+                notifyStopped();
+            });
+            conversionExecutor.shutdown();
+        } catch (RejectedExecutionException e) {
+            converter.close();
+            notifyStopped();
+        }
     }
 
-    private void forceCloseCameraResources() {
-        if (session != null) {
-            try { session.stopRepeating(); } catch (Exception ignored) {}
-            try { session.abortCaptures(); } catch (Exception ignored) {}
-            session.close();
-            session = null;
-        }
-        if (device != null) {
-            device.close();
-            device = null;
-        }
-        finishCameraClose();
+    private void notifyStopped() {
+        Runnable callback = stopCallback;
+        stopCallback = null;
+        if (callback != null) callback.run();
     }
 }

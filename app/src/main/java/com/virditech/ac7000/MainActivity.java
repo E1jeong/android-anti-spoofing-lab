@@ -22,16 +22,9 @@ import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
-import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.Button;
 import android.widget.ArrayAdapter;
-import android.widget.FrameLayout;
-import android.widget.ImageButton;
-import android.widget.ImageView;
-import android.widget.ProgressBar;
-import android.widget.TextView;
 
 import java.io.File;
 import com.cyberlink.faceme.FaceQualityLevel;
@@ -39,13 +32,16 @@ import com.virditech.ac7000.calibration.Calibration;
 import com.virditech.ac7000.camera.DualCameraController;
 import com.virditech.ac7000.camera.FrameData;
 import com.virditech.ac7000.camera.FramePair;
+import com.virditech.ac7000.camera.FrameSynchronizer;
 import com.virditech.ac7000.capture.AttackLiveCaptureGate;
 import com.virditech.ac7000.capture.CaptureProgressText;
 import com.virditech.ac7000.capture.CaptureSchedule;
+import com.virditech.ac7000.capture.CaptureSession;
 import com.virditech.ac7000.capture.CaptureStep;
 import com.virditech.ac7000.capture.CaptureStorage;
 import com.virditech.ac7000.call.WebRtcCallActivity;
 import com.virditech.ac7000.concurrent.GenerationGuard;
+import com.virditech.ac7000.concurrent.LatestWinsExecutor;
 import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.face.FaceDetectionEngine;
 import com.virditech.ac7000.face.MediaPipeFaceDetector;
@@ -57,6 +53,7 @@ import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
 import com.virditech.ac7000.model.ClassificationResult;
+import com.virditech.ac7000.model.AuthFrameAccumulator;
 import com.virditech.ac7000.model.FaceCrop;
 import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.model.ModelSlotClassifier;
@@ -69,11 +66,11 @@ import com.virditech.ac7000.recognition.FaceRecognitionManager;
 import com.virditech.ac7000.recognition.FaceTemplate;
 import com.virditech.ac7000.recognition.FaceTemplateRepository;
 import com.virditech.ac7000.recognition.RecognitionModelConfig;
+import com.virditech.ac7000.recognition.RecognitionEnrollmentSession;
 import com.virditech.ac7000.recognition.RecognitionPolicy;
 import com.virditech.ac7000.recognition.RecognitionResult;
 import com.virditech.ac7000.recognition.RecognitionWorkCoordinator;
 import com.virditech.ac7000.ui.MainScreenView;
-import com.virditech.ac7000.ui.OverlayView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -86,7 +83,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "MainActivity";
@@ -99,6 +95,7 @@ public final class MainActivity extends Activity {
     private static final int LATENCY_WINDOW_SIZE = 120;
     private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
     private static final long IR_LED_OFF_DELAY_MS = 1_000L;
+    private static final long CAMERA_CLOSE_WARNING_MS = 1_500L;
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -106,10 +103,18 @@ public final class MainActivity extends Activity {
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService attackCaptureExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService modelInitExecutor = Executors.newSingleThreadExecutor();
-    private final AtomicReference<TrackingFrame> pendingTracking = new AtomicReference<>();
-    private final AtomicReference<InferenceTask> pendingInference = new AtomicReference<>();
-    private final AtomicBoolean trackingWorkerRunning = new AtomicBoolean();
-    private final AtomicBoolean inferenceWorkerRunning = new AtomicBoolean();
+    private final LatestWinsExecutor<TrackingFrame> trackingQueue = new LatestWinsExecutor<>(
+            trackingExecutor, this::processTracking, TrackingFrame::recycle,
+            (frame, error) -> {
+                android.util.Log.e(TAG, "Tracking failed", error);
+                if (isPipelineCurrent(frame.generation)) showTransientStatus("Tracking failed");
+            }, this::closeFaceDetectorsIfShutDown);
+    private final LatestWinsExecutor<InferenceTask> inferenceQueue = new LatestWinsExecutor<>(
+            inferenceExecutor, this::processInferenceIfAllowed,
+            InferenceTask::recycle, (task, error) -> {
+                android.util.Log.e(TAG, "Inference failed", error);
+                if (isPipelineCurrent(task.generation)) showTransientStatus("Inference failed");
+            }, this::closeAntiSpoofClassifiersIfShutDown);
     private final RecognitionWorkCoordinator recognitionCoordinator = new RecognitionWorkCoordinator();
     private final AtomicBoolean recognitionFaceVisible = new AtomicBoolean();
     private final AtomicLong inferenceMotionGeneration = new AtomicLong();
@@ -117,24 +122,11 @@ public final class MainActivity extends Activity {
     private final AtomicBoolean calibrationRequested = new AtomicBoolean();
     private final GenerationGuard pipelineGeneration = new GenerationGuard();
     private final Object attackCaptureLock = new Object();
-    private final Object irLock = new Object();
-    private FrameData latestIr;
+    private final FrameSynchronizer<FrameData> frameSynchronizer = new FrameSynchronizer<>(
+            MAX_PAIR_DELTA_NS, frame -> frame.timestampNs, FrameData::recycle);
     private final Object irPreviewLock = new Object();
     private Bitmap latestIrBitmapForCrop;
     private final Canvas irPreviewCanvas = new Canvas();
-    private TextureView rgbView;
-    private TextureView irView;
-    private OverlayView overlay;
-    private ProgressBar loadingSpinner;
-    private ProgressBar irLoadingSpinner;
-    private TextView performance;
-    private TextView status;
-    private ImageView faceCropView;
-    private TextView noFaceLabel;
-    private TextView resultsLabel;
-    private TextView calibrationInstruction;
-    private Button switchButton;
-    private Button modelSwitchButton;
     private MainScreenView screen;
     private final Object classifierLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
@@ -147,38 +139,20 @@ public final class MainActivity extends Activity {
     // loading spinner up until then instead of pretending the camera is usable.
     private volatile boolean enginesWarmedUp;
     private volatile boolean qualityWarmedUp;
-    private Button startCollectionButton;
-    private ImageButton pauseCollectionButton;
-    private ImageButton cancelCollectionButton;
-    private ImageButton stopAttackLiveCaptureButton;
-    private FrameLayout highQualityOnlyContainer;
-    private Button highQualityOnlyButton;
     private boolean highQualityOnly;
-    private TextView collectionProgress;
     private DualCameraController cameras;
+    private DualCameraController stoppingCameras;
+    private boolean cameraStopInProgress;
     private volatile FaceDetector faceDetector;
     private volatile MediaPipeFaceDetector mediaPipeFaceDetector;
     private volatile FaceDetectionEngine activeFaceDetector;
     private volatile ModelSlotClassifier classifier;
     private volatile Calibration calibration;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
-    private volatile boolean isCollecting;
+    private final CaptureSession collectionSession = new CaptureSession();
     private volatile boolean isAttackLiveCapturing;
-    private volatile boolean ioBusy;
     private volatile boolean attackCaptureSaveBusy;
-    private volatile int collectionCount;
-    private volatile int collectionSessionId;
-    private volatile int collectionStepIndex;
-    private volatile int collectionStepCount;
-    private volatile boolean collectionPaused;
-    private volatile long collectionCountdownEndMs;
-    private volatile long collectionPausedCountdownMs;
-    private volatile int collectionMinQualityLevel = COLLECTION_MEDIUM_QUALITY_LEVEL;
-    private volatile String collectionQualityMode;
     private volatile FaceDetector.FaceQualityCheckResult lastCollectionQuality;
-    private File collectionRawRoot;
-    private int collectionStartSubjectId;
-    private String collectionClassName = "live";
     private File attackCaptureRawRoot;
     private int attackCaptureSubjectId;
     private volatile int attackCaptureCount;
@@ -195,12 +169,9 @@ public final class MainActivity extends Activity {
     private static final float AUTH_LIVE_THRESHOLD = 0.85f;
     private volatile FaceRecognitionManager faceRecognitionManager;
     private volatile boolean faceRecognitionMode;
-    private final AtomicBoolean enrollRequested = new AtomicBoolean(false);
-    private volatile boolean enrollmentUiActive;
+    private final RecognitionEnrollmentSession enrollmentSession =
+            new RecognitionEnrollmentSession();
     private static final int ENROLL_TARGET_FRAME_COUNT = 5;
-    private final List<float[]> enrollEmbeddingBuffer = new ArrayList<>();
-    private volatile String pendingEnrollmentId;
-    private volatile String pendingEnrollmentName;
     private FaceTemplateRepository faceTemplateRepository;
     private volatile String recogModelChecksum;
     private FaceEmbeddingModel.DelegateType recogDelegate = FaceEmbeddingModel.DEFAULT_DELEGATE;
@@ -213,8 +184,8 @@ public final class MainActivity extends Activity {
     private final ForegroundEntryDetector foregroundEntryDetector = new ForegroundEntryDetector();
     private volatile boolean authVerdictShowing;
     private volatile boolean testMenuShowing;
-    private final List<float[]> authScoreBuffer = new ArrayList<>();
-    private long authStartNs;
+    private final AuthFrameAccumulator authFrames =
+            new AuthFrameAccumulator(AUTH_FRAME_COUNT, AUTH_LIVE_THRESHOLD);
     private long lastFaceDetectedMs;
     private volatile String normalStatusMessage = "Initializing...";
     private int trackingFrames;
@@ -285,7 +256,7 @@ public final class MainActivity extends Activity {
 
             @Override public void onCalibrationConfirm() {
                 calibrationRequested.set(true);
-                calibrationInstruction.setText("Hold still while RGB and IR faces are measured...");
+                screen.calibrationInstruction.setText("Hold still while RGB and IR faces are measured...");
             }
 
             @Override public void onCalibrationCancel() { exitCalibrationMode(); }
@@ -298,26 +269,6 @@ public final class MainActivity extends Activity {
 
             @Override public void onLightingSnapshotRequested() { recordLightingSnapshot(); }
         });
-        rgbView = screen.rgbView;
-        irView = screen.irView;
-        overlay = screen.overlay;
-        loadingSpinner = screen.loadingSpinner;
-        irLoadingSpinner = screen.irLoadingSpinner;
-        performance = screen.performance;
-        status = screen.status;
-        faceCropView = screen.faceCropView;
-        noFaceLabel = screen.noFaceLabel;
-        resultsLabel = screen.resultsLabel;
-        calibrationInstruction = screen.calibrationInstruction;
-        switchButton = screen.switchButton;
-        modelSwitchButton = screen.modelSwitchButton;
-        startCollectionButton = screen.startCollectionButton;
-        pauseCollectionButton = screen.pauseCollectionButton;
-        cancelCollectionButton = screen.cancelCollectionButton;
-        stopAttackLiveCaptureButton = screen.stopAttackLiveCaptureButton;
-        highQualityOnlyContainer = screen.highQualityOnlyContainer;
-        highQualityOnlyButton = screen.highQualityOnlyButton;
-        collectionProgress = screen.collectionProgress;
         screen.setInitialPerformanceText(String.format(Locale.US, "Detect %d ms  %.1f FPS\nSpoof inference %d ms  %.1f FPS", 0, 0.0f, 0, 0.0f));
         resetResultsLabelToZero();
         setContentView(screen.root);
@@ -355,13 +306,9 @@ public final class MainActivity extends Activity {
 
     private void showHiddenTestMenu() {
         testMenuShowing = true;
-        InferenceTask pending = pendingInference.getAndSet(null);
-        if (pending != null) pending.recycle();
+        inferenceQueue.clear();
         invalidateRecognitionWork();
-        synchronized (authScoreBuffer) {
-            authScoreBuffer.clear();
-            authStartNs = 0L;
-        }
+        authFrames.reset();
         String[] items = testMenuItems();
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
                 android.R.layout.simple_list_item_1, items);
@@ -400,10 +347,7 @@ public final class MainActivity extends Activity {
                 }));
         dialog.setOnDismissListener(d -> {
             testMenuShowing = false;
-            synchronized (authScoreBuffer) {
-                authScoreBuffer.clear();
-                authStartNs = 0L;
-            }
+            authFrames.reset();
         });
         dialog.show();
     }
@@ -432,7 +376,7 @@ public final class MainActivity extends Activity {
         inferenceMotionGate.reset();
         inferenceBlockedByMotion = false;
         inferenceMotionGeneration.incrementAndGet();
-        overlay.clearClassificationResult();
+        screen.overlay.clearClassificationResult();
         if (screen != null) screen.clearCleanModeResult();
         resetResultsLabelToZero();
         showTransientStatus("Motion Gate " + (motionGateEnabled ? "ON" : "OFF"));
@@ -443,7 +387,7 @@ public final class MainActivity extends Activity {
         if (!lightingTestEnabled) lightingSnapshotRequested.set(false);
         if (!lightingTestEnabled && screen != null) {
             screen.clearCleanModeLighting();
-            overlay.setObservationGuides(false, foregroundEntryTestEnabled && !screen.isUiVisible());
+            screen.overlay.setObservationGuides(false, foregroundEntryTestEnabled && !screen.isUiVisible());
         }
         showTransientStatus("Lighting Test " + (lightingTestEnabled ? "ON" : "OFF"));
     }
@@ -453,7 +397,7 @@ public final class MainActivity extends Activity {
         foregroundEntryDetector.reset();
         if (!foregroundEntryTestEnabled && screen != null) {
             screen.clearCleanModeForegroundEntry();
-            overlay.setObservationGuides(lightingTestEnabled && !screen.isUiVisible(), false);
+            screen.overlay.setObservationGuides(lightingTestEnabled && !screen.isUiVisible(), false);
         }
         showTransientStatus("Entry Detector " + (foregroundEntryTestEnabled ? "ON" : "OFF"));
     }
@@ -553,25 +497,19 @@ public final class MainActivity extends Activity {
     private final Handler authHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideAuthResultRunnable = () -> {
         authVerdictShowing = false;
-        synchronized (authScoreBuffer) {
-            authScoreBuffer.clear();
-            authStartNs = 0L;
-        }
+        authFrames.reset();
         screen.hideAuthResult();
     };
 
     private void toggleAuthMode() {
-        if (isCollecting || isAttackLiveCapturing || calibrationMode) {
+        if (collectionSession.isActive() || isAttackLiveCapturing || calibrationMode) {
             showTransientStatus("Cannot toggle Auth Mode during capture/calibration");
             return;
         }
         authMode = !authMode;
         authHandler.removeCallbacks(hideAuthResultRunnable);
         authVerdictShowing = false;
-        synchronized (authScoreBuffer) {
-            authScoreBuffer.clear();
-            authStartNs = 0L;
-        }
+        authFrames.reset();
         screen.setAuthMode(authMode);
         if (!authMode) {
             resetResultsLabelToZero();
@@ -581,8 +519,7 @@ public final class MainActivity extends Activity {
 
     private void showAuthVerdict(boolean isLive, float avgLiveScore, String topSpoofLabel, long elapsedMs) {
         authVerdictShowing = true;
-        InferenceTask pending = pendingInference.getAndSet(null);
-        if (pending != null) pending.recycle();
+        inferenceQueue.clear();
         if (isLive) {
             playCollectionFinishedTone();
         } else {
@@ -610,6 +547,7 @@ public final class MainActivity extends Activity {
         if (calibrationMode) return;
         calibrationMode = true;
         calibrationRequested.set(false);
+        suspendEvaluationForExclusiveMode();
         showIrBeforeCalibration = showIr;
         setIrVisible(true);
         screen.enterCalibrationMode();
@@ -624,6 +562,18 @@ public final class MainActivity extends Activity {
         resetResultsLabelToZero();
         screen.exitCalibrationMode(normalStatusMessage);
         if (cameras != null) cameras.setIrFramesEnabled(true);
+    }
+
+    private void suspendEvaluationForExclusiveMode() {
+        authHandler.removeCallbacks(hideAuthResultRunnable);
+        authVerdictShowing = false;
+        authFrames.reset();
+        inferenceMotionGeneration.incrementAndGet();
+        inferenceQueue.clear();
+        invalidateRecognitionWork();
+        screen.overlay.clearClassificationResult();
+        screen.clearCleanModeResult();
+        resetResultsLabelToZero();
     }
 
     private void initializeEngines() {
@@ -733,11 +683,9 @@ public final class MainActivity extends Activity {
             classifier = classifiers.isEmpty() ? null : classifiers.get(0);
         }
         runOnUiThread(() -> {
-            if (modelSwitchButton != null) {
-                modelSwitchButton.setEnabled(classifiers.size() > 1);
-                ModelSlotClassifier active = classifier;
-                if (active != null) modelSwitchButton.setText(active.label());
-            }
+            screen.modelSwitchButton.setEnabled(classifiers.size() > 1);
+            ModelSlotClassifier active = classifier;
+            if (active != null) screen.modelSwitchButton.setText(active.label());
             if (classifier != null && cameras != null) cameras.setIrFramesEnabled(true);
         });
         if (classifier == null) reportEngineError("No model slots loaded");
@@ -751,7 +699,7 @@ public final class MainActivity extends Activity {
         enginesWarmedUp = true;
         runOnUiThread(() -> {
             if (!resumed) return;
-            performance.setText(formatPerformance());
+            screen.performance.setText(formatPerformance());
         });
     }
 
@@ -774,16 +722,18 @@ public final class MainActivity extends Activity {
                 ? (active != null ? active.backendStatus() : "Loading model...")
                 : errors;
         normalStatusMessage = message;
-        runOnUiThread(() -> status.setText(message));
+        runOnUiThread(() -> screen.status.setText(message));
     }
 
     private void startCameras() {
-        if (!resumed || cameras != null || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
+        if (!resumed || cameras != null || cameraStopInProgress
+                || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
         final int generation = pipelineGeneration.advance();
         HardwareControls.setLcdBrightness(90);
         HardwareControls.setIrLed(false);
         applyIrAutoExposure();
-        cameras = new DualCameraController(this, rgbView, irView, new DualCameraController.Listener() {
+        cameras = new DualCameraController(this, screen.rgbView, screen.irView,
+                new DualCameraController.Listener() {
             @Override public void onRgb(FrameData frame) { submitTracking(frame, generation); }
             @Override public void onIr(FrameData frame) { offerIr(frame, generation); }
             @Override public void onError(String message) {
@@ -826,25 +776,39 @@ public final class MainActivity extends Activity {
         authHandler.removeCallbacks(hideAuthResultRunnable);
         authVerdictShowing = false;
         testMenuShowing = false;
-        synchronized (authScoreBuffer) {
-            authScoreBuffer.clear();
-            authStartNs = 0L;
-        }
+        authFrames.reset();
         if (screen != null) screen.hideAuthResult();
         pipelineGeneration.advance();
-        if (cameras != null) {
-            cameras.stop();
-            cameras = null;
-        }
+        stopCameras();
         HardwareControls.setIrLed(false);
         lastFaceDetectedMs = 0L;
         clearPendingWork();
-        overlay.clearResult();
+        screen.overlay.clearResult();
         if (screen != null) screen.clearCleanModeResult();
         synchronized (irPreviewLock) {
             releaseIrPreviewBufferLocked();
         }
         super.onPause();
+    }
+
+    private void stopCameras() {
+        DualCameraController controller = cameras;
+        cameras = null;
+        if (controller == null) return;
+        cameraStopInProgress = true;
+        stoppingCameras = controller;
+        screen.root.postDelayed(() -> {
+            if (stoppingCameras == controller && cameraStopInProgress
+                    && resumed && !enginesShutDown) {
+                showTransientStatus("Camera shutdown delayed; waiting for safe close");
+            }
+        }, CAMERA_CLOSE_WARNING_MS);
+        controller.stop(() -> runOnUiThread(() -> {
+            if (stoppingCameras != controller) return;
+            stoppingCameras = null;
+            cameraStopInProgress = false;
+            if (resumed && !enginesShutDown) startCameras();
+        }));
     }
 
     private boolean isPipelineCurrent(int generation) {
@@ -865,10 +829,7 @@ public final class MainActivity extends Activity {
                 }
             }
         }
-        synchronized (irLock) {
-            if (latestIr != null) latestIr.recycle();
-            latestIr = frame;
-        }
+        frameSynchronizer.offerSecondary(frame);
     }
 
     private void copyToIrPreviewBufferLocked(Bitmap source) {
@@ -896,43 +857,9 @@ public final class MainActivity extends Activity {
             rgb.recycle();
             return;
         }
-        FrameData ir = null;
-        synchronized (irLock) {
-            if (latestIr != null) {
-                long delta = rgb.timestampNs - latestIr.timestampNs;
-                if (Math.abs(delta) <= MAX_PAIR_DELTA_NS) {
-                    ir = latestIr;
-                    latestIr = null;
-                } else if (delta > MAX_PAIR_DELTA_NS) {
-                    latestIr.recycle();
-                    latestIr = null;
-                }
-            }
-        }
-        TrackingFrame replaced = pendingTracking.getAndSet(new TrackingFrame(rgb, ir, generation,
+        FrameData ir = frameSynchronizer.takeFor(rgb.timestampNs);
+        trackingQueue.offer(new TrackingFrame(rgb, ir, generation,
                 SystemClock.elapsedRealtimeNanos()));
-        if (replaced != null) replaced.recycle();
-        if (trackingWorkerRunning.compareAndSet(false, true)) trackingExecutor.execute(this::drainTracking);
-    }
-
-    private void drainTracking() {
-        try {
-            TrackingFrame frame;
-            while ((frame = pendingTracking.getAndSet(null)) != null) {
-                try { processTracking(frame); }
-                catch (Exception e) {
-                    android.util.Log.e("MainActivity", "Tracking failed in drainTracking", e);
-                    if (isPipelineCurrent(frame.generation)) showTransientStatus("Tracking failed");
-                }
-                finally { frame.recycle(); }
-            }
-        } finally {
-            trackingWorkerRunning.set(false);
-            if (pendingTracking.get() != null && trackingWorkerRunning.compareAndSet(false, true)) {
-                trackingExecutor.execute(this::drainTracking);
-            }
-            if (enginesShutDown) closeFaceDetectors();
-        }
     }
 
     private void processTracking(TrackingFrame frame) {
@@ -941,9 +868,10 @@ public final class MainActivity extends Activity {
         if (activeDetector == null || calibration == null) return;
         boolean captureCalibration = calibrationMode && calibrationRequested.getAndSet(false);
         boolean prepareCollectionQuality = !captureCalibration
-                && isCollecting && !collectionPaused && frame.ir != null && !ioBusy
+                && collectionSession.isActive() && !collectionSession.isPaused()
+                && frame.ir != null && !collectionSession.isIoBusy()
                 && activeDetector == faceDetector
-                && shouldCheckCollectionQuality(collectionClassName)
+                && shouldCheckCollectionQuality(collectionSession.getClassName())
                 && getCollectionCountdownSeconds(SystemClock.elapsedRealtime()) <= 0;
         long start = SystemClock.elapsedRealtimeNanos();
         Rect detected = captureCalibration
@@ -964,10 +892,7 @@ public final class MainActivity extends Activity {
             }
             inferenceMotionGate.reset();
             if (recognitionFaceVisible.getAndSet(false)) invalidateRecognitionWork();
-            synchronized (authScoreBuffer) {
-                authScoreBuffer.clear();
-                authStartNs = 0L;
-            }
+            authFrames.reset();
 
             DualLightingDetector.Result noFaceLighting = null;
             if (lightingTestEnabled) {
@@ -990,10 +915,10 @@ public final class MainActivity extends Activity {
 
             runOnUiThread(() -> {
                 if (!isPipelineCurrent(frame.generation)) return;
-                overlay.clearResult();
-                overlay.clearRecognitionResult();
+                screen.overlay.clearResult();
+                screen.overlay.clearRecognitionResult();
                 boolean showObservationGuides = screen != null && !screen.isUiVisible();
-                overlay.setObservationGuides(lightingTestEnabled && showObservationGuides,
+                screen.overlay.setObservationGuides(lightingTestEnabled && showObservationGuides,
                         foregroundEntryTestEnabled && showObservationGuides);
                 recognitionInferenceMs = -1L;
                 if (screen != null) {
@@ -1002,17 +927,17 @@ public final class MainActivity extends Activity {
                     screen.showCleanModeForegroundEntry(foregroundEntryResult, foregroundEntryTestEnabled);
                 }
                 clearPreviewFace();
-                faceCropView.setScaleX(1f);
-                noFaceLabel.setVisibility(View.VISIBLE);
-                if (isCollecting) {
+                screen.faceCropView.setScaleX(1f);
+                screen.noFaceLabel.setVisibility(View.VISIBLE);
+                if (collectionSession.isActive()) {
                     updateCollectionUi(SystemClock.elapsedRealtime());
                 }
                 if (captureCalibration) {
-                    calibrationInstruction.setText("Exactly one RGB face is required. Try again.");
+                    screen.calibrationInstruction.setText("Exactly one RGB face is required. Try again.");
                 } else {
                     long nowUi = SystemClock.elapsedRealtime();
                     if (nowUi - lastUiUpdateTimeMs >= 150L) {
-                        performance.setText(formatPerformance());
+                        screen.performance.setText(formatPerformance());
                         lastUiUpdateTimeMs = nowUi;
                     }
                     if (SystemClock.elapsedRealtime() - lastFaceDetectedMs > 10_000L) {
@@ -1034,7 +959,7 @@ public final class MainActivity extends Activity {
                 calibrationRequested.set(true);
                 runOnUiThread(() -> {
                     if (isPipelineCurrent(frame.generation)) {
-                        calibrationInstruction.setText("Waiting for a synchronized IR frame. Hold still...");
+                        screen.calibrationInstruction.setText("Waiting for a synchronized IR frame. Hold still...");
                     }
                 });
                 return;
@@ -1043,7 +968,7 @@ public final class MainActivity extends Activity {
             if (detectedIr == null) {
                 runOnUiThread(() -> {
                     if (isPipelineCurrent(frame.generation)) {
-                        calibrationInstruction.setText("Exactly one IR face is required. Try again.");
+                        screen.calibrationInstruction.setText("Exactly one IR face is required. Try again.");
                     }
                 });
                 return;
@@ -1057,12 +982,12 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (!isPipelineCurrent(frame.generation)) return;
                     exitCalibrationMode();
-                    status.setText("Calibration saved");
+                    screen.status.setText("Calibration saved");
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     if (isPipelineCurrent(frame.generation)) {
-                        calibrationInstruction.setText("Unable to save calibration: " + e.getMessage());
+                        screen.calibrationInstruction.setText("Unable to save calibration: " + e.getMessage());
                     }
                 });
             }
@@ -1120,45 +1045,45 @@ public final class MainActivity extends Activity {
                 if (finalPreviewFace != null) finalPreviewFace.recycle();
                 return;
             }
-            overlay.showFace(detected, irDetected);
-            overlay.setObservationGuides(false,
+            screen.overlay.showFace(detected, irDetected);
+            screen.overlay.setObservationGuides(false,
                     foregroundEntryTestEnabled && screen != null && !screen.isUiVisible());
             if (screen != null) {
                 screen.showCleanModeLighting(finalLightingResult, lightingTestEnabled);
                 screen.showCleanModeForegroundEntry(foregroundEntryResult, foregroundEntryTestEnabled);
             }
-            if (isCollecting) {
+            if (collectionSession.isActive()) {
                 updateCollectionUi(SystemClock.elapsedRealtime());
             }
             long now = SystemClock.elapsedRealtime();
             if (now - lastUiUpdateTimeMs >= 150L) {
-                performance.setText(formatPerformance());
+                screen.performance.setText(formatPerformance());
                 lastUiUpdateTimeMs = now;
             }
-            noFaceLabel.setVisibility(View.GONE);
+            screen.noFaceLabel.setVisibility(View.GONE);
             if (finalPreviewFace != null) {
-                setPreviewFace(finalPreviewFace, finalPreviewRgb);
+                setPreviewFace(finalPreviewFace);
             }
         });
         if (calibrationMode) return;
 
-        if (isCollecting && !collectionPaused && frame.ir != null && !ioBusy) {
-            final int sessionId = collectionSessionId;
-            final String className = collectionClassName;
-            final int subjectId = collectionStartSubjectId;
-            final String qualityMode = collectionQualityMode;
+        CaptureSession.SaveCandidate saveCandidate = frame.ir != null
+                ? collectionSession.snapshotForSave() : null;
+        if (saveCandidate != null) {
+            final String className = saveCandidate.className;
             long nowMs = SystemClock.elapsedRealtime();
             if (getCollectionCountdownSeconds(nowMs) > 0) return;
             FaceDetector.FaceQualityCheckResult sampleQuality = null;
             if (shouldCheckCollectionQuality(className)) {
                 if (!prepareCollectionQuality) return;
                 FaceDetector.FaceQualityCheckResult quality =
-                        faceDetector.checkFaceQuality(frame.rgb.bitmap, collectionMinQualityLevel);
+                        faceDetector.checkFaceQuality(frame.rgb.bitmap,
+                                saveCandidate.minQualityLevel);
                 lastCollectionQuality = quality;
                 if (!quality.passed) {
                     android.util.Log.i(TAG, "Collection quality skipped: " + quality.reason);
                     runOnUiThread(() -> {
-                        if (isPipelineCurrent(frame.generation) && isCollecting) {
+                        if (isPipelineCurrent(frame.generation) && collectionSession.isActive()) {
                             updateCollectionUi(SystemClock.elapsedRealtime());
                         }
                     });
@@ -1167,31 +1092,31 @@ public final class MainActivity extends Activity {
                 sampleQuality = quality;
             }
             if (!isPipelineCurrent(frame.generation)) return;
-            if (collectionPaused) return;
-            if (!isActiveCollection(sessionId, className, subjectId)) return;
-            ioBusy = true;
-            final int currentCount = collectionCount + 1;
-            if (currentCount <= COLLECTION_TARGET_COUNT) {
-                final String subjectDirName = className + "_" + subjectId;
+            CaptureSession.SavePermit savePermit = collectionSession.beginSave(saveCandidate);
+            if (savePermit != null) {
+                final int currentCount = savePermit.sampleIndex;
+                final String subjectDirName = savePermit.className + "_" + savePermit.subjectId;
                 ModelSlotClassifier collectionClassifier = classifier;
                 float margin = collectionClassifier != null ? collectionClassifier.cropMarginRatio() : 0.10f;
                 Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
                 Rect irR = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
-                final int minQualityLevel = shouldCheckCollectionQuality(className) ? collectionMinQualityLevel : -1;
+                final int minQualityLevel = shouldCheckCollectionQuality(savePermit.className)
+                        ? saveCandidate.minQualityLevel : -1;
                 final int actualQualityLevel = sampleQuality != null ? sampleQuality.actualLevel : -1;
                 final float qualityScore = sampleQuality != null ? sampleQuality.score : 0f;
                 final String metadataJson = CaptureStorage.buildSampleMetadataJson(
                         frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(), detected, rgbR,
                         frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight(), irDetected, irR, margin,
-                        qualityMode, minQualityLevel, actualQualityLevel, qualityScore);
+                        savePermit.qualityMode, minQualityLevel, actualQualityLevel, qualityScore);
 
-                final File root = collectionRawRoot != null ? collectionRawRoot : resolveRawRoot();
-                final File sampleDir = CaptureStorage.sampleDir(root, className, qualityMode,
+                final File root = saveCandidate.rawRoot;
+                final File sampleDir = CaptureStorage.sampleDir(root, savePermit.className,
+                        savePermit.qualityMode,
                         subjectDirName, currentCount);
                 final String displayDir = sampleDir.getAbsolutePath();
 
-                if (!isActiveCollection(sessionId, className, subjectId)) {
-                    ioBusy = false;
+                if (!collectionSession.isActive(savePermit)) {
+                    collectionSession.releaseSave(savePermit);
                     return;
                 }
 
@@ -1199,10 +1124,11 @@ public final class MainActivity extends Activity {
                 OwnedFrameTask saveTask = new OwnedFrameTask(capturePair, () -> {
                     boolean saved = false;
                     boolean sectorCompleted = false;
+                    boolean collectionCompleted = false;
                     long saveStartNs = 0L;
                     try {
                         if (!isPipelineCurrent(frame.generation)
-                                || !isActiveCollection(sessionId, className, subjectId)) {
+                                || !collectionSession.isActive(savePermit)) {
                             return;
                         }
                         saveStartNs = SystemClock.elapsedRealtimeNanos();
@@ -1222,41 +1148,33 @@ public final class MainActivity extends Activity {
                                 new File(sampleDir, "cropIR.bmp"));
                         if (savedAll) savedAll = saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
                         if (savedAll && isPipelineCurrent(frame.generation)
-                                && isActiveCollection(sessionId, className, subjectId)) {
-                            collectionCount = currentCount;
-                            CaptureStep captureStep = currentCollectionStep();
-                            collectionStepCount++;
-                            if (collectionStepCount >= captureStep.targetCount) {
-                                sectorCompleted = true;
-                                if (currentCount < COLLECTION_TARGET_COUNT) {
-                                    collectionStepIndex = Math.min(collectionStepIndex + 1,
-                                            CaptureSchedule.DEFAULT_STEPS.length - 1);
-                                    collectionStepCount = 0;
-                                    collectionCountdownEndMs = SystemClock.elapsedRealtime()
-                                            + CaptureSchedule.STEP_COUNTDOWN_MS;
-                                }
-                            }
-                            saved = true;
-                            android.util.Log.i(TAG, "Saved collection sample: " + displayDir);
+                                && collectionSession.isActive(savePermit)) {
+                            CaptureSession.SaveCommit commit = collectionSession.commitSave(
+                                    savePermit, SystemClock.elapsedRealtime());
+                            saved = commit.committed;
+                            sectorCompleted = commit.sectorCompleted;
+                            collectionCompleted = commit.collectionCompleted;
+                            if (saved) android.util.Log.i(TAG, "Saved collection sample: " + displayDir);
                         }
                     } finally {
                         if (saveStartNs != 0L) {
                             recordCaptureSaveLatency((SystemClock.elapsedRealtimeNanos() - saveStartNs)
                                     / 1_000_000L);
                         }
-                        ioBusy = false;
+                        collectionSession.releaseSave(savePermit);
                     }
                     final boolean savedSample = saved;
                     final boolean completedSector = sectorCompleted;
+                    final boolean completedCollection = collectionCompleted;
                     runOnUiThread(() -> {
-                        if (!isPipelineCurrent(frame.generation) || !isCollecting) return;
+                        if (!isPipelineCurrent(frame.generation) || !collectionSession.isActive()) return;
                         updateCollectionUi(SystemClock.elapsedRealtime());
                         if (savedSample && completedSector) {
                             playCollectionFinishedTone();
                         } else if (savedSample) {
                             playCaptureSavedTone();
                         }
-                        if (savedSample && currentCount == COLLECTION_TARGET_COUNT) {
+                        if (savedSample && completedCollection) {
                             finishDataCollection();
                         }
                     });
@@ -1265,20 +1183,20 @@ public final class MainActivity extends Activity {
                     ioExecutor.execute(saveTask);
                 } catch (RejectedExecutionException e) {
                     saveTask.discard();
-                    ioBusy = false;
+                    collectionSession.releaseSave(savePermit);
                     android.util.Log.w(TAG, "Capture save rejected during shutdown", e);
                 }
-            } else {
-                ioBusy = false;
-                runOnUiThread(this::finishDataCollection);
             }
         }
 
-        if (!isCollecting && !testMenuShowing && (!enrollmentUiActive || enrollRequested.get())) {
+        if (!calibrationMode && !collectionSession.isActive() && !testMenuShowing
+                && (!enrollmentSession.isUiActive() || enrollmentSession.isRequested())) {
             scheduleRecognition(frame, detected, currentLandmarks);
         }
 
-        if (isCollecting || authVerdictShowing || testMenuShowing || rgbCrop == null || irCrop == null || frame.ir == null) return;
+        if (calibrationMode || enrollmentSession.isUiActive()
+                || collectionSession.isActive() || authVerdictShowing || testMenuShowing
+                || rgbCrop == null || irCrop == null || frame.ir == null) return;
         if (!authMode && motionGateEnabled) {
             FaceMotionGate.Decision motion = inferenceMotionGate.evaluate(detected.left, detected.top,
                     detected.right, detected.bottom, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(),
@@ -1317,59 +1235,31 @@ public final class MainActivity extends Activity {
 
     private void blockInferenceForMotion(int generation) {
         inferenceBlockedByMotion = true;
-        synchronized (authScoreBuffer) {
-            authScoreBuffer.clear();
-            authStartNs = 0L;
-        }
+        authFrames.reset();
         long motionGeneration = inferenceMotionGeneration.incrementAndGet();
-        InferenceTask pending = pendingInference.getAndSet(null);
-        if (pending != null) pending.recycle();
+        inferenceQueue.clear();
         runOnUiThread(() -> {
             if (!isPipelineCurrent(generation) || motionGeneration != inferenceMotionGeneration.get()) return;
-            overlay.clearClassificationResult();
+            screen.overlay.clearClassificationResult();
             if (screen != null) screen.clearCleanModeResult();
             resetResultsLabelToZero();
         });
     }
 
     private void submitInference(InferenceTask task) {
-        InferenceTask replaced = pendingInference.getAndSet(task);
-        if (replaced != null) replaced.recycle();
-        if (inferenceWorkerRunning.compareAndSet(false, true)) inferenceExecutor.execute(this::drainInference);
-    }
-
-    private void drainInference() {
-        try {
-            InferenceTask task;
-            while ((task = pendingInference.getAndSet(null)) != null) {
-                try {
-                    if (!authVerdictShowing && !testMenuShowing) {
-                        processInference(task);
-                    }
-                }
-                catch (Exception e) {
-                    android.util.Log.e("MainActivity", "Inference failed in drainInference", e);
-                    if (isPipelineCurrent(task.generation)) showTransientStatus("Inference failed");
-                }
-                finally { task.recycle(); }
-            }
-        } finally {
-            inferenceWorkerRunning.set(false);
-            if (pendingInference.get() != null && inferenceWorkerRunning.compareAndSet(false, true)) {
-                inferenceExecutor.execute(this::drainInference);
-            }
-            if (enginesShutDown) closeAntiSpoofClassifiers();
-        }
+        inferenceQueue.offer(task);
     }
 
     private void processInference(InferenceTask task) {
-        if (authVerdictShowing || testMenuShowing || !isPipelineCurrent(task.generation) || task.classifier == null) return;
+        if (isExclusiveEvaluationMode() || authVerdictShowing || testMenuShowing
+                || !isPipelineCurrent(task.generation) || task.classifier == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
         SlotClassificationResult result = task.classifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
                 task.pair.ir.bitmap, task.irCrop);
         long endToEndMs = (SystemClock.elapsedRealtimeNanos() - task.receivedNs) / 1_000_000L;
-        if (authVerdictShowing || testMenuShowing || !isPipelineCurrent(task.generation)
+        if (isExclusiveEvaluationMode() || authVerdictShowing || testMenuShowing
+                || !isPipelineCurrent(task.generation)
                 || task.motionGeneration != inferenceMotionGeneration.get()) return;
         inferenceMs = result.inferenceMs;
         rgbInferenceMs = result.rgbResult != null ? result.rgbResult.inferenceMs : -1L;
@@ -1379,58 +1269,44 @@ public final class MainActivity extends Activity {
 
         maybeSaveAttackLiveCapture(task, result);
         runOnUiThread(() -> {
-            if (authVerdictShowing || !isPipelineCurrent(task.generation)
+            if (isExclusiveEvaluationMode() || authVerdictShowing || !isPipelineCurrent(task.generation)
                     || task.motionGeneration != inferenceMotionGeneration.get()) return;
             if (authMode) {
                 ClassificationResult primary = result.primaryResult();
                 if (primary != null && primary.probabilities != null && primary.probabilities.length > 0) {
-                    float[] probs = primary.probabilities.clone();
-                    synchronized (authScoreBuffer) {
-                        if (authScoreBuffer.isEmpty()) {
-                            authStartNs = task.receivedNs;
-                        }
-                        authScoreBuffer.add(probs);
-                        if (authScoreBuffer.size() >= AUTH_FRAME_COUNT) {
-                            long elapsedMs = (SystemClock.elapsedRealtimeNanos() - authStartNs) / 1_000_000L;
-                            int classCount = probs.length;
-                            float[] sumProbs = new float[classCount];
-                            for (float[] p : authScoreBuffer) {
-                                for (int i = 0; i < classCount && i < p.length; i++) {
-                                    sumProbs[i] += p[i];
-                                }
-                            }
-                            int frameCount = authScoreBuffer.size();
-                            float avgLive = sumProbs[0] / frameCount;
-                            boolean isLive = avgLive >= AUTH_LIVE_THRESHOLD;
-
-                            int topSpoofIndex = 1;
-                            for (int i = 2; i < classCount; i++) {
-                                if (sumProbs[i] > sumProbs[topSpoofIndex]) {
-                                    topSpoofIndex = i;
-                                }
-                            }
-                            String topSpoofLabel = (topSpoofIndex < ClassificationResult.LABELS.length)
-                                    ? ClassificationResult.displayLabel(topSpoofIndex)
-                                    : "UNKNOWN";
-
-                            authScoreBuffer.clear();
-                            authStartNs = 0L;
-                            showAuthVerdict(isLive, avgLive, topSpoofLabel, elapsedMs);
-                        }
+                    AuthFrameAccumulator.Verdict verdict = authFrames.add(
+                            primary.probabilities, task.receivedNs,
+                            SystemClock.elapsedRealtimeNanos());
+                    if (verdict != null) {
+                        String topSpoofLabel = verdict.topSpoofIndex < ClassificationResult.LABELS.length
+                                ? ClassificationResult.displayLabel(verdict.topSpoofIndex)
+                                : "UNKNOWN";
+                        showAuthVerdict(verdict.live, verdict.averageLiveScore,
+                                topSpoofLabel, verdict.elapsedMs);
                     }
                 }
                 return;
             }
-            overlay.showResult(result.primaryResult(), result.irResult);
-            resultsLabel.setText(formatClassificationResults(result));
+            screen.overlay.showResult(result.primaryResult(), result.irResult);
+            screen.resultsLabel.setText(formatClassificationResults(result));
             if (screen != null) screen.showCleanModeResult(result);
             
             long now = SystemClock.elapsedRealtime();
             if (now - lastUiUpdateTimeMs >= 150L) {
-                performance.setText(formatPerformance());
+                screen.performance.setText(formatPerformance());
                 lastUiUpdateTimeMs = now;
             }
         });
+    }
+
+    private void processInferenceIfAllowed(InferenceTask task) {
+        if (!isExclusiveEvaluationMode() && !authVerdictShowing && !testMenuShowing) {
+            processInference(task);
+        }
+    }
+
+    private boolean isExclusiveEvaluationMode() {
+        return calibrationMode || enrollmentSession.isUiActive();
     }
 
     private static String recognitionModelLabel(String modelPath) {
@@ -1493,17 +1369,15 @@ public final class MainActivity extends Activity {
 
     private void scheduleRecognition(TrackingFrame sourceFrame, Rect rgbFace, PointF[] landmarks) {
         FaceRecognitionManager manager = faceRecognitionManager;
-        boolean enrollment = enrollRequested.get();
+        boolean enrollment = enrollmentSession.isRequested();
         boolean managerReady = manager != null && manager.isReady();
         int enrolledCount = manager != null ? manager.getEnrolledCount() : 0;
         if (!RecognitionPolicy.shouldSchedule(enrollment, faceRecognitionMode,
                 managerReady, enrolledCount)) {
             if (enrollment && !managerReady) {
                 final boolean[] cancelled = new boolean[1];
-                recognitionCoordinator.runExclusive(() -> {
-                    cancelled[0] = enrollRequested.compareAndSet(true, false);
-                    if (cancelled[0]) enrollEmbeddingBuffer.clear();
-                });
+                recognitionCoordinator.runExclusive(() ->
+                        cancelled[0] = enrollmentSession.cancelRequest());
                 if (!cancelled[0]) return;
                 android.util.Log.e(TAG, "Recognition request error: model not ready");
                 runOnUiThread(() -> showTransientStatus("Face recognition model not ready"));
@@ -1535,7 +1409,7 @@ public final class MainActivity extends Activity {
         }
         if (!recognitionCoordinator.isCurrent(invalidationGeneration)
                 || !isPipelineCurrent(sourceFrame.generation)
-                || (enrollment ? !enrollRequested.get() : !faceRecognitionMode)) {
+                || (enrollment ? !enrollmentSession.isRequested() : !faceRecognitionMode)) {
             alignedFace.recycle();
             recognitionCoordinator.releaseWorker();
             android.util.Log.i(TAG, "Recognition request cancelled: id=" + startNs
@@ -1543,8 +1417,8 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        String enrollmentId = enrollment ? pendingEnrollmentId : null;
-        String enrollmentName = enrollment ? pendingEnrollmentName : null;
+        String enrollmentId = enrollment ? enrollmentSession.getEnrollmentId() : null;
+        String enrollmentName = enrollment ? enrollmentSession.getEnrollmentName() : null;
         String modelChecksum = enrollment ? recogModelChecksum : null;
         submitRecognition(new RecognitionTask(alignedFace, manager, enrollment, enrollmentId, enrollmentName,
                 modelChecksum,
@@ -1605,17 +1479,19 @@ public final class MainActivity extends Activity {
             FaceTemplate template = null;
             int collected;
             final FaceTemplate[] templateHolder = new FaceTemplate[1];
-            final int[] collectedHolder = new int[1];
+            final RecognitionEnrollmentSession.Progress[] progressHolder =
+                    new RecognitionEnrollmentSession.Progress[1];
             boolean committed = recognitionCoordinator.commitIfCurrent(task.invalidationGeneration,
                     () -> !enginesShutDown && !testMenuShowing
-                            && isPipelineCurrent(task.pipelineGeneration) && enrollRequested.get(), () -> {
-                        enrollEmbeddingBuffer.add(embedding);
-                        collectedHolder[0] = enrollEmbeddingBuffer.size();
-                        if (collectedHolder[0] >= ENROLL_TARGET_FRAME_COUNT) {
+                            && isPipelineCurrent(task.pipelineGeneration)
+                            && enrollmentSession.isRequested(), () -> {
+                        progressHolder[0] = enrollmentSession.add(embedding,
+                                ENROLL_TARGET_FRAME_COUNT);
+                        if (progressHolder[0].isComplete()) {
                             templateHolder[0] = task.manager.enrollFaceAverage(
-                                    task.enrollmentId, task.enrollmentName, enrollEmbeddingBuffer);
-                            enrollEmbeddingBuffer.clear();
-                            enrollRequested.set(false);
+                                    task.enrollmentId, task.enrollmentName,
+                                    progressHolder[0].completedEmbeddings);
+                            enrollmentSession.finishCompletedAttempt();
                         }
                     });
             if (!committed) {
@@ -1624,7 +1500,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             template = templateHolder[0];
-            collected = collectedHolder[0];
+            collected = progressHolder[0].collectedCount;
             FaceTemplate enrolled = template;
             int collectedCount = collected;
             boolean enrollmentComplete = collected >= ENROLL_TARGET_FRAME_COUNT;
@@ -1643,7 +1519,7 @@ public final class MainActivity extends Activity {
                     exitRecognitionEnrollmentMode("Enrollment failed");
                     showTransientStatus("Enrollment failed: average error");
                 } else {
-                    if (enrollmentUiActive) {
+                    if (enrollmentSession.isUiActive()) {
                         screen.setRecognitionEnrollmentCollecting(collectedCount,
                                 ENROLL_TARGET_FRAME_COUNT);
                     }
@@ -1664,13 +1540,13 @@ public final class MainActivity extends Activity {
             if (!isRecognitionTaskCurrent(task) || !faceRecognitionMode || authVerdictShowing) return;
             recognitionInferenceMs = modelMs;
             if (recognition.isRecognized()) {
-                overlay.showRecognitionResult(String.format(Locale.US, "%s %.1f%%",
+                screen.overlay.showRecognitionResult(String.format(Locale.US, "%s %.1f%%",
                         recognition.matchedTemplate().getName(), recognition.similarityScore() * 100f), true);
             } else {
-                overlay.showRecognitionResult(String.format(Locale.US, "UNRECOGNIZED %.1f%%",
+                screen.overlay.showRecognitionResult(String.format(Locale.US, "UNRECOGNIZED %.1f%%",
                         recognition.similarityScore() * 100f), false);
             }
-            performance.setText(formatPerformance());
+            screen.performance.setText(formatPerformance());
         });
     }
 
@@ -1686,46 +1562,40 @@ public final class MainActivity extends Activity {
         recognitionFaceVisible.set(false);
         recognitionInferenceMs = -1L;
         runOnUiThread(() -> {
-            if (overlay != null) overlay.clearRecognitionResult();
-            if (performance != null) performance.setText(formatPerformance());
+            screen.overlay.clearRecognitionResult();
+            screen.performance.setText(formatPerformance());
         });
     }
 
     private void cancelEnrollment() {
-        recognitionCoordinator.runExclusive(() -> {
-            enrollRequested.set(false);
-            enrollEmbeddingBuffer.clear();
-        });
-        pendingEnrollmentId = null;
-        pendingEnrollmentName = null;
-        if (enrollmentUiActive) {
-            enrollmentUiActive = false;
+        final boolean[] uiWasActive = new boolean[1];
+        recognitionCoordinator.runExclusive(() ->
+                uiWasActive[0] = enrollmentSession.cancel());
+        if (uiWasActive[0]) {
             runOnUiThread(() -> exitRecognitionEnrollmentMode(normalStatusMessage));
         }
     }
 
     private void enterRecognitionEnrollmentMode() {
-        enrollmentUiActive = true;
+        suspendEvaluationForExclusiveMode();
         screen.enterRecognitionEnrollmentMode();
     }
 
     private void startRecognitionEnrollment() {
         FaceRecognitionManager manager = faceRecognitionManager;
-        if (!enrollmentUiActive || manager == null || !manager.isReady()
-                || pendingEnrollmentId == null || pendingEnrollmentName == null) {
+        if (!enrollmentSession.isUiActive() || manager == null || !manager.isReady()
+                || enrollmentSession.getEnrollmentId() == null
+                || enrollmentSession.getEnrollmentName() == null) {
             exitRecognitionEnrollmentMode("Face recognition model not ready");
             showTransientStatus("Face recognition model not ready");
             return;
         }
-        recognitionCoordinator.runExclusive(() -> {
-            enrollEmbeddingBuffer.clear();
-            enrollRequested.set(true);
-        });
+        recognitionCoordinator.runExclusive(enrollmentSession::start);
         screen.setRecognitionEnrollmentCollecting(0, ENROLL_TARGET_FRAME_COUNT);
     }
 
     private void exitRecognitionEnrollmentMode(String statusMessage) {
-        enrollmentUiActive = false;
+        enrollmentSession.exitUi();
         if (screen != null) screen.exitRecognitionEnrollmentMode(statusMessage);
     }
 
@@ -1754,8 +1624,7 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 manager.replaceTemplates(templates);
-                pendingEnrollmentId = UUID.randomUUID().toString();
-                pendingEnrollmentName = name;
+                enrollmentSession.prepare(UUID.randomUUID().toString(), name);
                 enterRecognitionEnrollmentMode();
             });
         });
@@ -1787,14 +1656,15 @@ public final class MainActivity extends Activity {
     private void updateCollectionUi(long nowMs) {
         CaptureStep step = currentCollectionStep();
         int countdownSeconds = getCollectionCountdownSeconds(nowMs);
-        overlay.setCollectionGuide(step.sector, countdownSeconds);
-        collectionProgress.setText(formatCollectionProgress(step));
+        screen.overlay.setCollectionGuide(step.sector, countdownSeconds);
+        screen.collectionProgress.setText(formatCollectionProgress(step));
     }
 
     private SpannableString formatCollectionProgress(CaptureStep step) {
         String qualityLine = shouldCheckCollectionQuality() ? formatCollectionQualityLine() : null;
-        CaptureProgressText progress = CaptureProgressText.format(collectionClassName, step,
-                collectionStepCount, collectionCount, COLLECTION_TARGET_COUNT, qualityLine);
+        CaptureProgressText progress = CaptureProgressText.format(collectionSession.getClassName(), step,
+                collectionSession.getStepCount(), collectionSession.getCount(),
+                COLLECTION_TARGET_COUNT, qualityLine);
         SpannableString text = new SpannableString(progress.text);
         int countColor = Color.rgb(255, 214, 0);
         text.setSpan(new ForegroundColorSpan(countColor), progress.stepCountStart,
@@ -1816,18 +1686,11 @@ public final class MainActivity extends Activity {
     }
 
     private boolean shouldCheckCollectionQuality() {
-        return shouldCheckCollectionQuality(collectionClassName);
+        return shouldCheckCollectionQuality(collectionSession.getClassName());
     }
 
     private boolean shouldCheckCollectionQuality(String className) {
         return CaptureSchedule.shouldCheckQuality(className);
-    }
-
-    private boolean isActiveCollection(int sessionId, String className, int subjectId) {
-        return isCollecting
-                && collectionSessionId == sessionId
-                && className.equals(collectionClassName)
-                && collectionStartSubjectId == subjectId;
     }
 
     private void updateHighQualityOnlyButton() {
@@ -1835,83 +1698,62 @@ public final class MainActivity extends Activity {
     }
 
     private CaptureStep currentCollectionStep() {
-        return CaptureSchedule.currentStep(collectionStepIndex);
+        return collectionSession.currentStep();
     }
 
     private int getCollectionCountdownSeconds(long nowMs) {
-        if (collectionPaused) return CaptureSchedule.countdownSeconds(collectionPausedCountdownMs, 0L);
-        return CaptureSchedule.countdownSeconds(collectionCountdownEndMs, nowMs);
+        return collectionSession.countdownSeconds(nowMs);
     }
 
     private void finishDataCollection() {
-        isCollecting = false;
-        collectionPaused = false;
-        collectionPausedCountdownMs = 0L;
-        collectionSessionId++;
-        ioBusy = false;
-        overlay.setCollecting(false);
+        collectionSession.finish();
+        screen.overlay.setCollecting(false);
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
-        startCollectionButton.setEnabled(true);
-        switchButton.setEnabled(true);
-        if (highQualityOnlyContainer != null) highQualityOnlyContainer.setEnabled(true);
-        if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(true);
-        startCollectionButton.setText("START CAPTURE");
-        collectionProgress.setVisibility(View.GONE);
-        if (pauseCollectionButton != null) pauseCollectionButton.setVisibility(View.GONE);
-        if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.GONE);
+        screen.startCollectionButton.setEnabled(true);
+        screen.switchButton.setEnabled(true);
+        screen.highQualityOnlyContainer.setEnabled(true);
+        screen.highQualityOnlyButton.setEnabled(true);
+        screen.startCollectionButton.setText("START CAPTURE");
+        screen.collectionProgress.setVisibility(View.GONE);
+        screen.pauseCollectionButton.setVisibility(View.GONE);
+        screen.cancelCollectionButton.setVisibility(View.GONE);
     }
 
     private void cancelDataCollection() {
-        if (!isCollecting) return;
-        final String canceledClassName = collectionClassName;
-        final String canceledQualityMode = collectionQualityMode;
-        final String canceledSubjectDirName = collectionClassName + "_" + collectionStartSubjectId;
-        isCollecting = false;
-        collectionPaused = false;
-        collectionPausedCountdownMs = 0L;
-        collectionSessionId++;
-        ioBusy = false;
-        overlay.setCollecting(false);
+        CaptureSession.CancelledSession cancelled = collectionSession.cancel();
+        if (cancelled == null) return;
+        screen.overlay.setCollecting(false);
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
-        startCollectionButton.setEnabled(false);
-        switchButton.setEnabled(true);
-        if (highQualityOnlyContainer != null) highQualityOnlyContainer.setEnabled(true);
-        if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(true);
-        startCollectionButton.setText("START CAPTURE");
-        collectionProgress.setVisibility(View.GONE);
-        if (pauseCollectionButton != null) pauseCollectionButton.setVisibility(View.GONE);
-        if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.GONE);
+        screen.startCollectionButton.setEnabled(false);
+        screen.switchButton.setEnabled(true);
+        screen.highQualityOnlyContainer.setEnabled(true);
+        screen.highQualityOnlyButton.setEnabled(true);
+        screen.startCollectionButton.setText("START CAPTURE");
+        screen.collectionProgress.setVisibility(View.GONE);
+        screen.pauseCollectionButton.setVisibility(View.GONE);
+        screen.cancelCollectionButton.setVisibility(View.GONE);
         showTransientStatus("Capture canceled");
         ioExecutor.execute(() -> {
-            deleteCollectionSubject(canceledClassName, canceledQualityMode, canceledSubjectDirName);
+            deleteCollectionSubject(cancelled.className, cancelled.qualityMode,
+                    cancelled.subjectDirName);
             runOnUiThread(() -> {
-                if (!isCollecting) {
+                if (!collectionSession.isActive()) {
                     FaceDetectionEngine detector = activeFaceDetector;
-                    startCollectionButton.setEnabled(detector != null);
+                    screen.startCollectionButton.setEnabled(detector != null);
                 }
             });
         });
     }
 
     private void toggleCollectionPaused() {
-        if (!isCollecting) return;
+        if (!collectionSession.isActive()) return;
         long nowMs = SystemClock.elapsedRealtime();
-        if (collectionPaused) {
-            collectionCountdownEndMs = nowMs + collectionPausedCountdownMs;
-            collectionPausedCountdownMs = 0L;
-            collectionPaused = false;
-            screen.setCollectionPaused(false);
-            updateCollectionUi(nowMs);
-            showTransientStatus("Capture resumed");
-            return;
-        }
-        collectionPausedCountdownMs = Math.max(0L, collectionCountdownEndMs - nowMs);
-        collectionPaused = true;
-        screen.setCollectionPaused(true);
+        boolean paused = collectionSession.togglePaused(nowMs);
+        screen.setCollectionPaused(paused);
         updateCollectionUi(nowMs);
-        showTransientStatus("Capture paused");
+        showTransientStatus(paused ? "Capture paused" : "Capture resumed");
     }
 
     private void setCollectionChromeVisible(boolean visible) {
@@ -1932,23 +1774,23 @@ public final class MainActivity extends Activity {
     }
 
     private void startDataCollection(String className, int subjectNum) {
-        if (isCollecting || isAttackLiveCapturing) return;
+        if (collectionSession.isActive() || isAttackLiveCapturing) return;
         FaceDetectionEngine activeDetector = activeFaceDetector;
         FaceDetector qualityDetector = faceDetector;
         if (activeDetector == null) {
             showTransientStatus("Face detector unavailable");
-            startCollectionButton.setText("START CAPTURE");
+            screen.startCollectionButton.setText("START CAPTURE");
             return;
         }
         if ("live".equals(className) && activeDetector != qualityDetector) {
             showTransientStatus("Live quality capture requires FaceMe");
-            startCollectionButton.setText("START CAPTURE");
+            screen.startCollectionButton.setText("START CAPTURE");
             return;
         }
         if ("live".equals(className) && (qualityDetector == null || !qualityDetector.isQualityAvailable())) {
             String message = qualityDetector == null ? "Face detector unavailable" : qualityDetector.qualityError();
             showTransientStatus(message.isEmpty() ? "Face quality unavailable" : message);
-            startCollectionButton.setText("START CAPTURE");
+            screen.startCollectionButton.setText("START CAPTURE");
             return;
         }
         if (!Environment.isExternalStorageManager()) {
@@ -1956,50 +1798,40 @@ public final class MainActivity extends Activity {
             intent.setData(Uri.parse("package:" + getPackageName()));
             startActivity(intent);
             showTransientStatus("Please grant All Files Access and try again.");
-            startCollectionButton.setText("START CAPTURE");
+            screen.startCollectionButton.setText("START CAPTURE");
             return;
         }
-        collectionRawRoot = resolveRawRoot();
+        File collectionRawRoot = resolveRawRoot();
         if (!prepareRawRoot(collectionRawRoot)) {
             showTransientStatus("Save failed: unable to write " + collectionRawRoot.getAbsolutePath());
-            startCollectionButton.setText("START CAPTURE");
+            screen.startCollectionButton.setText("START CAPTURE");
             return;
         }
         android.util.Log.i(TAG, "Collection raw root: " + collectionRawRoot.getAbsolutePath());
-        startCollectionButton.setEnabled(false);
-        switchButton.setEnabled(false);
-        if (highQualityOnlyContainer != null) highQualityOnlyContainer.setEnabled(false);
-        if (highQualityOnlyButton != null) highQualityOnlyButton.setEnabled(false);
-        startCollectionButton.setText("COLLECTING...");
-        collectionProgress.setVisibility(View.VISIBLE);
-        if (pauseCollectionButton != null) {
-            pauseCollectionButton.setVisibility(View.VISIBLE);
-            pauseCollectionButton.setEnabled(true);
-        }
-        if (cancelCollectionButton != null) cancelCollectionButton.setVisibility(View.VISIBLE);
+        screen.startCollectionButton.setEnabled(false);
+        screen.switchButton.setEnabled(false);
+        screen.highQualityOnlyContainer.setEnabled(false);
+        screen.highQualityOnlyButton.setEnabled(false);
+        screen.startCollectionButton.setText("COLLECTING...");
+        screen.collectionProgress.setVisibility(View.VISIBLE);
+        screen.pauseCollectionButton.setVisibility(View.VISIBLE);
+        screen.pauseCollectionButton.setEnabled(true);
+        screen.cancelCollectionButton.setVisibility(View.VISIBLE);
 
-        collectionClassName = className;
-        collectionQualityMode = captureQualityMode(className, highQualityOnly);
-        collectionStartSubjectId = subjectNum;
-        collectionCount = 0;
-        collectionSessionId++;
-        collectionStepIndex = 0;
-        collectionStepCount = 0;
-        collectionPaused = false;
-        collectionCountdownEndMs = SystemClock.elapsedRealtime() + CaptureSchedule.STEP_COUNTDOWN_MS;
-        collectionPausedCountdownMs = 0L;
-        collectionMinQualityLevel = highQualityOnly ? FaceQualityLevel.HIGH : COLLECTION_MEDIUM_QUALITY_LEVEL;
+        long nowMs = SystemClock.elapsedRealtime();
+        collectionSession.start(className, captureQualityMode(className, highQualityOnly), subjectNum,
+                collectionRawRoot,
+                highQualityOnly ? FaceQualityLevel.HIGH : COLLECTION_MEDIUM_QUALITY_LEVEL,
+                nowMs);
         lastCollectionQuality = null;
-        ioBusy = false;
-        isCollecting = true;
-        overlay.setCollecting(true);
+        screen.overlay.setCollecting(true);
         screen.setCollectionPaused(false);
-        updateCollectionUi(SystemClock.elapsedRealtime());
+        updateCollectionUi(nowMs);
         setCollectionChromeVisible(false);
     }
 
     private void startAttackLiveCapture() {
-        if (isCollecting || isAttackLiveCapturing) return;
+        if (collectionSession.isActive() || isAttackLiveCapturing) return;
         synchronized (attackCaptureLock) {
             if (attackCaptureSaveBusy) {
                 showTransientStatus("Previous attack Live save is still finishing");
@@ -2024,9 +1856,9 @@ public final class MainActivity extends Activity {
         attackCaptureCount = 0;
         attackCaptureSaveBusy = false;
         isAttackLiveCapturing = true;
-        startCollectionButton.setEnabled(false);
-        startCollectionButton.setText("START CAPTURE");
-        stopAttackLiveCaptureButton.setVisibility(View.VISIBLE);
+        screen.startCollectionButton.setEnabled(false);
+        screen.startCollectionButton.setText("START CAPTURE");
+        screen.stopAttackLiveCaptureButton.setVisibility(View.VISIBLE);
         showTransientStatus("Attack Live capture started");
         android.util.Log.i(TAG, "Attack Live capture started: "
                 + attackCaptureRawRoot.getAbsolutePath() + "/attack_live/attack_live_"
@@ -2038,10 +1870,10 @@ public final class MainActivity extends Activity {
             if (!isAttackLiveCapturing) return;
             isAttackLiveCapturing = false;
         }
-        stopAttackLiveCaptureButton.setVisibility(View.GONE);
+        screen.stopAttackLiveCaptureButton.setVisibility(View.GONE);
         FaceDetectionEngine detector = activeFaceDetector;
-        startCollectionButton.setEnabled(detector != null);
-        startCollectionButton.setText("START CAPTURE");
+        screen.startCollectionButton.setEnabled(detector != null);
+        screen.startCollectionButton.setText("START CAPTURE");
         showTransientStatus("Attack Live capture stopped: " + attackCaptureCount + " saved");
     }
 
@@ -2160,13 +1992,13 @@ public final class MainActivity extends Activity {
     }
 
     private CharSequence formatPerformance() {
-        if (enginesWarmedUp && qualityWarmedUp && loadingSpinner.getVisibility() == View.VISIBLE) {
-            loadingSpinner.setVisibility(View.GONE);
-            irLoadingSpinner.setVisibility(View.GONE);
-            if (!isCollecting) {
+        if (enginesWarmedUp && qualityWarmedUp && screen.loadingSpinner.getVisibility() == View.VISIBLE) {
+            screen.loadingSpinner.setVisibility(View.GONE);
+            screen.irLoadingSpinner.setVisibility(View.GONE);
+            if (!collectionSession.isActive()) {
                 FaceDetectionEngine detector = activeFaceDetector;
-                startCollectionButton.setEnabled(detector != null);
-                switchButton.setEnabled(true);
+                screen.startCollectionButton.setEnabled(detector != null);
+                screen.switchButton.setEnabled(true);
             }
         }
         String recognitionText = faceRecognitionMode && recognitionInferenceMs >= 0L
@@ -2247,7 +2079,7 @@ public final class MainActivity extends Activity {
             if (i > 0) sb.append("\n");
             sb.append(String.format(Locale.US, "%s 0.0%%", ClassificationResult.displayLabel(i)));
         }
-        resultsLabel.setText(sb.toString());
+        screen.resultsLabel.setText(sb.toString());
     }
 
     private void toggleModel() {
@@ -2261,17 +2093,15 @@ public final class MainActivity extends Activity {
             normalStatusMessage = message;
 
             runOnUiThread(() -> {
-                status.setText(message);
-                if (modelSwitchButton != null) {
-                    modelSwitchButton.setText(btnText);
-                }
-                performance.setText(formatPerformance());
+                screen.status.setText(message);
+                screen.modelSwitchButton.setText(btnText);
+                screen.performance.setText(formatPerformance());
             });
         }
     }
 
     private void toggleFaceDetector() {
-        if (isCollecting || isAttackLiveCapturing || calibrationMode) return;
+        if (collectionSession.isActive() || isAttackLiveCapturing || calibrationMode) return;
         FaceDetectionEngine next;
         synchronized (classifierLock) {
             if (activeFaceDetector == faceDetector && mediaPipeFaceDetector != null) {
@@ -2289,14 +2119,14 @@ public final class MainActivity extends Activity {
     }
 
     private final Runnable restoreStatusRunnable = () -> {
-        status.setText(normalStatusMessage);
+        screen.status.setText(normalStatusMessage);
     };
 
     private void showTransientStatus(String message) {
         runOnUiThread(() -> {
-            status.setText(message);
-            status.removeCallbacks(restoreStatusRunnable);
-            status.postDelayed(restoreStatusRunnable, 3000L);
+            screen.status.setText(message);
+            screen.status.removeCallbacks(restoreStatusRunnable);
+            screen.status.postDelayed(restoreStatusRunnable, 3000L);
         });
     }
 
@@ -2334,16 +2164,11 @@ public final class MainActivity extends Activity {
     }
 
     private void clearPendingWork() {
-        TrackingFrame tracking = pendingTracking.getAndSet(null);
-        if (tracking != null) tracking.recycle();
-        InferenceTask inference = pendingInference.getAndSet(null);
-        if (inference != null) inference.recycle();
+        trackingQueue.clear();
+        inferenceQueue.clear();
         invalidateRecognitionWork();
         cancelEnrollment();
-        synchronized (irLock) {
-            if (latestIr != null) latestIr.recycle();
-            latestIr = null;
-        }
+        frameSynchronizer.clear();
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
@@ -2418,7 +2243,7 @@ public final class MainActivity extends Activity {
             enginesShutDown = true;
         }
         pipelineGeneration.advance();
-        if (cameras != null) cameras.stop();
+        stopCameras();
         HardwareControls.setIrLed(false);
         clearPendingWork();
         trackingExecutor.shutdownNow();
@@ -2438,15 +2263,18 @@ public final class MainActivity extends Activity {
             if (task instanceof OwnedFrameTask) ((OwnedFrameTask) task).discard();
         }
         modelInitExecutor.shutdownNow();
-        boolean inferenceTerminated = awaitExecutorTermination(inferenceExecutor);
-        boolean recognitionTerminated = awaitExecutorTermination(recognitionExecutor);
-        boolean trackingTerminated = awaitExecutorTermination(trackingExecutor);
-        awaitExecutorTermination(ioExecutor);
-        awaitExecutorTermination(attackCaptureExecutor);
-        awaitExecutorTermination(modelInitExecutor);
-        if (inferenceTerminated) closeAntiSpoofClassifiers();
-        if (recognitionTerminated) closeFaceRecognitionManager();
-        if (trackingTerminated) closeFaceDetectors();
+        Thread cleanupThread = new Thread(() -> {
+            boolean inferenceTerminated = awaitExecutorTermination(inferenceExecutor);
+            boolean recognitionTerminated = awaitExecutorTermination(recognitionExecutor);
+            boolean trackingTerminated = awaitExecutorTermination(trackingExecutor);
+            awaitExecutorTermination(ioExecutor);
+            awaitExecutorTermination(attackCaptureExecutor);
+            awaitExecutorTermination(modelInitExecutor);
+            if (inferenceTerminated) closeAntiSpoofClassifiers();
+            if (recognitionTerminated) closeFaceRecognitionManager();
+            if (trackingTerminated) closeFaceDetectors();
+        }, "main-runtime-cleanup");
+        cleanupThread.start();
         if (captureTone != null) {
             captureTone.release();
             captureTone = null;
@@ -2617,7 +2445,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void setPreviewFace(Bitmap bitmap, boolean rgb) {
+    private void setPreviewFace(Bitmap bitmap) {
         screen.setPreviewFace(bitmap);
     }
 
@@ -2640,7 +2468,11 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void closeFaceRecognitionManager() {
+    private void closeAntiSpoofClassifiersIfShutDown() {
+        if (enginesShutDown) closeAntiSpoofClassifiers();
+    }
+
+    private synchronized void closeFaceRecognitionManager() {
         FaceRecognitionManager recManager = faceRecognitionManager;
         if (recManager != null) {
             faceRecognitionManager = null;
@@ -2660,6 +2492,10 @@ public final class MainActivity extends Activity {
         }
         if (detector != null) detector.close();
         if (mediaPipeDetector != null) mediaPipeDetector.close();
+    }
+
+    private void closeFaceDetectorsIfShutDown() {
+        if (enginesShutDown) closeFaceDetectors();
     }
 
     private static boolean awaitExecutorTermination(ExecutorService executor) {

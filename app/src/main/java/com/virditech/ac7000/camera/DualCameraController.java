@@ -5,6 +5,9 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.view.TextureView;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
 public final class DualCameraController {
     public interface Listener {
         void onRgb(FrameData frame);
@@ -41,22 +44,23 @@ public final class DualCameraController {
         ir.setFrameDeliveryEnabled(enabled);
     }
 
-    public void stop() {
-        rgb.stop();
-        ir.stop();
-        stopThread(rgbThread);
-        stopThread(irThread);
-        rgbThread = null;
-        irThread = null;
+    public void stop(Runnable onStopped) {
+        AtomicInteger remaining = new AtomicInteger(2);
+        AtomicBoolean completed = new AtomicBoolean(false);
+        Runnable streamStopped = () -> {
+            if (remaining.decrementAndGet() != 0 || !completed.compareAndSet(false, true)) return;
+            stopThread(rgbThread);
+            stopThread(irThread);
+            rgbThread = null;
+            irThread = null;
+            if (onStopped != null) onStopped.run();
+        };
+        rgb.stop(streamStopped);
+        ir.stop(streamStopped);
     }
 
     private void stopThread(HandlerThread thread) {
         if (thread == null) return;
         thread.quitSafely();
-        try {
-            thread.join(500);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 }
