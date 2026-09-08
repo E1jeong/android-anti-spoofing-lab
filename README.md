@@ -1,74 +1,171 @@
-# Anti-Spoofing Viewer
+# RGB/IR Anti-Spoofing Evaluation App
 
-Minimal Android test application for evaluating RGB/IR anti-spoofing TFLite models on UBio-N Face Pro hardware.
+Android laboratory application for deploying, measuring, and validating RGB/IR anti-spoofing and face-recognition models on `[REDACTED_DEVICE]` hardware.
 
-## Current model setup
+> Organization, product, package, proprietary SDK, model artifact, repository endpoint, signing, and signaling identifiers are intentionally redacted from this document. Refer to the checked-out source and private project documentation only in an authorized environment.
 
-Model slots are declared in `app/src/main/assets/model_manifest.json`. The loader supports:
+## Scope
 
-- `single_1_input`: one RGB or IR crop model, selected by the spec's `inputKind`.
-- `paired_1_input`: separate one-input RGB and IR models.
-- `dual_2_input`: one model receiving RGB and IR crops.
-- `five_input`: one model receiving RGB crop, IR crop, full RGB, full IR, and heatmap.
+This repository provides an on-device evaluation runtime rather than a production authentication product. Its main responsibilities are:
 
-The current manifest contains one `single_1_input` IR slot:
+- synchronized RGB and IR Camera2 capture;
+- face detection, calibration, crop generation, and preview overlays;
+- TFLite anti-spoofing inference through NNAPI;
+- optional standalone face-recognition evaluation and enrollment;
+- atomic dataset capture with quality gating;
+- lifecycle, latency, and memory diagnostics;
+- an isolated WebRTC terminal proof of concept.
 
-- IR: `best_crop_ir_fixed_npu_int8.tflite` with `best_crop_ir_fixed_npu_int8_manifest.json`.
+The UI is constructed programmatically in Java. XML layout inflation is not used.
 
-The model uses an NNAPI-first INT8 spec and runs on the single inference executor. The UI displays its ten-class probabilities, inference latency, and processing FPS. The local fixed IR asset is a 10-class export; target-device NNAPI verification remains required.
+## Runtime overview
 
-The runtime parser accepts one-, two-, or five-input NHWC models with `FLOAT32`, `UINT8`, or `INT8` inputs. Current deployment verification covers float and full INT8; UINT8 normalization/quantization semantics have not yet been verified against an exported model. Every model must have one `FLOAT32` or `INT8` output with shape `[1,10]`. Preprocessing, delegate selection, logits handling, input kind/name mapping, and crop margin are controlled by the spec assigned to each manifest entry.
+`MainActivity` coordinates the UI and delegates mutable pipeline state to focused components:
 
-NNAPI compilation caching must remain disabled because the target board's VSI NPU driver fails models with caching enabled. A `cpu` spec uses CPU/XNNPACK, while NNAPI setup or model warmup failure rejects that manifest slot instead of falling back. This no-fallback behavior is intentional for NPU evaluation. Verify model warmup, the on-screen backend label, logcat, and latency together; `Backend NNAPI` alone does not prove that every operation ran on the NPU.
+| Area | Responsibility |
+| --- | --- |
+| `camera/` | RGB/IR camera ownership, frame conversion, timestamp matching, and safe teardown |
+| `capture/` | 100-sample schedules, atomic save state, BMP output, and metadata |
+| `concurrent/` | generation invalidation and latest-frame execution |
+| `face/` | proprietary and public face-detector adapters |
+| `model/` | model slots, preprocessing, inference, classification, and auth accumulation |
+| `recognition/` | alignment, embeddings, template persistence, matching, and enrollment state |
+| `ui/` | programmatic view hierarchy and overlays |
+| `call/` | isolated WebRTC test activity |
 
-## Face detector comparison branch
+RGB and IR frames are paired within 150 ms. Tracking, anti-spoofing inference, recognition, model initialization, and file I/O use separate background executors.
 
-`feat/mediapipe-face-detector-toggle` keeps FaceMe and MediaPipe Face Detector available at startup and adds a detector-toggle button for hardware comparison. The selected detector supplies largest-face tracking and RGB/IR calibration validation; `live` collection remains FaceMe-only because its HIGH/MEDIUM quality contract has not been replaced. MediaPipe uses the CPU delegate and the public `blaze_face_short_range.tflite` asset. The repository ignores `.tflite` files, so provision that model locally before building this branch; do not commit it with the anti-spoofing model artifacts.
+## Model contract
 
-MediaPipe expands its detected box by 25% above and 5% below the original height before limiting it to image bounds. The existing model crop margin remains 0.10. A target-device IR-preview comparison showed the RGB-derived MediaPipe box mapped and overlaid similarly to FaceMe; direct MediaPipe IR detection and MediaPipe calibration-save verification remain open.
+Model slots are configured in `app/src/main/assets/model_manifest.json`. Supported anti-spoofing layouts are:
 
-## Required local configuration
+- `single_1_input`: one RGB or IR crop input;
+- `paired_1_input`: separate RGB and IR one-input models;
+- `dual_2_input`: one model with RGB and IR crop inputs;
+- `five_input`: RGB crop, IR crop, full RGB, full IR, and heatmap inputs.
 
-Supply proprietary dependencies, the FaceMe license, and optional platform-signing values through user-level Gradle properties or the ignored root `local.properties`. Do not commit their values.
+The current evaluator requires the anti-spoofing output shape and class order to match `ClassificationResult.LABELS`, currently `[1,12]`. Legacy ten-class assets are rejected.
+
+The active deployment artifacts are intentionally shown as:
+
+- anti-spoofing model: `[REDACTED_ANTI_SPOOFING_MODEL]`;
+- recognition model: `[REDACTED_RECOGNITION_MODEL]`;
+- proprietary detector/runtime: `[REDACTED_FACE_SDK]`.
+
+### NNAPI rules
+
+- A manifest slot that fails NNAPI setup or warmup is rejected; there is no silent CPU fallback.
+- NNAPI compilation caching must remain disabled because it is incompatible with `[REDACTED_DEVICE]`'s NPU driver.
+- Verify tensor shape, delegate partitioning, warmup, on-device logs, and latency together. A backend label alone does not prove complete NPU execution.
+- Recognition has an independent delegate policy and executor; it does not depend on an anti-spoofing result.
+
+## Main features
+
+### Live evaluation
+
+- mirrored RGB and IR preview switching;
+- synchronized face boxes and calibrated RGB-to-IR mapping;
+- twelve-class anti-spoofing probabilities;
+- preprocessing, inference, queue, end-to-end latency, and FPS diagnostics;
+- optional motion, lighting, and foreground-entry experiments;
+- five-frame Auth Mode verdict with a 0.85 LIVE threshold.
+
+### Face recognition
+
+- 112x112 five-landmark face alignment;
+- isolated embedding inference and 1:N template matching;
+- five-frame averaged enrollment;
+- model-bound template persistence;
+- separate fixed-input CPU/NNAPI diagnostic.
+
+Enrollment and calibration are exclusive UI modes. Screen taps cannot enter clean mode while either mode is active. Anti-spoofing and ordinary identity inference are suspended in both modes; enrollment embedding inference runs only after an explicit enrollment start.
+
+### Dataset capture
+
+A session advances only after all five sample files are written successfully:
+
+```text
+RGB.bmp
+cropRGB.bmp
+IR.bmp
+cropIR.bmp
+meta.json
+```
+
+The default target is 100 valid samples. Capture supports pause, resume, cancel, countdown-based pose sectors, and stale-session invalidation.
+
+- `live` capture applies the configured HIGH or MEDIUM quality gate.
+- Presentation-attack classes bypass the live quality gate.
+- Cancel invalidates queued work and removes the current subject directory.
+- Output is stored beneath `/sdcard/Pictures/raw/`; captured biometric data must not be committed.
+
+### Calibration
+
+The hidden calibration entry opens a synchronized RGB/IR face guide. Confirmation requires valid faces from both streams and writes a device-specific 64-byte calibration file. Cancel exits without replacing the saved calibration.
+
+External and internal calibration paths are device-specific and intentionally documented as `[REDACTED_CALIBRATION_PATH]` outside authorized environments.
+
+### WebRTC test
+
+The hidden test menu can open an isolated WebRTC activity. Entering it fully releases the main RGB/IR cameras before the call capturer starts; returning reopens the evaluation pipeline.
+
+The signaling endpoint and credentials are `[REDACTED_SIGNALING_CONFIGURATION]`. The scaffold covers offer/answer, ICE exchange, local and remote media, microphone mute, speaker routing, reconnect behavior, hangup, and resource cleanup. It is not a production calling implementation.
+
+## Private local configuration
+
+The build requires private values supplied through user-level Gradle properties or the ignored root `local.properties` file:
 
 ```properties
-UBIO_MAVEN_URL=...
-FACEME_LICENSE_KEY=...
-UBIO_KEYSTORE_PATH=...
-UBIO_KEY_ALIAS=...
-UBIO_KEY_PASSWORD=...
-UBIO_STORE_PASSWORD=...
+[REDACTED_PRIVATE_MAVEN_URL_PROPERTY]=...
+[REDACTED_SDK_LICENSE_PROPERTY]=...
+[REDACTED_KEYSTORE_PATH_PROPERTY]=...
+[REDACTED_KEY_ALIAS_PROPERTY]=...
+[REDACTED_KEY_PASSWORD_PROPERTY]=...
+[REDACTED_STORE_PASSWORD_PROPERTY]=...
 ```
 
-`UBIO_MAVEN_URL` must contain the proprietary FaceMe dependency. A public checkout without the repository, license, signing inputs, calibration data, and target hardware cannot perform a complete device validation.
+Never commit actual repository URLs, license keys, keystores, passwords, signaling credentials, biometric fixtures, or device-specific calibration files. A checkout without the private dependency repository, SDK license, model assets, optional signing material, calibration data, and target hardware cannot complete device validation.
 
-## Data capture
+## Build and verification
 
-Capture sessions save 100 valid samples. Files are written directly under `/sdcard/Pictures/raw` as `RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, and `meta.json`.
-
-- `live` uses `/live/high/live_<subject>/...` or `/live/medium/live_<subject>/...` and applies the selected FaceMe quality threshold.
-- `display`, `picture`, `print`, `mask`, and `pmask` use `/<class>/<class>_<subject>/...` and bypass quality checks.
-- Capture can be paused and resumed. Cancel invalidates queued work and deletes the current subject directory.
-
-## Camera calibration
-
-Tap the invisible upper-left hotspot five times within two seconds to open calibration. Place exactly one face inside the guide and press `CONFIRM`. The app detects the face in synchronized RGB and IR frames and writes the device-specific 64-byte `CalibConfig.dat`. `CANCEL` exits without changing the saved calibration.
-
-The preferred path is `/sdcard/devlocal/CalibConfig.dat`; internal app storage is used as a fallback when the external path cannot be accessed.
-
-## WebRTC test scaffold
-
-Tap the invisible lower-left hotspot three times to open `TEST MENU`.
-
-- `SETTINGS` opens the Android settings home screen.
-- `WEBRTC TEST` opens `WebRtcCallActivity`. Entering it pauses and closes the main RGB/IR camera pipeline; closing it returns to `MainActivity`, which resumes the pipeline.
-
-The app currently includes a LAN-only WebSocket signaling client that registers a test device, reconnects with backoff, automatically accepts an incoming `call.invite`, and exchanges SDP/ICE with the operator web. `WebRtcCallActivity` uses the front RGB camera and microphone for a video/audio `PeerConnection`, displays local and remote video, routes call audio through the speaker, provides microphone mute, restores the previous audio state on exit, releases every WebRTC media resource before returning, and sends `call.hangup` when the call closes. STUN, TURN, authentication, and production deployment are not implemented. Shared signaling-server and operator-web code remain outside this repository, and UBio-N Face Pro production integration is deferred until this isolated test passes.
-
-## Build
+Use JDK 21 on the validated development environment.
 
 ```powershell
+# Compile
 ./gradlew.bat :app:compileDebugJavaWithJavac
+
+# JVM unit tests
+./gradlew.bat :app:testDebugUnitTest
+
+# Android lint
+./gradlew.bat :app:lintDebug
+
+# Debug APK
+./gradlew.bat :app:assembleDebug
 ```
 
-Hardware-dependent behavior still requires manual verification on the target device. The latest overlay draw-order and background change has compiled, but its final visual and touch/UI regression check remains pending.
+Useful device logs:
+
+```powershell
+adb logcat -s AntiSpoofingClassifier:I MainActivity:I
+adb logcat -s MainActivity:E CameraStream:E *:S
+```
+
+Hardware-dependent validation should cover:
+
+1. RGB/IR startup, preview switching, frame pairing, and twelve-class output;
+2. calibration save/cancel and alignment after restart;
+3. 100-sample capture, pause/resume/cancel, and five-file atomicity;
+4. enrollment, recognition, exclusive-mode tap behavior, and inference resumption;
+5. repeated pause/resume and camera teardown without `SIGSEGV` or resource warnings;
+6. WebRTC entry/exit, media, signaling, and main-camera recovery when that scope changes.
+
+Detailed version-bound checks are maintained in `docs/`.
+
+## Safety constraints
+
+- Never close an `ImageReader` or preview `Surface` before `CameraDevice.StateCallback.onClosed()`.
+- Never enable NNAPI compilation caching on `[REDACTED_DEVICE]`.
+- Never add silent CPU fallback for an NNAPI anti-spoofing slot.
+- Never count a partial capture sample as successful.
+- Never commit private configuration or biometric data.

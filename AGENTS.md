@@ -34,4 +34,4 @@
 - Target Device Logcat Filters (when device connected via adb):
   - `adb logcat -s AntiSpoofingClassifier:I MainActivity:I`
   - `adb logcat -s MainActivity:E CameraStream:E *:S`
-- Report exact commands and results. Never commit or push: the user manages all git commits and pushes manually.
+- Report exact commands and results.
