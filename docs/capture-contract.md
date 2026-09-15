@@ -13,5 +13,5 @@ Version-bound execution checklist for the checked-out Android evaluator. Resolve
 - Storage logs:
 
 ```bash
-adb logcat -s MainActivity:E MainActivity:I
+adb logcat -s MainActivity:E MainActivity:I CaptureStorage:E
 ```

@@ -129,6 +129,23 @@ public final class CaptureStorage {
         }
     }
 
+    public static SaveResult saveCompleteSample(Bitmap rgb, Rect rgbCrop, Bitmap ir, Rect irCrop,
+                                                String metadataJson, File sampleDir) {
+        if (!sampleDir.isDirectory() && !sampleDir.mkdirs()) {
+            Log.e(TAG, "Unable to create collection sample folder: " + sampleDir.getAbsolutePath());
+            return SaveResult.failure("unable to create " + sampleDir.getAbsolutePath());
+        }
+        SaveResult result = saveBitmapAsBmp(rgb, new File(sampleDir, "RGB.bmp"));
+        if (!result.saved) return result;
+        result = saveBitmapRegionAsBmp(rgb, rgbCrop, new File(sampleDir, "cropRGB.bmp"));
+        if (!result.saved) return result;
+        result = saveBitmapAsBmp(ir, new File(sampleDir, "IR.bmp"));
+        if (!result.saved) return result;
+        result = saveBitmapRegionAsBmp(ir, irCrop, new File(sampleDir, "cropIR.bmp"));
+        if (!result.saved) return result;
+        return saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
+    }
+
     public static String buildSampleMetadataJson(int rgbWidth, int rgbHeight, Rect rgbFaceRect, Rect rgbCropRect,
                                                  int irWidth, int irHeight, Rect irMappedFaceRect, Rect irCropRect,
                                                  float cropMarginRatio, String qualityMode, int minQualityLevel,

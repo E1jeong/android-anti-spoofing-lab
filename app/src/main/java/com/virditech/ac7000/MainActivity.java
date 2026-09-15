@@ -319,31 +319,9 @@ public final class MainActivity extends Activity {
                 .create();
         dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
                 (parent, view, which, id) -> {
-                    if (which == 0) {
-                        dialog.dismiss();
-                        startActivity(new Intent(Settings.ACTION_SETTINGS));
-                    } else if (which == 1) {
-                        dialog.dismiss();
-                        startActivity(new Intent(this, WebRtcCallActivity.class));
-                    } else if (which == 2) {
-                        toggleAuthMode();
-                    } else if (which == 3) {
-                        toggleMotionGate();
-                    } else if (which == 4) {
-                        toggleLightingTest();
-                    } else if (which == 5) {
-                        toggleForegroundEntryTest();
-                    } else if (which == 6) {
-                        toggleFaceDetector();
-                    } else if (which == 7) {
-                        dialog.dismiss();
-                        openFaceManagement();
-                    } else {
-                        return;
-                    }
-                    if (which >= 2 && which <= 6) {
-                        refreshTestMenuItems(items, adapter);
-                    }
+                    TestMenuAction[] actions = TestMenuAction.values();
+                    if (which < 0 || which >= actions.length) return;
+                    handleTestMenuAction(actions[which], dialog, items, adapter);
                 }));
         dialog.setOnDismissListener(d -> {
             testMenuShowing = false;
@@ -353,16 +331,71 @@ public final class MainActivity extends Activity {
     }
 
     private String[] testMenuItems() {
-        return new String[] {
-                "SETTINGS",
-                "WEBRTC",
-                "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")",
-                "MOTION GATE (" + (motionGateEnabled ? "ON" : "OFF") + ")",
-                "LIGHTING TEST (" + (lightingTestEnabled ? "ON" : "OFF") + ")",
-                "ENTRY DETECTOR (" + (foregroundEntryTestEnabled ? "ON" : "OFF") + ")",
-                "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE"),
-                "FACE MANAGEMENT"
-        };
+        TestMenuAction[] actions = TestMenuAction.values();
+        String[] items = new String[actions.length];
+        for (int i = 0; i < actions.length; i++) {
+            items[i] = testMenuLabel(actions[i]);
+        }
+        return items;
+    }
+
+    private String testMenuLabel(TestMenuAction action) {
+        switch (action) {
+            case SETTINGS:
+                return "SETTINGS";
+            case WEBRTC:
+                return "WEBRTC";
+            case AUTH_MODE:
+                return "AUTH MODE (" + (authMode ? "ON" : "OFF") + ")";
+            case MOTION_GATE:
+                return "MOTION GATE (" + (motionGateEnabled ? "ON" : "OFF") + ")";
+            case LIGHTING_TEST:
+                return "LIGHTING TEST (" + (lightingTestEnabled ? "ON" : "OFF") + ")";
+            case ENTRY_DETECTOR:
+                return "ENTRY DETECTOR (" + (foregroundEntryTestEnabled ? "ON" : "OFF") + ")";
+            case DETECTOR:
+                return "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE");
+            case FACE_MANAGEMENT:
+                return "FACE MANAGEMENT";
+            default:
+                return action.name();
+        }
+    }
+
+    private void handleTestMenuAction(TestMenuAction action, AlertDialog dialog,
+                                      String[] items, ArrayAdapter<String> adapter) {
+        switch (action) {
+            case SETTINGS:
+                dialog.dismiss();
+                startActivity(new Intent(Settings.ACTION_SETTINGS));
+                return;
+            case WEBRTC:
+                dialog.dismiss();
+                startActivity(new Intent(this, WebRtcCallActivity.class));
+                return;
+            case AUTH_MODE:
+                toggleAuthMode();
+                break;
+            case MOTION_GATE:
+                toggleMotionGate();
+                break;
+            case LIGHTING_TEST:
+                toggleLightingTest();
+                break;
+            case ENTRY_DETECTOR:
+                toggleForegroundEntryTest();
+                break;
+            case DETECTOR:
+                toggleFaceDetector();
+                break;
+            case FACE_MANAGEMENT:
+                dialog.dismiss();
+                openFaceManagement();
+                return;
+        }
+        if (action.refreshOnSelect()) {
+            refreshTestMenuItems(items, adapter);
+        }
     }
 
     private void refreshTestMenuItems(String[] items, ArrayAdapter<String> adapter) {
@@ -699,7 +732,7 @@ public final class MainActivity extends Activity {
         enginesWarmedUp = true;
         runOnUiThread(() -> {
             if (!resumed) return;
-            screen.performance.setText(formatPerformance());
+            updatePerformanceHud();
         });
     }
 
@@ -937,7 +970,7 @@ public final class MainActivity extends Activity {
                 } else {
                     long nowUi = SystemClock.elapsedRealtime();
                     if (nowUi - lastUiUpdateTimeMs >= 150L) {
-                        screen.performance.setText(formatPerformance());
+                        updatePerformanceHud();
                         lastUiUpdateTimeMs = nowUi;
                     }
                     if (SystemClock.elapsedRealtime() - lastFaceDetectedMs > 10_000L) {
@@ -1057,7 +1090,7 @@ public final class MainActivity extends Activity {
             }
             long now = SystemClock.elapsedRealtime();
             if (now - lastUiUpdateTimeMs >= 150L) {
-                screen.performance.setText(formatPerformance());
+                updatePerformanceHud();
                 lastUiUpdateTimeMs = now;
             }
             screen.noFaceLabel.setVisibility(View.GONE);
@@ -1132,22 +1165,13 @@ public final class MainActivity extends Activity {
                             return;
                         }
                         saveStartNs = SystemClock.elapsedRealtimeNanos();
-                        boolean dirReady = sampleDir.isDirectory() || sampleDir.mkdirs();
-                        boolean savedAll = dirReady;
-                        if (!dirReady) {
-                            showTransientStatus("Save failed: unable to create " + displayDir);
-                            android.util.Log.e(TAG, "Unable to create collection sample folder: " + displayDir);
+                        CaptureStorage.SaveResult writeResult = CaptureStorage.saveCompleteSample(
+                                capturePair.rgb.bitmap, rgbR, capturePair.ir.bitmap, irR,
+                                metadataJson, sampleDir);
+                        if (!writeResult.saved) {
+                            showTransientStatus("Save failed: " + writeResult.errorMessage);
                         }
-                        if (savedAll) savedAll = saveBitmapAsBmp(capturePair.rgb.bitmap,
-                                new File(sampleDir, "RGB.bmp"));
-                        if (savedAll) savedAll = saveBitmapRegionAsBmp(capturePair.rgb.bitmap, rgbR,
-                                new File(sampleDir, "cropRGB.bmp"));
-                        if (savedAll) savedAll = saveBitmapAsBmp(capturePair.ir.bitmap,
-                                new File(sampleDir, "IR.bmp"));
-                        if (savedAll) savedAll = saveBitmapRegionAsBmp(capturePair.ir.bitmap, irR,
-                                new File(sampleDir, "cropIR.bmp"));
-                        if (savedAll) savedAll = saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
-                        if (savedAll && isPipelineCurrent(frame.generation)
+                        if (writeResult.saved && isPipelineCurrent(frame.generation)
                                 && collectionSession.isActive(savePermit)) {
                             CaptureSession.SaveCommit commit = collectionSession.commitSave(
                                     savePermit, SystemClock.elapsedRealtime());
@@ -1293,7 +1317,7 @@ public final class MainActivity extends Activity {
             
             long now = SystemClock.elapsedRealtime();
             if (now - lastUiUpdateTimeMs >= 150L) {
-                screen.performance.setText(formatPerformance());
+                updatePerformanceHud();
                 lastUiUpdateTimeMs = now;
             }
         });
@@ -1546,7 +1570,7 @@ public final class MainActivity extends Activity {
                 screen.overlay.showRecognitionResult(String.format(Locale.US, "UNRECOGNIZED %.1f%%",
                         recognition.similarityScore() * 100f), false);
             }
-            screen.performance.setText(formatPerformance());
+            updatePerformanceHud();
         });
     }
 
@@ -1563,7 +1587,7 @@ public final class MainActivity extends Activity {
         recognitionInferenceMs = -1L;
         runOnUiThread(() -> {
             screen.overlay.clearRecognitionResult();
-            screen.performance.setText(formatPerformance());
+            updatePerformanceHud();
         });
     }
 
@@ -1902,22 +1926,16 @@ public final class MainActivity extends Activity {
         OwnedFrameTask saveTask = new OwnedFrameTask(pair, () -> {
             boolean saved = false;
             try {
-                boolean dirReady = sampleDir.isDirectory() || sampleDir.mkdirs();
-                if (!dirReady) {
-                    showTransientStatus("Save failed: unable to create " + sampleDir.getAbsolutePath());
+                CaptureStorage.SaveResult writeResult = CaptureStorage.saveCompleteSample(
+                        pair.rgb.bitmap, task.rgbCrop, pair.ir.bitmap, task.irCrop,
+                        metadataJson, sampleDir);
+                if (!writeResult.saved) {
+                    showTransientStatus("Save failed: " + writeResult.errorMessage);
                     return;
                 }
-                saved = saveBitmapAsBmp(pair.rgb.bitmap, new File(sampleDir, "RGB.bmp"))
-                        && saveBitmapRegionAsBmp(pair.rgb.bitmap, task.rgbCrop,
-                        new File(sampleDir, "cropRGB.bmp"))
-                        && saveBitmapAsBmp(pair.ir.bitmap, new File(sampleDir, "IR.bmp"))
-                        && saveBitmapRegionAsBmp(pair.ir.bitmap, task.irCrop,
-                        new File(sampleDir, "cropIR.bmp"))
-                        && saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
-                if (saved) {
-                    attackCaptureCount = sampleIndex;
-                    android.util.Log.i(TAG, "Saved attack Live sample: " + sampleDir.getAbsolutePath());
-                }
+                saved = true;
+                attackCaptureCount = sampleIndex;
+                android.util.Log.i(TAG, "Saved attack Live sample: " + sampleDir.getAbsolutePath());
             } finally {
                 synchronized (attackCaptureLock) {
                     attackCaptureSaveBusy = false;
@@ -1949,24 +1967,6 @@ public final class MainActivity extends Activity {
         return highQuality ? CaptureStorage.QUALITY_HIGH : CaptureStorage.QUALITY_MEDIUM;
     }
 
-    private boolean saveBitmapAsBmp(Bitmap bitmap, File file) {
-        CaptureStorage.SaveResult result = CaptureStorage.saveBitmapAsBmp(bitmap, file);
-        if (!result.saved) showTransientStatus("Save failed: " + result.errorMessage);
-        return result.saved;
-    }
-
-    private boolean saveBitmapRegionAsBmp(Bitmap bitmap, Rect region, File file) {
-        CaptureStorage.SaveResult result = CaptureStorage.saveBitmapRegionAsBmp(bitmap, region, file);
-        if (!result.saved) showTransientStatus("Save failed: " + result.errorMessage);
-        return result.saved;
-    }
-
-    private boolean saveTextFile(String text, File file) {
-        CaptureStorage.SaveResult result = CaptureStorage.saveTextFile(text, file);
-        if (!result.saved) showTransientStatus("Save failed: " + result.errorMessage);
-        return result.saved;
-    }
-
     private void updateTrackingFps() {
         long now = SystemClock.elapsedRealtimeNanos();
         if (trackingWindowStartNs == 0L) trackingWindowStartNs = now;
@@ -1991,7 +1991,12 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private CharSequence formatPerformance() {
+    private void updatePerformanceHud() {
+        revealUiAfterWarmup();
+        screen.performance.setText(formatPerformance());
+    }
+
+    private void revealUiAfterWarmup() {
         if (enginesWarmedUp && qualityWarmedUp && screen.loadingSpinner.getVisibility() == View.VISIBLE) {
             screen.loadingSpinner.setVisibility(View.GONE);
             screen.irLoadingSpinner.setVisibility(View.GONE);
@@ -2001,6 +2006,9 @@ public final class MainActivity extends Activity {
                 screen.switchButton.setEnabled(true);
             }
         }
+    }
+
+    private CharSequence formatPerformance() {
         String recognitionText = faceRecognitionMode && recognitionInferenceMs >= 0L
                 ? String.format(Locale.US, "\nRecog inference %d ms", recognitionInferenceMs)
                 : "";
@@ -2095,7 +2103,7 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 screen.status.setText(message);
                 screen.modelSwitchButton.setText(btnText);
-                screen.performance.setText(formatPerformance());
+                updatePerformanceHud();
             });
         }
     }
@@ -2286,6 +2294,25 @@ public final class MainActivity extends Activity {
 
     @Override public void onBackPressed() {
         // Prevent back button navigation
+    }
+
+    private enum TestMenuAction {
+        SETTINGS,
+        WEBRTC,
+        AUTH_MODE,
+        MOTION_GATE,
+        LIGHTING_TEST,
+        ENTRY_DETECTOR,
+        DETECTOR,
+        FACE_MANAGEMENT;
+
+        boolean refreshOnSelect() {
+            return this == AUTH_MODE
+                    || this == MOTION_GATE
+                    || this == LIGHTING_TEST
+                    || this == ENTRY_DETECTOR
+                    || this == DETECTOR;
+        }
     }
 
     private static final class TrackingFrame {
