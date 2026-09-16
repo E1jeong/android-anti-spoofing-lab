@@ -62,7 +62,7 @@ public final class FaceDetector implements FaceDetectionEngine {
         config.preference = EnginePreference.PREFER_NXP_DETECTION;
         config.detectionModelSpeedLevel = DetectionModelSpeedLevel.DEFAULT;
         config.maxDetectionThreads = Math.min(Runtime.getRuntime().availableProcessors(), 2);
-        config.mode = RecognizerMode.IMAGE;
+        config.mode = RecognizerMode.VIDEO;
         config.maxFrameWidth = 432;
         config.maxFrameHeight = 768;
         config.minFaceWidthRatio = 0.15f;
