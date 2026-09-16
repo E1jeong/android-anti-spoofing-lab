@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.PointF;
@@ -139,6 +140,7 @@ public final class MainActivity extends Activity {
     // loading spinner up until then instead of pretending the camera is usable.
     private volatile boolean enginesWarmedUp;
     private volatile boolean qualityWarmedUp;
+    private volatile boolean bundledQualityWarmupAttempted;
     private boolean highQualityOnly;
     private DualCameraController cameras;
     private DualCameraController stoppingCameras;
@@ -638,8 +640,7 @@ public final class MainActivity extends Activity {
                     String message = detector.qualityError();
                     reportEngineError(message.isEmpty() ? "Face quality unavailable" : message);
                 } else {
-                    qualityWarmedUp = true;
-                    android.util.Log.i(TAG, "Face quality warmup completed");
+                    android.util.Log.i(TAG, "Face quality initialized; waiting for a valid face to warm up");
                 }
             } catch (Exception e) {
                 String message = e.getMessage();
@@ -899,6 +900,12 @@ public final class MainActivity extends Activity {
         if (!isPipelineCurrent(frame.generation)) return;
         FaceDetectionEngine activeDetector = activeFaceDetector;
         if (activeDetector == null || calibration == null) return;
+        if (enginesWarmedUp && !qualityWarmedUp && !bundledQualityWarmupAttempted
+                && activeDetector == faceDetector && faceDetector.isQualityAvailable()) {
+            bundledQualityWarmupAttempted = true;
+            warmupFaceQualityFromBundledImage(frame.generation);
+            return;
+        }
         boolean captureCalibration = calibrationMode && calibrationRequested.getAndSet(false);
         boolean prepareCollectionQuality = !captureCalibration
                 && collectionSession.isActive() && !collectionSession.isPaused()
@@ -906,10 +913,14 @@ public final class MainActivity extends Activity {
                 && activeDetector == faceDetector
                 && shouldCheckCollectionQuality(collectionSession.getClassName())
                 && getCollectionCountdownSeconds(SystemClock.elapsedRealtime()) <= 0;
+        boolean prepareQualityWarmup = enginesWarmedUp && !captureCalibration && !qualityWarmedUp
+                && activeDetector == faceDetector && faceDetector.isQualityAvailable();
+        long qualityWarmupStartNs = prepareQualityWarmup
+                ? SystemClock.elapsedRealtimeNanos() : 0L;
         long start = SystemClock.elapsedRealtimeNanos();
         Rect detected = captureCalibration
                 ? activeDetector.detectSingle(frame.rgb.bitmap)
-                : prepareCollectionQuality
+                : prepareCollectionQuality || prepareQualityWarmup
                         ? faceDetector.detectLargestWithQualityData(frame.rgb.bitmap)
                         : activeDetector.detectLargest(frame.rgb.bitmap);
         PointF[] currentLandmarks = activeDetector.getLastDetectedLandmarks();
@@ -982,6 +993,22 @@ public final class MainActivity extends Activity {
         } else {
             lastFaceDetectedMs = SystemClock.elapsedRealtime();
             HardwareControls.setIrLed(true);
+        }
+        if (prepareQualityWarmup) {
+            FaceDetector.FaceQualityCheckResult warmup =
+                    faceDetector.checkFaceQuality(frame.rgb.bitmap, 0);
+            if (warmup.passed) {
+                qualityWarmedUp = true;
+                long warmupMs = (SystemClock.elapsedRealtimeNanos() - qualityWarmupStartNs)
+                        / 1_000_000L;
+                android.util.Log.i(TAG, "Face quality warmup completed in " + warmupMs + " ms");
+                runOnUiThread(() -> {
+                    if (isPipelineCurrent(frame.generation)) updatePerformanceHud();
+                });
+            } else {
+                android.util.Log.w(TAG, "Face quality warmup failed: " + warmup.reason);
+            }
+            return;
         }
         int irWidth = frame.ir == null ? frame.rgb.bitmap.getWidth() : frame.ir.bitmap.getWidth();
         int irHeight = frame.ir == null ? frame.rgb.bitmap.getHeight() : frame.ir.bitmap.getHeight();
@@ -1272,6 +1299,36 @@ public final class MainActivity extends Activity {
 
     private void submitInference(InferenceTask task) {
         inferenceQueue.offer(task);
+    }
+
+    private void warmupFaceQualityFromBundledImage(int generation) {
+        FaceDetector detector = faceDetector;
+        if (detector == null || enginesShutDown || qualityWarmedUp) return;
+        Bitmap sample = null;
+        long startNs = SystemClock.elapsedRealtimeNanos();
+        try {
+            sample = BitmapFactory.decodeResource(getResources(), R.drawable.test_image);
+            if (sample == null || detector.detectLargestWithQualityData(sample) == null) {
+                android.util.Log.w(TAG, "Bundled face quality warmup image was not detected");
+                return;
+            }
+            FaceDetector.FaceQualityCheckResult warmup = detector.checkFaceQuality(sample, 0);
+            if (!warmup.passed) {
+                android.util.Log.w(TAG, "Bundled face quality warmup failed: " + warmup.reason);
+                return;
+            }
+            qualityWarmedUp = true;
+            long warmupMs = (SystemClock.elapsedRealtimeNanos() - startNs) / 1_000_000L;
+            android.util.Log.i(TAG, "Face quality warmup completed from bundled image in "
+                    + warmupMs + " ms");
+            runOnUiThread(() -> {
+                if (isPipelineCurrent(generation)) updatePerformanceHud();
+            });
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "Bundled face quality warmup failed", e);
+        } finally {
+            if (sample != null && !sample.isRecycled()) sample.recycle();
+        }
     }
 
     private void processInference(InferenceTask task) {
