@@ -1139,7 +1139,7 @@ public final class MainActivity extends Activity {
             }
             screen.noFaceLabel.setVisibility(View.GONE);
             if (finalPreviewFace != null) {
-                setPreviewFace(finalPreviewFace);
+                setPreviewFace(finalPreviewFace, finalPreviewRgb);
             }
         });
         if (calibrationMode) return;
@@ -2556,8 +2556,8 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void setPreviewFace(Bitmap bitmap) {
-        screen.setPreviewFace(bitmap);
+    private void setPreviewFace(Bitmap bitmap, boolean color) {
+        screen.setPreviewFace(bitmap, color);
     }
 
     private void clearPreviewFace() {

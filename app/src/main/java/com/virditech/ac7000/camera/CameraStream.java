@@ -233,7 +233,7 @@ final class CameraStream {
         matrix.postRotate(degrees, width / 2f, height / 2f);
         matrix.postScale(width / height, height / width, width / 2f, height / 2f);
         textureView.setTransform(matrix);
-        textureView.setScaleX(1f);
+        textureView.setScaleX(PreviewTransform.forColorCamera(color).textureScaleX());
     }
 
     private void normalizeIrOrientation(int generation, CameraDevice camera) {

@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.view.View;
 
+import com.virditech.ac7000.camera.PreviewTransform;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.unionbiometrics.vision.api.VisionClassification;
@@ -161,7 +162,8 @@ public final class OverlayView extends View {
         if (showLightingGuide || showForegroundEntryGuide) drawObservationGuides(canvas);
         Rect source = showIr ? irBox : rgbBox;
         if (source == null) return;
-        Rect box = map(source, 432, 768, getWidth(), getHeight(), true);
+        boolean mirror = PreviewTransform.forColorCamera(!showIr).mirrorAnalysisCoordinates();
+        Rect box = map(source, 432, 768, getWidth(), getHeight(), mirror);
         int color;
         if (isCollecting) {
             color = Color.WHITE;
@@ -277,7 +279,8 @@ public final class OverlayView extends View {
     }
 
     private void drawObservationGuide(Canvas canvas, Rect source, int color, String label) {
-        Rect guide = map(source, 432, 768, getWidth(), getHeight(), true);
+        boolean mirror = PreviewTransform.forColorCamera(!showIr).mirrorAnalysisCoordinates();
+        Rect guide = map(source, 432, 768, getWidth(), getHeight(), mirror);
         guidePaint.setColor(color);
         guidePaint.setStrokeWidth(4f);
         canvas.drawRect(guide, guidePaint);

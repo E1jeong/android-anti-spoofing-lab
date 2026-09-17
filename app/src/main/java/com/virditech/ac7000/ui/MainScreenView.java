@@ -19,6 +19,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import com.virditech.ac7000.camera.PreviewTransform;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.unionbiometrics.vision.api.VisionClassification;
@@ -793,10 +794,10 @@ public final class MainScreenView {
         pauseCollectionButton.setContentDescription(paused ? "Resume capture" : "Pause capture");
     }
 
-    public void setPreviewFace(Bitmap bitmap) {
+    public void setPreviewFace(Bitmap bitmap, boolean color) {
         Bitmap previous = currentPreviewFace;
         currentPreviewFace = bitmap;
-        faceCropView.setScaleX(-1f);
+        faceCropView.setScaleX(PreviewTransform.forColorCamera(color).analysisBitmapScaleX());
         faceCropView.setImageBitmap(bitmap);
         if (previous != null && previous != bitmap && !previous.isRecycled()) previous.recycle();
     }
