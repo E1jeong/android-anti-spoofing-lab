@@ -10,6 +10,7 @@ public final class IrCameraExposureController {
     private static final String TAG = "IrCameraExposure";
     private static final String IR_CAMERA_REGISTER =
             "/sys/bus/i2c/drivers/pi6008k-ir/1-001a/pi6008k_regctrl";
+    private static final String DIRECTION_REGISTER = "F0600C10";
 
     private IrCameraExposureController() {}
 
@@ -19,6 +20,10 @@ public final class IrCameraExposureController {
 
     public static void applyCenterAutoExposure() {
         applyAutoExposure(0x18000000, 0x00000018, 0x01010101);
+    }
+
+    public static void applyNormalOrientation() {
+        writeRegister(DIRECTION_REGISTER, 0x00000000);
     }
 
     private static void applyAutoExposure(int blockLow, int blockHigh, int weight) {

@@ -22,6 +22,7 @@ import android.view.Surface;
 import android.view.TextureView;
 
 import com.virditech.ac7000.concurrent.GenerationGuard;
+import com.virditech.ac7000.device.IrCameraExposureController;
 
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
@@ -31,6 +32,7 @@ import java.util.concurrent.RejectedExecutionException;
 
 final class CameraStream {
     private static final String TAG = "CameraStream";
+    private static final long IR_ORIENTATION_REASSERT_DELAY_MS = 3_000L;
     interface Listener {
         void onFrame(FrameData frame);
         void onError(String message);
@@ -54,6 +56,7 @@ final class CameraStream {
     private final AtomicBoolean resourcesFinished = new AtomicBoolean(false);
     private volatile Runnable stopCallback;
     private volatile boolean frameDeliveryEnabled = true;
+    private Runnable irOrientationReassertion;
     // Reused NV21 buffer; safe because frames are dropped while a conversion is in flight,
     // so the camera thread only rewrites it after the previous conversion finished.
     private byte[] nv21Buffer;
@@ -103,19 +106,23 @@ final class CameraStream {
                         return;
                     }
                     device = camera;
+                    normalizeIrOrientation(generation, camera);
                     createSession(generation, camera);
                 }
                 @Override public void onDisconnected(CameraDevice camera) {
+                    cancelIrOrientationReassertion();
                     closing = true;
                     camera.close();
                     if (generationGuard.isCurrent(generation)) listener.onError("Camera disconnected");
                 }
                 @Override public void onError(CameraDevice camera, int error) {
+                    cancelIrOrientationReassertion();
                     closing = true;
                     camera.close();
                     if (generationGuard.isCurrent(generation)) listener.onError("Camera error " + error);
                 }
                 @Override public void onClosed(CameraDevice camera) {
+                    cancelIrOrientationReassertion();
                     if (camera == device) device = null;
                     if (closing) finishCameraClose();
                 }
@@ -166,7 +173,7 @@ final class CameraStream {
                     conversionBusy.set(true);
                     conversionExecutor.execute(() -> {
                         try {
-                            FrameData frame = converter.toPortraitFrame(nv21Data, w, h, timestamp, !color, mirrorHorizontally());
+                            FrameData frame = converter.toPortraitFrame(nv21Data, w, h, timestamp, !color, false);
                             if (generationGuard.isCurrent(generation)) listener.onFrame(frame);
                             else frame.recycle();
                         } catch (Exception e) {
@@ -229,12 +236,29 @@ final class CameraStream {
         textureView.setScaleX(1f);
     }
 
-    private boolean mirrorHorizontally() {
-        return !color;
+    private void normalizeIrOrientation(int generation, CameraDevice camera) {
+        if (color) return;
+        IrCameraExposureController.applyNormalOrientation();
+        cancelIrOrientationReassertion();
+        irOrientationReassertion = () -> {
+            if (!generationGuard.isCurrent(generation) || closing || device != camera) return;
+            IrCameraExposureController.applyNormalOrientation();
+        };
+        handler.postDelayed(irOrientationReassertion, IR_ORIENTATION_REASSERT_DELAY_MS);
+    }
+
+    private void cancelIrOrientationReassertion() {
+        Handler cameraHandler = handler;
+        Runnable reassertion = irOrientationReassertion;
+        irOrientationReassertion = null;
+        if (cameraHandler != null && reassertion != null) {
+            cameraHandler.removeCallbacks(reassertion);
+        }
     }
 
     void stop(Runnable onStopped) {
         generationGuard.advance();
+        cancelIrOrientationReassertion();
         frameDeliveryEnabled = false;
         textureView.setSurfaceTextureListener(null);
         stopCallback = onStopped;
