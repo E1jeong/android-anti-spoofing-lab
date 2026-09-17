@@ -23,7 +23,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - `CameraStream` owns Camera2 session lifecycle. Teardown must always be serialized on the camera handler thread.
    - `FramePair` matches RGB and IR frames within 150 ms (`MAX_PAIR_DELTA_NS`).
    - `Calibration.rgbToIr()` maps RGB face bounding boxes to IR coordinates via the 64-byte `CalibConfig.dat` (stored at `/sdcard/devlocal/CalibConfig.dat` or internal fallback).
-   - Screen displays mirrored preview (`setScaleX(-1f)`); `OverlayView` must pass `mirror=true` to `map()` to align canvas boxes with visible faces.
+   - `PreviewTransform` is the single source for RGB/IR raw-`TextureView`, analysis-overlay, and crop-preview display mirroring. Do not hardcode `setScaleX` or overlay mirror flags elsewhere; display transforms must not alter calibration, saved-frame, model-crop, or SDK-input coordinates.
 
 2. **anti-spoofing host**:
    - Load through `com.unionbiometrics.vision.VisionSdk.loadAll(applicationContext, AntiSpoofingHost)` and keep app code on public types in `com.unionbiometrics.vision.api`. Use `AntiSpoofingEngine.infer(VisionFrame)` for per-frame lab diagnostics; the product session path is `startSession()` plus `process()`. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
