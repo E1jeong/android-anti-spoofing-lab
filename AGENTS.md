@@ -13,7 +13,7 @@
 
 | Module | Responsibility | First entry point | Module guide |
 | --- | --- | --- | --- |
-| `vision/` | Anti-spoofing engine library: crop, preprocess, NNAPI inference, `[1,12]` output | `vision/src/main/java/com/unionbiometrics/vision/ModelSlotClassifier.java` | `vision/AGENTS.md` |
+| `vision/` | Anti-spoofing SDK: host contract, crop, preprocess, NNAPI inference, `[1,12]` output | `vision/src/main/java/com/unionbiometrics/vision/VisionSdk.java` | `vision/AGENTS.md` |
 | `app/` | Android evaluation runtime, capture, recognition, and WebRTC terminal PoC | `app/src/main/java/com/virditech/ac7000/MainActivity.java` | `app/AGENTS.md` |
 
 ## Change Gates
@@ -24,7 +24,7 @@
 - **VSI NPU Cache Restriction**: Never enable NNAPI compilation caching (`setCacheDir`/`setModelToken`); the board driver will fail compilation.
 - **Camera Teardown Sequencing**: Never close `ImageReader` or preview `Surface` before `CameraDevice.StateCallback.onClosed()` has fired (avoids native `SIGSEGV` in `YuvConverter`).
 - **Capture Atomicity**: A capture sample advances the count only when all 5 files (`RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, `meta.json`) succeed.
-- **Output Dimension Contract**: Anti-spoofing output must match `ClassificationResult.LABELS` in shape and order; the current evaluator requires `[1,12]` and rejects legacy ten-class assets.
+- **Output Dimension Contract**: Anti-spoofing output must match `VisionSdk.labels()` in shape and order; the current evaluator requires `[1,12]` and rejects legacy ten-class assets.
 - **Secrets & Credentials**: Never commit `FACEME_LICENSE_KEY`, private Maven URLs, keystores, or signaling server credentials.
 
 ## Verify

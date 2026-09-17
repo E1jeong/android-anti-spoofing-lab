@@ -53,10 +53,13 @@ import com.virditech.ac7000.device.LightingExperimentLogger;
 import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
-import com.unionbiometrics.vision.ClassificationResult;
-import com.unionbiometrics.vision.FaceCrop;
-import com.unionbiometrics.vision.ModelSlotClassifier;
-import com.unionbiometrics.vision.SlotClassificationResult;
+import com.unionbiometrics.vision.VisionSdk;
+import com.unionbiometrics.vision.api.AntiSpoofingEngine;
+import com.unionbiometrics.vision.api.AntiSpoofingHost;
+import com.unionbiometrics.vision.api.VisionClassification;
+import com.unionbiometrics.vision.api.VisionFrame;
+import com.unionbiometrics.vision.api.VisionInferenceResult;
+import com.unionbiometrics.vision.api.VisionLoadResult;
 import com.virditech.ac7000.model.AuthFrameAccumulator;
 import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.performance.LatencyWindow;
@@ -97,6 +100,7 @@ public final class MainActivity extends Activity {
     private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
     private static final long IR_LED_OFF_DELAY_MS = 1_000L;
     private static final long CAMERA_CLOSE_WARNING_MS = 1_500L;
+    private static final String[] VISION_LABELS = VisionSdk.labels();
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -132,7 +136,7 @@ public final class MainActivity extends Activity {
     private final Object classifierLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
     private final AtomicInteger pendingEngineLoads = new AtomicInteger(2);
-    private final ArrayList<ModelSlotClassifier> classifiers = new ArrayList<>();
+    private final ArrayList<AntiSpoofingEngine> classifiers = new ArrayList<>();
     private int activeClassifierIndex;
     private volatile boolean enginesShutDown;
     // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
@@ -148,8 +152,21 @@ public final class MainActivity extends Activity {
     private volatile FaceDetector faceDetector;
     private volatile MediaPipeFaceDetector mediaPipeFaceDetector;
     private volatile FaceDetectionEngine activeFaceDetector;
-    private volatile ModelSlotClassifier classifier;
+    private volatile AntiSpoofingEngine classifier;
     private volatile Calibration calibration;
+    private final AntiSpoofingHost antiSpoofingHost = new AntiSpoofingHost() {
+        @Override
+        public Rect mapRgbFaceToIr(Rect rgbFaceBox, int irWidth, int irHeight) {
+            Calibration current = calibration;
+            if (current == null) current = Calibration.identity();
+            return current.rgbToIr(rgbFaceBox, irWidth, irHeight);
+        }
+
+        @Override
+        public void setIrIllumination(boolean enabled) {
+            HardwareControls.setIrLed(enabled);
+        }
+    };
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private final CaptureSession collectionSession = new CaptureSession();
     private volatile boolean isAttackLiveCapturing;
@@ -667,9 +684,9 @@ public final class MainActivity extends Activity {
     }
 
     private void loadClassifiers() {
-        ModelSlotClassifier.LoadResult result = null;
+        VisionLoadResult result = null;
         try {
-            result = ModelSlotClassifier.loadAll(getApplicationContext());
+            result = VisionSdk.loadAll(getApplicationContext(), antiSpoofingHost);
         } catch (Exception e) {
             reportEngineError("MODEL LOAD FAILED: " + e.getMessage());
         }
@@ -700,13 +717,13 @@ public final class MainActivity extends Activity {
         } catch (Exception e) {
             android.util.Log.w(TAG, "FaceRecognitionManager load failed: " + e.getMessage());
         }
-        List<ModelSlotClassifier> loaded = result != null ? result.slots : new ArrayList<>();
+        List<AntiSpoofingEngine> loaded = result != null ? result.engines() : new ArrayList<>();
         if (result != null) {
-            for (String error : result.errors) reportEngineError(error);
+            for (String error : result.errors()) reportEngineError(error);
         }
         synchronized (classifierLock) {
             if (enginesShutDown) {
-                for (ModelSlotClassifier slot : loaded) {
+                for (AntiSpoofingEngine slot : loaded) {
                     try { slot.close(); } catch (Exception ignored) {}
                 }
                 return;
@@ -718,7 +735,7 @@ public final class MainActivity extends Activity {
         }
         runOnUiThread(() -> {
             screen.modelSwitchButton.setEnabled(classifiers.size() > 1);
-            ModelSlotClassifier active = classifier;
+            AntiSpoofingEngine active = classifier;
             if (active != null) screen.modelSwitchButton.setText(active.label());
             if (classifier != null && cameras != null) cameras.setIrFramesEnabled(true);
         });
@@ -751,7 +768,7 @@ public final class MainActivity extends Activity {
         synchronized (engineErrors) {
             errors = engineErrors.toString();
         }
-        ModelSlotClassifier active = classifier;
+        AntiSpoofingEngine active = classifier;
         String message = errors.isEmpty()
                 ? (active != null ? active.backendStatus() : "Loading model...")
                 : errors;
@@ -1056,11 +1073,11 @@ public final class MainActivity extends Activity {
 
         Rect rgbCrop = null;
         Rect irCrop = null;
-        ModelSlotClassifier activeClassifier = classifier;
+        AntiSpoofingEngine activeClassifier = classifier;
         if (activeClassifier != null) {
-            float margin = activeClassifier.cropMarginRatio();
-            rgbCrop = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-            irCrop = FaceCrop.expand(irDetected, margin, irWidth, irHeight);
+            rgbCrop = activeClassifier.expandFaceBox(
+                    detected, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
+            irCrop = activeClassifier.expandFaceBox(irDetected, irWidth, irHeight);
         }
 
         Bitmap previewFace = null;
@@ -1156,10 +1173,18 @@ public final class MainActivity extends Activity {
             if (savePermit != null) {
                 final int currentCount = savePermit.sampleIndex;
                 final String subjectDirName = savePermit.className + "_" + savePermit.subjectId;
-                ModelSlotClassifier collectionClassifier = classifier;
+                AntiSpoofingEngine collectionClassifier = classifier;
                 float margin = collectionClassifier != null ? collectionClassifier.cropMarginRatio() : 0.10f;
-                Rect rgbR = FaceCrop.expand(detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-                Rect irR = FaceCrop.expand(irDetected, margin, frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
+                Rect rgbR = collectionClassifier != null
+                        ? collectionClassifier.expandFaceBox(detected,
+                        frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight())
+                        : VisionSdk.expandFaceBox(detected, margin,
+                        frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
+                Rect irR = collectionClassifier != null
+                        ? collectionClassifier.expandFaceBox(irDetected,
+                        frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight())
+                        : VisionSdk.expandFaceBox(irDetected, margin,
+                        frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
                 final int minQualityLevel = shouldCheckCollectionQuality(savePermit.className)
                         ? saveCandidate.minQualityLevel : -1;
                 final int actualQualityLevel = sampleQuality != null ? sampleQuality.actualLevel : -1;
@@ -1336,16 +1361,18 @@ public final class MainActivity extends Activity {
                 || !isPipelineCurrent(task.generation) || task.classifier == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
-        SlotClassificationResult result = task.classifier.classify(task.pair.rgb.bitmap, task.rgbCrop,
-                task.pair.ir.bitmap, task.irCrop);
+        VisionInferenceResult result = task.classifier.infer(new VisionFrame(
+                task.pair.rgb.bitmap, task.rgbFace, task.pair.rgb.timestampNs,
+                task.pair.ir.bitmap, task.irFace, task.pair.ir.timestampNs));
+        if (!result.successful()) throw new IllegalStateException(result.errorMessage());
         long endToEndMs = (SystemClock.elapsedRealtimeNanos() - task.receivedNs) / 1_000_000L;
         if (isExclusiveEvaluationMode() || authVerdictShowing || testMenuShowing
                 || !isPipelineCurrent(task.generation)
                 || task.motionGeneration != inferenceMotionGeneration.get()) return;
-        inferenceMs = result.inferenceMs;
-        rgbInferenceMs = result.rgbResult != null ? result.rgbResult.inferenceMs : -1L;
-        irInferenceMs = result.irResult != null ? result.irResult.inferenceMs : -1L;
-        recordInferenceMetrics(result.preprocessMs, result.inferenceMs, queueMs, endToEndMs);
+        inferenceMs = result.inferenceMs();
+        rgbInferenceMs = result.rgbResult() != null ? result.rgbResult().inferenceMs() : -1L;
+        irInferenceMs = result.irResult() != null ? result.irResult().inferenceMs() : -1L;
+        recordInferenceMetrics(result.preprocessMs(), result.inferenceMs(), queueMs, endToEndMs);
         updateInferenceFps();
 
         maybeSaveAttackLiveCapture(task, result);
@@ -1353,14 +1380,14 @@ public final class MainActivity extends Activity {
             if (isExclusiveEvaluationMode() || authVerdictShowing || !isPipelineCurrent(task.generation)
                     || task.motionGeneration != inferenceMotionGeneration.get()) return;
             if (authMode) {
-                ClassificationResult primary = result.primaryResult();
-                if (primary != null && primary.probabilities != null && primary.probabilities.length > 0) {
+                VisionClassification primary = result.primaryResult();
+                if (primary != null && primary.probabilities().length > 0) {
                     AuthFrameAccumulator.Verdict verdict = authFrames.add(
-                            primary.probabilities, task.receivedNs,
+                            primary.probabilities(), task.receivedNs,
                             SystemClock.elapsedRealtimeNanos());
                     if (verdict != null) {
-                        String topSpoofLabel = verdict.topSpoofIndex < ClassificationResult.LABELS.length
-                                ? ClassificationResult.displayLabel(verdict.topSpoofIndex)
+                        String topSpoofLabel = verdict.topSpoofIndex < VISION_LABELS.length
+                                ? VisionSdk.displayLabel(verdict.topSpoofIndex)
                                 : "UNKNOWN";
                         showAuthVerdict(verdict.live, verdict.averageLiveScore,
                                 topSpoofLabel, verdict.elapsedMs);
@@ -1368,7 +1395,7 @@ public final class MainActivity extends Activity {
                 }
                 return;
             }
-            screen.overlay.showResult(result.primaryResult(), result.irResult);
+            screen.overlay.showResult(result.primaryResult(), result.irResult());
             screen.resultsLabel.setText(formatClassificationResults(result));
             if (screen != null) screen.showCleanModeResult(result);
             
@@ -1958,9 +1985,9 @@ public final class MainActivity extends Activity {
         showTransientStatus("Attack Live capture stopped: " + attackCaptureCount + " saved");
     }
 
-    private void maybeSaveAttackLiveCapture(InferenceTask task, SlotClassificationResult result) {
-        ClassificationResult primary = result.primaryResult();
-        if (primary == null || !AttackLiveCaptureGate.shouldSave(primary.probabilities)) {
+    private void maybeSaveAttackLiveCapture(InferenceTask task, VisionInferenceResult result) {
+        VisionClassification primary = result.primaryResult();
+        if (primary == null || !AttackLiveCaptureGate.shouldSave(primary.probabilities())) {
             return;
         }
         FramePair pair;
@@ -2112,37 +2139,37 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private CharSequence formatClassificationResults(SlotClassificationResult result) {
+    private CharSequence formatClassificationResults(VisionInferenceResult result) {
         if (result.hasPairedResults()) {
             StringBuilder sb = new StringBuilder();
-            appendClassificationResult(sb, null, result.rgbResult);
+            appendClassificationResult(sb, null, result.rgbResult());
             sb.append("\n\n");
             int irStart = sb.length();
-            appendClassificationResult(sb, null, result.irResult);
+            appendClassificationResult(sb, null, result.irResult());
             SpannableString text = new SpannableString(sb.toString());
             text.setSpan(new ForegroundColorSpan(IR_RESULT_COLOR), irStart, text.length(),
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             return text;
         }
         StringBuilder sb = new StringBuilder();
-        appendClassificationResult(sb, null, result.result);
+        appendClassificationResult(sb, null, result.result());
         return sb.toString();
     }
 
-    private void appendClassificationResult(StringBuilder sb, String title, ClassificationResult result) {
+    private void appendClassificationResult(StringBuilder sb, String title, VisionClassification result) {
         if (title != null) sb.append(title).append("\n");
-        for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
+        for (int i = 0; i < VISION_LABELS.length; i++) {
             if (i > 0) sb.append("\n");
-            float probability = result != null ? result.probabilities[i] * 100f : 0f;
-            sb.append(String.format(Locale.US, "%s %.1f%%", ClassificationResult.displayLabel(i), probability));
+            float probability = result != null ? result.probability(i) * 100f : 0f;
+            sb.append(String.format(Locale.US, "%s %.1f%%", VisionSdk.displayLabel(i), probability));
         }
     }
 
     private void resetResultsLabelToZero() {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < ClassificationResult.LABELS.length; i++) {
+        for (int i = 0; i < VISION_LABELS.length; i++) {
             if (i > 0) sb.append("\n");
-            sb.append(String.format(Locale.US, "%s 0.0%%", ClassificationResult.displayLabel(i)));
+            sb.append(String.format(Locale.US, "%s 0.0%%", VisionSdk.displayLabel(i)));
         }
         screen.resultsLabel.setText(sb.toString());
     }
@@ -2408,13 +2435,13 @@ public final class MainActivity extends Activity {
         final Rect irCrop;
         final PointF[] landmarks;
         final int generation;
-        final ModelSlotClassifier classifier;
+        final AntiSpoofingEngine classifier;
         final long receivedNs;
         final long enqueuedNs;
         final long motionGeneration;
 
         InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, PointF[] landmarks,
-                      int generation, ModelSlotClassifier classifier, long receivedNs, long motionGeneration) {
+                      int generation, AntiSpoofingEngine classifier, long receivedNs, long motionGeneration) {
             this.pair = pair;
             this.rgbFace = rgbFace;
             this.irFace = irFace;
@@ -2544,7 +2571,7 @@ public final class MainActivity extends Activity {
 
     private void closeAntiSpoofClassifiers() {
         synchronized (classifierLock) {
-            for (ModelSlotClassifier slot : classifiers) {
+            for (AntiSpoofingEngine slot : classifiers) {
                 try { slot.close(); } catch (Exception ignored) {}
             }
             classifier = null;

@@ -1,5 +1,8 @@
-package com.unionbiometrics.vision;
+package com.unionbiometrics.vision.internal.model;
 
+import androidx.annotation.RestrictTo;
+
+@RestrictTo(RestrictTo.Scope.LIBRARY)
 public final class SlotClassificationResult {
     public final ClassificationResult result;
     public final ClassificationResult rgbResult;

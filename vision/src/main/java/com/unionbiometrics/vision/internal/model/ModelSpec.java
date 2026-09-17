@@ -1,10 +1,12 @@
-package com.unionbiometrics.vision;
+package com.unionbiometrics.vision.internal.model;
 
 import android.content.Context;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+
+import com.unionbiometrics.vision.internal.asset.ModelAssetLoader;
 
 import java.util.Locale;
 
@@ -166,7 +168,7 @@ final class ModelSpec {
     }
 
     static ModelSpec load(Context context, String assetName) throws Exception {
-        return parse(VisionAssets.readUtf8(context, assetName));
+        return parse(ModelAssetLoader.readUtf8(context, assetName));
     }
 
     static final class InputNames {

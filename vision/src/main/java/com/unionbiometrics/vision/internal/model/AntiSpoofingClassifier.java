@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision;
+package com.unionbiometrics.vision.internal.model;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -7,6 +7,8 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.util.Log;
+
+import com.unionbiometrics.vision.internal.asset.ModelAssetLoader;
 
 import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
@@ -20,7 +22,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
-public final class AntiSpoofingClassifier implements AutoCloseable {
+final class AntiSpoofingClassifier implements AutoCloseable {
     private static final String TAG = "AntiSpoofingClassifier";
     private static final int THREAD_COUNT = Math.min(4, Runtime.getRuntime().availableProcessors());
     private static final int ONE_INPUT_COUNT = 1;
@@ -321,7 +323,7 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     }
 
     private static MappedByteBuffer loadModel(Context context, String modelName) throws Exception {
-        return VisionAssets.mapModel(context, modelName);
+        return ModelAssetLoader.mapModel(context, modelName);
     }
 
     private static void releasePartial(Interpreter interpreter, InputBuffer cropRgb, InputBuffer cropIr,

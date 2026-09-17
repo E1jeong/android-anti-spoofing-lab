@@ -44,7 +44,7 @@ Model slots are configured in `vision/src/main/assets/ubio-vision/model_manifest
 - `dual_2_input`: one model with RGB and IR crop inputs;
 - `five_input`: RGB crop, IR crop, full RGB, full IR, and heatmap inputs.
 
-The current evaluator requires the anti-spoofing output shape and class order to match `ClassificationResult.LABELS`, currently `[1,12]`. Legacy ten-class assets are rejected.
+The current evaluator requires the anti-spoofing output shape and class order to match `VisionSdk.labels()`, currently `[1,12]`. Legacy ten-class assets are rejected.
 
 The active deployment artifacts are intentionally shown as:
 

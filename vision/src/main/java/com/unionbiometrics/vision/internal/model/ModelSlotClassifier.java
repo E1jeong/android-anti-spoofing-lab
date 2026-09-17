@@ -1,16 +1,21 @@
-package com.unionbiometrics.vision;
+package com.unionbiometrics.vision.internal.model;
 
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 
+import androidx.annotation.RestrictTo;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
+
+import com.unionbiometrics.vision.internal.asset.ModelAssetLoader;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+@RestrictTo(RestrictTo.Scope.LIBRARY)
 public final class ModelSlotClassifier implements AutoCloseable {
     private static final String TYPE_DUAL_2_INPUT = "dual_2_input";
     private static final String TYPE_PAIRED_1_INPUT = "paired_1_input";
@@ -96,10 +101,10 @@ public final class ModelSlotClassifier implements AutoCloseable {
     }
 
     private static JSONArray loadManifest(Context context) throws Exception {
-        JSONObject root = new JSONObject(VisionAssets.readUtf8(context, VisionAssets.MANIFEST));
+        JSONObject root = new JSONObject(ModelAssetLoader.readUtf8(context, ModelAssetLoader.MANIFEST));
         JSONArray models = root.optJSONArray("models");
         if (models == null || models.length() == 0) {
-            throw new IllegalStateException(VisionAssets.path(VisionAssets.MANIFEST) + " has no models");
+            throw new IllegalStateException(ModelAssetLoader.path(ModelAssetLoader.MANIFEST) + " has no models");
         }
         return models;
     }

@@ -9,7 +9,7 @@ import android.view.View;
 
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.unionbiometrics.vision.ClassificationResult;
+import com.unionbiometrics.vision.api.VisionClassification;
 
 import java.util.Locale;
 
@@ -25,8 +25,8 @@ public final class OverlayView extends View {
     private final Paint countdownPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Rect rgbBox;
     private Rect irBox;
-    private ClassificationResult result;
-    private ClassificationResult irResult;
+    private VisionClassification result;
+    private VisionClassification irResult;
     private String recognitionResult;
     private boolean recognitionMatched;
     private boolean showIr;
@@ -120,11 +120,11 @@ public final class OverlayView extends View {
         invalidate();
     }
 
-    public void showResult(ClassificationResult result) {
+    public void showResult(VisionClassification result) {
         showResult(result, null);
     }
 
-    public void showResult(ClassificationResult result, ClassificationResult irResult) {
+    public void showResult(VisionClassification result, VisionClassification irResult) {
         this.result = result;
         this.irResult = irResult;
         invalidate();
@@ -169,7 +169,7 @@ public final class OverlayView extends View {
             color = Color.CYAN;
         } else {
             color = result == null ? Color.YELLOW
-                    : ClassificationResult.shouldHighlightFaceInGreen(result.topIndex)
+                    : result.isLive()
                     ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         }
         boxPaint.setColor(color);
@@ -212,9 +212,9 @@ public final class OverlayView extends View {
         canvas.drawText(text, x, baseline, paint);
     }
 
-    private static String formatResult(ClassificationResult result) {
+    private static String formatResult(VisionClassification result) {
         return String.format(Locale.US, "%s %.1f%%",
-                ClassificationResult.displayLabel(result.topIndex), result.probabilities[result.topIndex] * 100f);
+                result.topDisplayLabel(), result.probability(result.topIndex()) * 100f);
     }
 
     private void drawCollectionGuide(Canvas canvas) {

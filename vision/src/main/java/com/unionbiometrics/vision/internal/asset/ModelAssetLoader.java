@@ -1,7 +1,9 @@
-package com.unionbiometrics.vision;
+package com.unionbiometrics.vision.internal.asset;
 
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
+
+import androidx.annotation.RestrictTo;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -11,13 +13,14 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 
-final class VisionAssets {
-    static final String DIRECTORY = "ubio-vision";
-    static final String MANIFEST = "model_manifest.json";
+@RestrictTo(RestrictTo.Scope.LIBRARY)
+public final class ModelAssetLoader {
+    public static final String DIRECTORY = "ubio-vision";
+    public static final String MANIFEST = "model_manifest.json";
 
-    private VisionAssets() {}
+    private ModelAssetLoader() {}
 
-    static String path(String relativeName) {
+    public static String path(String relativeName) {
         if (relativeName == null || relativeName.isEmpty()) {
             throw new IllegalArgumentException("Asset name is empty");
         }
@@ -29,7 +32,7 @@ final class VisionAssets {
         return DIRECTORY + "/" + normalized;
     }
 
-    static String readUtf8(Context context, String relativeName) throws IOException {
+    public static String readUtf8(Context context, String relativeName) throws IOException {
         try (InputStream input = context.getAssets().open(path(relativeName));
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[4096];
@@ -41,7 +44,7 @@ final class VisionAssets {
         }
     }
 
-    static MappedByteBuffer mapModel(Context context, String relativeName) throws IOException {
+    public static MappedByteBuffer mapModel(Context context, String relativeName) throws IOException {
         try (AssetFileDescriptor descriptor = context.getAssets().openFd(path(relativeName));
              FileInputStream input = new FileInputStream(descriptor.getFileDescriptor())) {
             return input.getChannel().map(

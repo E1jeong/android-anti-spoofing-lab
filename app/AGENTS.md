@@ -11,7 +11,7 @@
 All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 - Orchestration and loading: `MainActivity.java`, `IntroActivity.java`.
-- Anti-spoofing engine (other module): `vision/` — `ModelSlotClassifier`, `AntiSpoofingClassifier`, `ClassificationResult`. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
+- Anti-spoofing SDK (other module): `vision/` — `VisionSdk`, `AntiSpoofingEngine`, `VisionInferenceResult`. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
 - Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `face/FaceDetector.java`, `calibration/Calibration.java`.
 - Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
 - Recognition: `recognition/FaceRecognitionManager.java`, `recognition/FixedInputRecognitionRunner.java`.
@@ -26,8 +26,8 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - Screen displays mirrored preview (`setScaleX(-1f)`); `OverlayView` must pass `mirror=true` to `map()` to align canvas boxes with visible faces.
 
 2. **anti-spoofing host**:
-   - Call `:vision` with `ModelSlotClassifier.loadAll(applicationContext)` and `classify(rgb, rgbBox, ir, irBox)`. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
-   - Expand face boxes with `FaceCrop.expand` using the active slot's `cropMarginRatio()` before `classify`.
+   - Load through `com.unionbiometrics.vision.VisionSdk.loadAll(applicationContext, AntiSpoofingHost)` and keep app code on public types in `com.unionbiometrics.vision.api`. Use `AntiSpoofingEngine.infer(VisionFrame)` for per-frame lab diagnostics; the product session path is `startSession()` plus `process()`. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
+   - Use `AntiSpoofingEngine.expandFaceBox` for preview/capture crops. Model margin and the internal crop implementation stay in `:vision`.
    - `FaceMotionGate` (app `model/`) halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame. Lab-only helper, not part of `:vision`.
 
 3. **`recognition`**:

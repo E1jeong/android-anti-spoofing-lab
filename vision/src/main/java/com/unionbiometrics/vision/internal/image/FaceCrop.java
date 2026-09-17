@@ -1,7 +1,10 @@
-package com.unionbiometrics.vision;
+package com.unionbiometrics.vision.internal.image;
 
 import android.graphics.Rect;
 
+import androidx.annotation.RestrictTo;
+
+@RestrictTo(RestrictTo.Scope.LIBRARY)
 public final class FaceCrop {
     private FaceCrop() {}
 

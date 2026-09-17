@@ -1,5 +1,8 @@
-package com.unionbiometrics.vision;
+package com.unionbiometrics.vision.internal.model;
 
+import androidx.annotation.RestrictTo;
+
+@RestrictTo(RestrictTo.Scope.LIBRARY)
 public final class ClassificationResult {
     public static final String[] LABELS = {
             "LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK",

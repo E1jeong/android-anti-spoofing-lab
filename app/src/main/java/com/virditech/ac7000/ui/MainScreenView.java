@@ -21,8 +21,8 @@ import android.widget.TextView;
 
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.unionbiometrics.vision.ClassificationResult;
-import com.unionbiometrics.vision.SlotClassificationResult;
+import com.unionbiometrics.vision.api.VisionClassification;
+import com.unionbiometrics.vision.api.VisionInferenceResult;
 
 import java.util.Locale;
 
@@ -582,19 +582,19 @@ public final class MainScreenView {
         if (show) root.bringChildToFront(cleanModeSnapshotButton);
     }
 
-    public void showCleanModeResult(SlotClassificationResult slotResult) {
+    public void showCleanModeResult(VisionInferenceResult slotResult) {
         if (slotResult == null) {
             clearCleanModeResult();
             return;
         }
         if (slotResult.hasPairedResults()) {
-            ClassificationResult rgb = slotResult.rgbResult;
-            ClassificationResult ir = slotResult.irResult;
+            VisionClassification rgb = slotResult.rgbResult();
+            VisionClassification ir = slotResult.irResult();
             String rgbText = rgb != null ? formatResult(rgb) : "-";
             String irText = ir != null ? formatResult(ir) : "-";
-            int rgbColor = (rgb != null && ClassificationResult.shouldHighlightFaceInGreen(rgb.topIndex))
+            int rgbColor = (rgb != null && rgb.isLive())
                     ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
-            int irColor = (ir != null && ClassificationResult.shouldHighlightFaceInGreen(ir.topIndex))
+            int irColor = (ir != null && ir.isLive())
                     ? Color.rgb(64, 196, 255) : Color.rgb(255, 82, 82);
 
             String fullStr = "RGB: " + rgbText + "   IR: " + irText;
@@ -607,12 +607,12 @@ public final class MainScreenView {
             }
             currentCleanResultText = spannable;
         } else {
-            ClassificationResult primary = slotResult.primaryResult();
+            VisionClassification primary = slotResult.primaryResult();
             if (primary == null) {
                 clearCleanModeResult();
                 return;
             }
-            int color = ClassificationResult.shouldHighlightFaceInGreen(primary.topIndex)
+            int color = primary.isLive()
                 ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
             String text = formatResult(primary);
             SpannableString spannable = new SpannableString(text);
@@ -637,9 +637,9 @@ public final class MainScreenView {
         if (showClean) root.bringChildToFront(cleanModeResultView);
     }
 
-    private static String formatResult(ClassificationResult result) {
+    private static String formatResult(VisionClassification result) {
         return String.format(Locale.US, "%s %.1f%%",
-                ClassificationResult.displayLabel(result.topIndex), result.probabilities[result.topIndex] * 100f);
+                result.topDisplayLabel(), result.probability(result.topIndex()) * 100f);
     }
 
     public void showAuthResult(CharSequence text) {
