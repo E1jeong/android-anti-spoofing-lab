@@ -1,0 +1,64 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.unionbiometrics.vision'
+    compileSdk 34
+    buildToolsVersion '35.0.1'
+
+    defaultConfig {
+        minSdk 30
+        versionCode 1
+        versionName '0.1.0'
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    androidResources {
+        noCompress 'tflite'
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    implementation 'org.tensorflow:tensorflow-lite:2.16.1'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20180130'
+}
+
+def visionAssetDir = file('src/main/assets/ubio-vision')
+tasks.register('verifyVisionAssets') {
+    doLast {
+        def manifestFile = new File(visionAssetDir, 'model_manifest.json')
+        if (!manifestFile.exists()) {
+            throw new GradleException('Missing ' + manifestFile + '. Vision slots cannot load.')
+        }
+        def json = new groovy.json.JsonSlurper().parseText(manifestFile.getText('UTF-8'))
+        def models = json.models
+        if (!(models instanceof List) || models.isEmpty()) {
+            throw new GradleException(manifestFile.name + ' has no models')
+        }
+        models.each { model ->
+            ['model', 'spec', 'rgbModel', 'rgbSpec', 'irModel', 'irSpec'].each { key ->
+                def name = model[key]
+                if (name) {
+                    def asset = new File(visionAssetDir, name as String)
+                    if (!asset.exists()) {
+                        throw new GradleException('Vision manifest references missing asset: ' + asset)
+                    }
+                }
+            }
+        }
+    }
+}
+afterEvaluate {
+    tasks.named('preBuild').configure { dependsOn 'verifyVisionAssets' }
+}

@@ -28,7 +28,7 @@ The UI is constructed programmatically in Java. XML layout inflation is not used
 | `capture/` | 100-sample schedules, atomic save state, BMP output, and metadata |
 | `concurrent/` | generation invalidation and latest-frame execution |
 | `face/` | proprietary and public face-detector adapters |
-| `model/` | model slots, preprocessing, inference, classification, and auth accumulation |
+| `vision/` | anti-spoofing engine library: slots, preprocessing, NNAPI inference, classification |
 | `recognition/` | alignment, embeddings, template persistence, matching, and enrollment state |
 | `ui/` | programmatic view hierarchy and overlays |
 | `call/` | isolated WebRTC test activity |
@@ -37,7 +37,7 @@ RGB and IR frames are paired within 150 ms. Tracking, anti-spoofing inference, r
 
 ## Model contract
 
-Model slots are configured in `app/src/main/assets/model_manifest.json`. Supported anti-spoofing layouts are:
+Model slots are configured in `vision/src/main/assets/ubio-vision/model_manifest.json`. Supported anti-spoofing layouts are:
 
 - `single_1_input`: one RGB or IR crop input;
 - `paired_1_input`: separate RGB and IR one-input models;
@@ -132,9 +132,11 @@ Use JDK 21 on the validated development environment.
 
 ```powershell
 # Compile
+./gradlew.bat :vision:compileDebugJavaWithJavac
 ./gradlew.bat :app:compileDebugJavaWithJavac
 
 # JVM unit tests
+./gradlew.bat :vision:testDebugUnitTest
 ./gradlew.bat :app:testDebugUnitTest
 
 # Android lint

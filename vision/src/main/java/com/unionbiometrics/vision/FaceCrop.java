@@ -1,4 +1,4 @@
-package com.virditech.ac7000.model;
+package com.unionbiometrics.vision;
 
 import android.graphics.Rect;
 

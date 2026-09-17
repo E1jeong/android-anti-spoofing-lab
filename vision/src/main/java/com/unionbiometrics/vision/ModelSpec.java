@@ -1,4 +1,4 @@
-package com.virditech.ac7000.model;
+package com.unionbiometrics.vision;
 
 import android.content.Context;
 
@@ -6,8 +6,6 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 final class ModelSpec {
@@ -163,17 +161,12 @@ final class ModelSpec {
         }
     }
 
-    static ModelSpec load(Context context) throws Exception {
-        return load(context, "model_spec.json");
+    static ModelSpec parse(String json) throws Exception {
+        return new ModelSpec(new JSONObject(json));
     }
 
     static ModelSpec load(Context context, String assetName) throws Exception {
-        try (InputStream input = context.getAssets().open(assetName)) {
-            byte[] bytes = new byte[input.available()];
-            int read = input.read(bytes);
-            if (read != bytes.length) throw new IllegalStateException("Unable to read " + assetName);
-            return new ModelSpec(new JSONObject(new String(bytes, StandardCharsets.UTF_8)));
-        }
+        return parse(VisionAssets.readUtf8(context, assetName));
     }
 
     static final class InputNames {

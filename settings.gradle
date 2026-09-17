@@ -31,3 +31,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ubio-anti-spoofing"
 include ':app'
+include ':vision'

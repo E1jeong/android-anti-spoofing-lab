@@ -9,7 +9,7 @@ import android.view.View;
 
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.virditech.ac7000.model.ClassificationResult;
+import com.unionbiometrics.vision.ClassificationResult;
 
 import java.util.Locale;
 

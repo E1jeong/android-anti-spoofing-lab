@@ -1,0 +1,4 @@
+-keep class com.unionbiometrics.vision.** { *; }
+-keep class org.tensorflow.lite.** { *; }
+-keepclassmembers class org.tensorflow.lite.** { native <methods>; }
+-dontwarn org.tensorflow.lite.**

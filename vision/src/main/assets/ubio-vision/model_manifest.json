@@ -1,0 +1,38 @@
+{
+  "models": [
+    {
+      "label": "MODEL 1",
+      "type": "single_1_input",
+      "model": "best_crop_ir_fixed_npu_int8.tflite",
+      "spec": "best_crop_ir_fixed_npu_int8_manifest.json"
+    }
+  ],
+  "examples": {
+    "single_1_input": {
+      "label": "MODEL 1 (RGB or IR 1-Input)",
+      "type": "single_1_input",
+      "model": "model_name.tflite",
+      "spec": "model_name_manifest.json"
+    },
+    "paired_1_input": {
+      "label": "MODEL 2 (RGB + IR 1-Input)",
+      "type": "paired_1_input",
+      "rgbModel": "rgb_model.tflite",
+      "rgbSpec": "rgb_model_manifest.json",
+      "irModel": "ir_model.tflite",
+      "irSpec": "ir_model_manifest.json"
+    },
+    "dual_2_input": {
+      "label": "MODEL 3 (RGB + IR 2-Input)",
+      "type": "dual_2_input",
+      "model": "dual_input_model.tflite",
+      "spec": "dual_input_model_manifest.json"
+    },
+    "five_input": {
+      "label": "MODEL 4 (5-Input)",
+      "type": "five_input",
+      "model": "five_input_model.tflite",
+      "spec": "five_input_model_manifest.json"
+    }
+  }
+}

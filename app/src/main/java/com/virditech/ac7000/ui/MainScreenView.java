@@ -21,8 +21,8 @@ import android.widget.TextView;
 
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.virditech.ac7000.model.ClassificationResult;
-import com.virditech.ac7000.model.SlotClassificationResult;
+import com.unionbiometrics.vision.ClassificationResult;
+import com.unionbiometrics.vision.SlotClassificationResult;
 
 import java.util.Locale;
 

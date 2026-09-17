@@ -2,15 +2,16 @@
 
 ## Scope
 
-- Own the complete Android application implementation for `ubio-anti-spoofing`.
-- Houses the dual Camera2 capture pipeline, TFLite NPU/CPU inference runtime, FaceMe/MediaPipe detection wrappers, MobileFaceNet embedding manager, WebRTC call activity, hardware sysfs controllers, and 100-sample dataset capture engine.
+- Own the Android evaluation host for `ubio-anti-spoofing`.
+- Houses the dual Camera2 capture pipeline, FaceMe/MediaPipe detection wrappers, MobileFaceNet embedding manager, WebRTC call activity, hardware sysfs controllers, and 100-sample dataset capture engine.
+- Anti-spoofing inference lives in `:vision` (`com.unionbiometrics.vision`). This module passes RGB/IR frames and face boxes and displays results.
 
 ## Orient First
 
 All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 - Orchestration and loading: `MainActivity.java`, `IntroActivity.java`.
-- Model slots and tensors: `model/ModelSlotClassifier.java`, `model/AntiSpoofingClassifier.java`, `model/ClassificationResult.java`.
+- Anti-spoofing engine (other module): `vision/` — `ModelSlotClassifier`, `AntiSpoofingClassifier`, `ClassificationResult`. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
 - Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `face/FaceDetector.java`, `calibration/Calibration.java`.
 - Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
 - Recognition: `recognition/FaceRecognitionManager.java`, `recognition/FixedInputRecognitionRunner.java`.
@@ -24,10 +25,10 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - `Calibration.rgbToIr()` maps RGB face bounding boxes to IR coordinates via the 64-byte `CalibConfig.dat` (stored at `/sdcard/devlocal/CalibConfig.dat` or internal fallback).
    - Screen displays mirrored preview (`setScaleX(-1f)`); `OverlayView` must pass `mirror=true` to `map()` to align canvas boxes with visible faces.
 
-2. **`model`**:
-   - `AntiSpoofingClassifier` supports NHWC Float32/Int8 models with 1, 2, or 5 inputs and output matching `ClassificationResult.LABELS` (currently `[1,12]`).
-   - `ModelSlotClassifier` loads entries from `assets/model_manifest.json`. Only the active slot runs per frame on `inferenceExecutor`.
-   - `FaceMotionGate` halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame.
+2. **anti-spoofing host**:
+   - Call `:vision` with `ModelSlotClassifier.loadAll(applicationContext)` and `classify(rgb, rgbBox, ir, irBox)`. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
+   - Expand face boxes with `FaceCrop.expand` using the active slot's `cropMarginRatio()` before `classify`.
+   - `FaceMotionGate` (app `model/`) halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame. Lab-only helper, not part of `:vision`.
 
 3. **`recognition`**:
    - Isolated experimental package for MobileFaceNet (`w600k_mbf`).

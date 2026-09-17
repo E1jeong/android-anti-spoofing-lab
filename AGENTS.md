@@ -7,11 +7,13 @@
 - **Paired Project**: Anti-spoofing model training and INT8 export belong upstream in `access-liveness-model`; this repository deploys, benchmarks, and validates those artifacts on physical hardware. WebRTC signaling server and operator web belong to `ubio-webrtc`.
 - Report to the user in Korean; keep code, identifiers, paths, and commands in English.
 - Read [`app/AGENTS.md`](app/AGENTS.md) for package-level code entry points, threading rules, and test boundaries when changing the app module.
+- Read [`vision/AGENTS.md`](vision/AGENTS.md) when changing the anti-spoofing engine library.
 
 ## Code Map
 
 | Module | Responsibility | First entry point | Module guide |
 | --- | --- | --- | --- |
+| `vision/` | Anti-spoofing engine library: crop, preprocess, NNAPI inference, `[1,12]` output | `vision/src/main/java/com/unionbiometrics/vision/ModelSlotClassifier.java` | `vision/AGENTS.md` |
 | `app/` | Android evaluation runtime, capture, recognition, and WebRTC terminal PoC | `app/src/main/java/com/virditech/ac7000/MainActivity.java` | `app/AGENTS.md` |
 
 ## Change Gates
@@ -28,8 +30,8 @@
 ## Verify
 
 - Use JDK 21 for these commands on the company PC; the default Studio JBR 25 fails Gradle unit-test report setup. The wiki's `technical/build-deployment-requirements` records the verified local JDK selection.
-- Compile check: `./gradlew.bat :app:compileDebugJavaWithJavac`
-- JVM Unit Tests: `./gradlew.bat :app:testDebugUnitTest`
+- Compile check: `./gradlew.bat :vision:compileDebugJavaWithJavac` then `./gradlew.bat :app:compileDebugJavaWithJavac`
+- JVM Unit Tests: `./gradlew.bat :vision:testDebugUnitTest` then `./gradlew.bat :app:testDebugUnitTest`
 - For affected target behavior, use the version-bound checklists in `docs/model-contract.md`, `docs/device-runtime.md`, `docs/capture-contract.md`, `docs/performance-guide.md`, and `docs/webrtc-test.md`.
 - Target Device Logcat Filters (when device connected via adb):
   - `adb logcat -s AntiSpoofingClassifier:I MainActivity:I`

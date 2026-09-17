@@ -1,7 +1,6 @@
-package com.virditech.ac7000.model;
+package com.unionbiometrics.vision;
 
 import android.content.Context;
-import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -13,11 +12,9 @@ import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.Tensor;
 
-import java.io.FileInputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
@@ -25,7 +22,6 @@ import java.util.Map;
 
 public final class AntiSpoofingClassifier implements AutoCloseable {
     private static final String TAG = "AntiSpoofingClassifier";
-    private static final String MODEL_NAME = "anti_spoofing.tflite";
     private static final int THREAD_COUNT = Math.min(4, Runtime.getRuntime().availableProcessors());
     private static final int ONE_INPUT_COUNT = 1;
     private static final int TWO_INPUT_COUNT = 2;
@@ -48,89 +44,99 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
     private final byte[][] outputInt8 = new byte[1][ClassificationResult.LABELS.length];
     private final Map<Integer, Object> outputs = new HashMap<>();
 
-    public AntiSpoofingClassifier(Context context) throws Exception {
-        this(context, MODEL_NAME, "model_spec.json");
-    }
-
-    public AntiSpoofingClassifier(Context context, String modelName, String specName) throws Exception {
+    AntiSpoofingClassifier(Context context, String modelName, String specName) throws Exception {
         spec = ModelSpec.load(context, specName);
         InterpreterBundle bundle = createInterpreter(loadModel(context, modelName), spec.delegate, modelName, specName);
         interpreter = bundle.interpreter;
         inferenceBackend = bundle.backend;
         backendStatus = bundle.status;
-        int inputTensorCount = interpreter.getInputTensorCount();
-        if ((inputTensorCount != ONE_INPUT_COUNT && inputTensorCount != TWO_INPUT_COUNT && inputTensorCount != FIVE_INPUT_COUNT)
-                || interpreter.getOutputTensorCount() != 1) {
-            throw new IllegalArgumentException("Model must have exactly one, two, or five inputs and one output");
-        }
-
-        logModelIo();
-        inputMapping = resolveInputMapping();
-        if (inputMapping.cropRgbIndex >= 0) {
-            Tensor cropRgbTensor = interpreter.getInputTensor(inputMapping.cropRgbIndex);
-            validateInput(cropRgbTensor, "cropRgb", 3);
-            cropRgbInput = new InputBuffer(cropRgbTensor, InputKind.RGB);
-        } else {
-            cropRgbInput = null;
-        }
-        if (inputMapping.cropIrIndex >= 0) {
-            Tensor cropIrTensor = interpreter.getInputTensor(inputMapping.cropIrIndex);
-            validateInput(cropIrTensor, "cropIr",
-                    interpreter.getInputTensorCount() == ONE_INPUT_COUNT || inputMapping.hasFiveInputs() ? 1 : -1);
-            cropIrInput = new InputBuffer(cropIrTensor, InputKind.IR);
-        } else {
-            cropIrInput = null;
-        }
-        if (inputMapping.hasFiveInputs()) {
-            Tensor fullRgbTensor = interpreter.getInputTensor(inputMapping.fullRgbIndex);
-            Tensor fullIrTensor = interpreter.getInputTensor(inputMapping.fullIrIndex);
-            Tensor heatmapTensor = interpreter.getInputTensor(inputMapping.heatmapIndex);
-            validateInput(fullRgbTensor, "fullRgb", 3);
-            validateInput(fullIrTensor, "fullIr", 1);
-            validateInput(heatmapTensor, "heatmap", 1);
-            fullRgbInput = new InputBuffer(fullRgbTensor, InputKind.RGB);
-            fullIrInput = new InputBuffer(fullIrTensor, InputKind.IR);
-            heatmapInput = new InputBuffer(heatmapTensor, InputKind.HEATMAP);
-        } else {
-            fullRgbInput = null;
-            fullIrInput = null;
-            heatmapInput = null;
-        }
-        inputs = new Object[interpreter.getInputTensorCount()];
-
-        Tensor outputTensor = interpreter.getOutputTensor(0);
-        outputDataType = outputTensor.dataType();
-        outputQuantization = outputTensor.quantizationParams();
-        int[] outputShape = outputTensor.shape();
-        if ((outputDataType != DataType.FLOAT32 && outputDataType != DataType.INT8)
-                || outputShape.length != 2 || outputShape[0] != 1
-                || outputShape[1] != ClassificationResult.LABELS.length) {
-            throw new IllegalArgumentException("Output must be FLOAT32/INT8 [1,"
-                    + ClassificationResult.LABELS.length + "], actual="
-                    + outputDataType + " " + Arrays.toString(outputShape));
-        }
-        if (outputDataType == DataType.INT8 && outputQuantization.getScale() <= 0f) {
-            throw new IllegalArgumentException("INT8 output must have a positive quantization scale");
-        }
-        outputs.put(0, outputDataType == DataType.FLOAT32 ? outputFloat : outputInt8);
-
+        InputMapping mapping = null;
+        InputBuffer cropRgb = null;
+        InputBuffer cropIr = null;
+        InputBuffer fullRgb = null;
+        InputBuffer fullIr = null;
+        InputBuffer heatmap = null;
+        Object[] liveInputs;
+        DataType liveOutputType;
+        Tensor.QuantizationParams liveOutputQuantization;
         try {
-            long warmupStart = SystemClock.elapsedRealtime();
-            if (cropRgbInput != null) inputs[inputMapping.cropRgbIndex] = cropRgbInput.zeroFill();
-            if (cropIrInput != null) inputs[inputMapping.cropIrIndex] = cropIrInput.zeroFill();
-            if (inputMapping.hasFiveInputs()) {
-                inputs[inputMapping.fullRgbIndex] = fullRgbInput.zeroFill();
-                inputs[inputMapping.fullIrIndex] = fullIrInput.zeroFill();
-                inputs[inputMapping.heatmapIndex] = heatmapInput.zeroFill();
+            int inputTensorCount = interpreter.getInputTensorCount();
+            if ((inputTensorCount != ONE_INPUT_COUNT && inputTensorCount != TWO_INPUT_COUNT && inputTensorCount != FIVE_INPUT_COUNT)
+                    || interpreter.getOutputTensorCount() != 1) {
+                throw new IllegalArgumentException("Model must have exactly one, two, or five inputs and one output");
             }
-            interpreter.runForMultipleInputsOutputs(inputs, outputs);
-            long warmupDuration = SystemClock.elapsedRealtime() - warmupStart;
-            Log.i(TAG, "Model warmup completed in " + warmupDuration + " ms using " + inferenceBackend);
+
+            logModelIo();
+            mapping = resolveInputMapping();
+            if (mapping.cropRgbIndex >= 0) {
+                Tensor cropRgbTensor = interpreter.getInputTensor(mapping.cropRgbIndex);
+                validateInput(cropRgbTensor, "cropRgb", 3);
+                cropRgb = new InputBuffer(cropRgbTensor, InputKind.RGB);
+            }
+            if (mapping.cropIrIndex >= 0) {
+                Tensor cropIrTensor = interpreter.getInputTensor(mapping.cropIrIndex);
+                validateInput(cropIrTensor, "cropIr",
+                        interpreter.getInputTensorCount() == ONE_INPUT_COUNT || mapping.hasFiveInputs() ? 1 : -1);
+                cropIr = new InputBuffer(cropIrTensor, InputKind.IR);
+            }
+            if (mapping.hasFiveInputs()) {
+                Tensor fullRgbTensor = interpreter.getInputTensor(mapping.fullRgbIndex);
+                Tensor fullIrTensor = interpreter.getInputTensor(mapping.fullIrIndex);
+                Tensor heatmapTensor = interpreter.getInputTensor(mapping.heatmapIndex);
+                validateInput(fullRgbTensor, "fullRgb", 3);
+                validateInput(fullIrTensor, "fullIr", 1);
+                validateInput(heatmapTensor, "heatmap", 1);
+                fullRgb = new InputBuffer(fullRgbTensor, InputKind.RGB);
+                fullIr = new InputBuffer(fullIrTensor, InputKind.IR);
+                heatmap = new InputBuffer(heatmapTensor, InputKind.HEATMAP);
+            }
+            liveInputs = new Object[interpreter.getInputTensorCount()];
+
+            Tensor outputTensor = interpreter.getOutputTensor(0);
+            liveOutputType = outputTensor.dataType();
+            liveOutputQuantization = outputTensor.quantizationParams();
+            int[] outputShape = outputTensor.shape();
+            if ((liveOutputType != DataType.FLOAT32 && liveOutputType != DataType.INT8)
+                    || outputShape.length != 2 || outputShape[0] != 1
+                    || outputShape[1] != ClassificationResult.LABELS.length) {
+                throw new IllegalArgumentException("Output must be FLOAT32/INT8 [1,"
+                        + ClassificationResult.LABELS.length + "], actual="
+                        + liveOutputType + " " + Arrays.toString(outputShape));
+            }
+            if (liveOutputType == DataType.INT8 && liveOutputQuantization.getScale() <= 0f) {
+                throw new IllegalArgumentException("INT8 output must have a positive quantization scale");
+            }
+            outputs.put(0, liveOutputType == DataType.FLOAT32 ? outputFloat : outputInt8);
+
+            long warmupStart = SystemClock.elapsedRealtime();
+            if (cropRgb != null) liveInputs[mapping.cropRgbIndex] = cropRgb.zeroFill();
+            if (cropIr != null) liveInputs[mapping.cropIrIndex] = cropIr.zeroFill();
+            if (mapping.hasFiveInputs()) {
+                liveInputs[mapping.fullRgbIndex] = fullRgb.zeroFill();
+                liveInputs[mapping.fullIrIndex] = fullIr.zeroFill();
+                liveInputs[mapping.heatmapIndex] = heatmap.zeroFill();
+            }
+            interpreter.runForMultipleInputsOutputs(liveInputs, outputs);
+            Log.i(TAG, "Model warmup completed in "
+                    + (SystemClock.elapsedRealtime() - warmupStart)
+                    + " ms using " + inferenceBackend);
+        } catch (IllegalArgumentException e) {
+            releasePartial(interpreter, cropRgb, cropIr, fullRgb, fullIr, heatmap);
+            throw e;
         } catch (Exception e) {
             Log.e(TAG, "Failed to warmup model: " + e.getMessage(), e);
-            try { close(); } catch (Exception closeError) { e.addSuppressed(closeError); }
+            releasePartial(interpreter, cropRgb, cropIr, fullRgb, fullIr, heatmap);
             throw new IllegalStateException("Model warmup failed for " + modelName + " with " + specName, e);
         }
+        inputMapping = mapping;
+        cropRgbInput = cropRgb;
+        cropIrInput = cropIr;
+        fullRgbInput = fullRgb;
+        fullIrInput = fullIr;
+        heatmapInput = heatmap;
+        inputs = liveInputs;
+        outputDataType = liveOutputType;
+        outputQuantization = liveOutputQuantization;
     }
 
     public float cropMarginRatio() {
@@ -314,15 +320,20 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
         return values.clone();
     }
 
-    private static MappedByteBuffer loadModel(Context context) throws Exception {
-        return loadModel(context, MODEL_NAME);
+    private static MappedByteBuffer loadModel(Context context, String modelName) throws Exception {
+        return VisionAssets.mapModel(context, modelName);
     }
 
-    private static MappedByteBuffer loadModel(Context context, String modelName) throws Exception {
-        try (AssetFileDescriptor descriptor = context.getAssets().openFd(modelName);
-             FileInputStream input = new FileInputStream(descriptor.getFileDescriptor())) {
-            return input.getChannel().map(FileChannel.MapMode.READ_ONLY, descriptor.getStartOffset(), descriptor.getDeclaredLength());
-        }
+    private static void releasePartial(Interpreter interpreter, InputBuffer cropRgb, InputBuffer cropIr,
+                                       InputBuffer fullRgb, InputBuffer fullIr, InputBuffer heatmap) {
+        if (cropRgb != null) cropRgb.close();
+        if (cropIr != null) cropIr.close();
+        if (fullRgb != null) fullRgb.close();
+        if (fullIr != null) fullIr.close();
+        if (heatmap != null) heatmap.close();
+        try {
+            interpreter.close();
+        } catch (Exception ignored) {}
     }
 
     // Do NOT enable NNAPI compilation caching (NnApiDelegate.Options.setCacheDir/setModelToken)
@@ -335,19 +346,32 @@ public final class AntiSpoofingClassifier implements AutoCloseable {
             Interpreter.Options cpuOptions = new Interpreter.Options()
                     .setNumThreads(THREAD_COUNT)
                     .setUseXNNPACK(true);
-            Interpreter cpuInterpreter = new Interpreter(model, cpuOptions);
-            cpuInterpreter.allocateTensors();
-            return new InterpreterBundle(cpuInterpreter, "CPU", "Ready - CPU requested");
+            return createAllocatedInterpreter(model, cpuOptions, "CPU", "Ready - CPU requested");
         }
         try {
             Interpreter.Options nnapiOptions = new Interpreter.Options()
                     .setNumThreads(THREAD_COUNT)
                     .setUseNNAPI(true);
-            Interpreter nnapiInterpreter = new Interpreter(model, nnapiOptions);
-            nnapiInterpreter.allocateTensors();
-            return new InterpreterBundle(nnapiInterpreter, "NNAPI", "Ready");
+            return createAllocatedInterpreter(model, nnapiOptions, "NNAPI", "Ready");
         } catch (RuntimeException nnapiError) {
             throw new IllegalStateException("NNAPI delegate failed for " + modelName + " with " + specName, nnapiError);
+        }
+    }
+
+    private static InterpreterBundle createAllocatedInterpreter(MappedByteBuffer model,
+                                                                Interpreter.Options options,
+                                                                String backend, String status) {
+        Interpreter interpreter = new Interpreter(model, options);
+        try {
+            interpreter.allocateTensors();
+            return new InterpreterBundle(interpreter, backend, status);
+        } catch (RuntimeException e) {
+            try {
+                interpreter.close();
+            } catch (Exception closeError) {
+                e.addSuppressed(closeError);
+            }
+            throw e;
         }
     }
 

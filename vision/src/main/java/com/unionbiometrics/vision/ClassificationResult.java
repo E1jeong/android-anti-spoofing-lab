@@ -1,4 +1,4 @@
-package com.virditech.ac7000.model;
+package com.unionbiometrics.vision;
 
 public final class ClassificationResult {
     public static final String[] LABELS = {
@@ -12,6 +12,10 @@ public final class ClassificationResult {
     public final long inferenceMs;
 
     ClassificationResult(float[] probabilities, long preprocessMs, long inferenceMs) {
+        if (probabilities == null || probabilities.length != LABELS.length) {
+            throw new IllegalArgumentException(
+                    "Probabilities must have length " + LABELS.length);
+        }
         this.probabilities = probabilities;
         this.preprocessMs = preprocessMs;
         this.inferenceMs = inferenceMs;

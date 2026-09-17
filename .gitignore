@@ -25,6 +25,7 @@ credentials.*
 # Private model artifacts
 *.tflite
 /app/src/main/assets/*.json
+/vision/src/main/assets/ubio-vision/*_npu_int8_manifest.json
 
 # Logs and temporary files
 *.log

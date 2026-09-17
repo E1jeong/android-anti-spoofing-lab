@@ -1,4 +1,4 @@
-package com.virditech.ac7000.model;
+package com.unionbiometrics.vision;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -7,15 +7,11 @@ import android.graphics.Rect;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 public final class ModelSlotClassifier implements AutoCloseable {
-    private static final String MANIFEST_NAME = "model_manifest.json";
     private static final String TYPE_DUAL_2_INPUT = "dual_2_input";
     private static final String TYPE_PAIRED_1_INPUT = "paired_1_input";
     private static final String TYPE_SINGLE_1_INPUT = "single_1_input";
@@ -80,7 +76,7 @@ public final class ModelSlotClassifier implements AutoCloseable {
             models = loadManifest(context);
         } catch (Exception e) {
             errors.add("MODEL MANIFEST FAILED: " + e.getMessage());
-            models = defaultManifest(context);
+            return new LoadResult(slots, errors);
         }
 
         for (int i = 0; i < models.length(); i++) {
@@ -100,32 +96,10 @@ public final class ModelSlotClassifier implements AutoCloseable {
     }
 
     private static JSONArray loadManifest(Context context) throws Exception {
-        if (!assetExists(context, MANIFEST_NAME)) return defaultManifest(context);
-        JSONObject root = new JSONObject(readAsset(context, MANIFEST_NAME));
-        return root.getJSONArray("models");
-    }
-
-    private static JSONArray defaultManifest(Context context) {
-        JSONArray models = new JSONArray();
-        if (assetExists(context, "anti_spoofing.tflite")) {
-            JSONObject model = new JSONObject();
-            try {
-                model.put("label", "MODEL 1");
-                model.put("type", TYPE_DUAL_2_INPUT);
-                model.put("model", "anti_spoofing.tflite");
-                model.put("spec", "model_spec.json");
-                models.put(model);
-            } catch (Exception ignored) {}
-        }
-        if (assetExists(context, "anti_spoofing_npu.tflite")) {
-            JSONObject model = new JSONObject();
-            try {
-                model.put("label", "MODEL 2");
-                model.put("type", TYPE_FIVE_INPUT);
-                model.put("model", "anti_spoofing_npu.tflite");
-                model.put("spec", "model_spec_npu.json");
-                models.put(model);
-            } catch (Exception ignored) {}
+        JSONObject root = new JSONObject(VisionAssets.readUtf8(context, VisionAssets.MANIFEST));
+        JSONArray models = root.optJSONArray("models");
+        if (models == null || models.length() == 0) {
+            throw new IllegalStateException(VisionAssets.path(VisionAssets.MANIFEST) + " has no models");
         }
         return models;
     }
@@ -176,26 +150,6 @@ public final class ModelSlotClassifier implements AutoCloseable {
             throw new IllegalArgumentException(type + " model has " + inputCount + " inputs");
         }
         return new ModelSlotClassifier(label, type, classifier, null, null);
-    }
-
-    private static boolean assetExists(Context context, String name) {
-        try {
-            String[] assets = context.getAssets().list("");
-            if (assets == null) return false;
-            for (String asset : assets) {
-                if (name.equals(asset)) return true;
-            }
-        } catch (IOException ignored) {}
-        return false;
-    }
-
-    private static String readAsset(Context context, String name) throws IOException {
-        try (InputStream input = context.getAssets().open(name)) {
-            byte[] bytes = new byte[input.available()];
-            int read = input.read(bytes);
-            if (read != bytes.length) throw new IOException("Unable to read " + name);
-            return new String(bytes, StandardCharsets.UTF_8);
-        }
     }
 
     private static void closeQuietly(AntiSpoofingClassifier classifier) {
