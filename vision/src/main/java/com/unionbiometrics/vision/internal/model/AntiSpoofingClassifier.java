@@ -28,6 +28,10 @@ final class AntiSpoofingClassifier implements AutoCloseable {
     private static final int ONE_INPUT_COUNT = 1;
     private static final int TWO_INPUT_COUNT = 2;
     private static final int FIVE_INPUT_COUNT = 5;
+    // Match the host's former ColorMatrix.setSaturation(0) conversion.
+    private static final float LUMINANCE_RED = 0.213f;
+    private static final float LUMINANCE_GREEN = 0.715f;
+    private static final float LUMINANCE_BLUE = 0.072f;
 
     private final Interpreter interpreter;
     private final String inferenceBackend;
@@ -417,6 +421,13 @@ final class AntiSpoofingClassifier implements AutoCloseable {
         }
     }
 
+    static int irLuminance(int pixel) {
+        int red = (pixel >> 16) & 0xFF;
+        int green = (pixel >> 8) & 0xFF;
+        int blue = pixel & 0xFF;
+        return Math.round(LUMINANCE_RED * red + LUMINANCE_GREEN * green + LUMINANCE_BLUE * blue);
+    }
+
     private final class InputBuffer {
         final int width;
         final int height;
@@ -546,7 +557,7 @@ final class AntiSpoofingClassifier implements AutoCloseable {
             int index = 0;
             if (kind == InputKind.IR) {
                 for (int pixel : pixels) {
-                    int value = (pixel >> 16) & 0xFF;
+                    int value = irLuminance(pixel);
                     for (int channel = 0; channel < channels; channel++) {
                         floatScratch[index++] = floatLut[channel][value];
                     }
@@ -580,7 +591,7 @@ final class AntiSpoofingClassifier implements AutoCloseable {
             int index = 0;
             if (kind == InputKind.IR) {
                 for (int pixel : pixels) {
-                    int value = (pixel >> 16) & 0xFF;
+                    int value = irLuminance(pixel);
                     for (int channel = 0; channel < channels; channel++) {
                         byteScratch[index++] = byteLut[channel][value];
                     }
