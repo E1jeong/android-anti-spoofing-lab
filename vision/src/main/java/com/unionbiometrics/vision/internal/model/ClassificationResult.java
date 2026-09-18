@@ -2,13 +2,11 @@ package com.unionbiometrics.vision.internal.model;
 
 import androidx.annotation.RestrictTo;
 
+import com.unionbiometrics.vision.api.ClassLabels;
+
 @RestrictTo(RestrictTo.Scope.LIBRARY)
 public final class ClassificationResult {
-    public static final String[] LABELS = {
-            "LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK",
-            "CURVED_PRINT", "CURVED_MASK", "CURVED_PICTURE", "CURVED_PMASK",
-            "DENTAL_WHITE", "DENTAL_BLACK"
-    };
+    public static final String[] LABELS = ClassLabels.values();
     public final float[] probabilities;
     public final int topIndex;
     public final long preprocessMs;
@@ -30,11 +28,10 @@ public final class ClassificationResult {
     }
 
     public static String displayLabel(int index) {
-        String label = LABELS[index];
-        return label.startsWith("CURVED_") ? "C " + label.substring("CURVED_".length()) : label;
+        return ClassLabels.displayLabel(index);
     }
 
     public static boolean isAcceptedClass(int index) {
-        return index == 0 || index == 10 || index == 11;
+        return ClassLabels.isAcceptedClass(index);
     }
 }

@@ -1,6 +1,6 @@
 package com.unionbiometrics.vision.internal.session;
 
-import com.unionbiometrics.vision.api.VisionResult;
+import com.unionbiometrics.vision.api.AntiSpoofingResult;
 import com.unionbiometrics.vision.internal.model.ClassificationResult;
 
 final class VisionSessionAccumulator {
@@ -12,7 +12,7 @@ final class VisionSessionAccumulator {
         this.requiredSampleCount = requiredSampleCount;
     }
 
-    VisionResult add(float[] probabilities, long preprocessMs, long inferenceMs) {
+    AntiSpoofingResult add(float[] probabilities, long preprocessMs, long inferenceMs) {
         if (sampleCount >= requiredSampleCount) {
             throw new IllegalStateException("Vision session is already complete");
         }
@@ -29,10 +29,10 @@ final class VisionSessionAccumulator {
             if (average[i] > average[topIndex]) topIndex = i;
         }
         if (sampleCount < requiredSampleCount) {
-            return VisionResult.collecting(average, topIndex, sampleCount, requiredSampleCount,
+            return AntiSpoofingResult.collecting(average, topIndex, sampleCount, requiredSampleCount,
                     preprocessMs, inferenceMs);
         }
-        return VisionResult.terminal(ClassificationResult.isAcceptedClass(topIndex),
+        return AntiSpoofingResult.terminal(ClassificationResult.isAcceptedClass(topIndex),
                 average, topIndex, sampleCount, preprocessMs, inferenceMs);
     }
 

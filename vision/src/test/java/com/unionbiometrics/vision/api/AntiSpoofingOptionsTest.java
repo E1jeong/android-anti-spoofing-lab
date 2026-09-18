@@ -4,10 +4,10 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
-public class VisionOptionsTest {
+public class AntiSpoofingOptionsTest {
     @Test
     public void defaultsMatchVerifiedProductSequence() {
-        VisionOptions options = VisionOptions.defaults();
+        AntiSpoofingOptions options = AntiSpoofingOptions.defaults();
 
         assertEquals(400L, options.irSettleMs());
         assertEquals(3, options.sampleCount());
@@ -16,6 +16,6 @@ public class VisionOptionsTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsZeroSampleCount() {
-        new VisionOptions(400L, 0, 150_000_000L);
+        new AntiSpoofingOptions(400L, 0, 150_000_000L);
     }
 }

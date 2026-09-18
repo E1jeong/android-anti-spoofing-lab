@@ -22,8 +22,8 @@ import android.widget.TextView;
 import com.virditech.ac7000.camera.PreviewTransform;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.unionbiometrics.vision.api.VisionClassification;
-import com.unionbiometrics.vision.api.VisionInferenceResult;
+import com.unionbiometrics.vision.api.ProbabilityResult;
+import com.unionbiometrics.vision.api.InferenceResult;
 
 import java.util.Locale;
 
@@ -583,14 +583,14 @@ public final class MainScreenView {
         if (show) root.bringChildToFront(cleanModeSnapshotButton);
     }
 
-    public void showCleanModeResult(VisionInferenceResult slotResult) {
+    public void showCleanModeResult(InferenceResult slotResult) {
         if (slotResult == null) {
             clearCleanModeResult();
             return;
         }
         if (slotResult.hasPairedResults()) {
-            VisionClassification rgb = slotResult.rgbResult();
-            VisionClassification ir = slotResult.irResult();
+            ProbabilityResult rgb = slotResult.rgbResult();
+            ProbabilityResult ir = slotResult.irResult();
             String rgbText = rgb != null ? formatResult(rgb) : "-";
             String irText = ir != null ? formatResult(ir) : "-";
             int rgbColor = (rgb != null && rgb.isLive())
@@ -608,7 +608,7 @@ public final class MainScreenView {
             }
             currentCleanResultText = spannable;
         } else {
-            VisionClassification primary = slotResult.primaryResult();
+            ProbabilityResult primary = slotResult.primaryResult();
             if (primary == null) {
                 clearCleanModeResult();
                 return;
@@ -638,7 +638,7 @@ public final class MainScreenView {
         if (showClean) root.bringChildToFront(cleanModeResultView);
     }
 
-    private static String formatResult(VisionClassification result) {
+    private static String formatResult(ProbabilityResult result) {
         return String.format(Locale.US, "%s %.1f%%",
                 result.topDisplayLabel(), result.probability(result.topIndex()) * 100f);
     }

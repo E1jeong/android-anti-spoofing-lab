@@ -2,20 +2,18 @@ package com.unionbiometrics.vision.api;
 
 import androidx.annotation.RestrictTo;
 
-import com.unionbiometrics.vision.VisionSdk;
-
 import java.util.Objects;
 
 /** Immutable probabilities and timing for one model output. */
-public final class VisionClassification {
-    private static final int CLASS_COUNT = VisionSdk.labels().length;
+public final class ProbabilityResult {
+    private static final int CLASS_COUNT = ClassLabels.count();
     private final float[] probabilities;
     private final int topIndex;
     private final long preprocessMs;
     private final long inferenceMs;
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
-    public VisionClassification(float[] probabilities, long preprocessMs, long inferenceMs) {
+    public ProbabilityResult(float[] probabilities, long preprocessMs, long inferenceMs) {
         Objects.requireNonNull(probabilities, "probabilities");
         if (probabilities.length != CLASS_COUNT) {
             throw new IllegalArgumentException(
@@ -44,15 +42,15 @@ public final class VisionClassification {
     }
 
     public String topLabel() {
-        return VisionSdk.labels()[topIndex];
+        return ClassLabels.label(topIndex);
     }
 
     public String topDisplayLabel() {
-        return VisionSdk.displayLabel(topIndex);
+        return ClassLabels.displayLabel(topIndex);
     }
 
     public boolean isLive() {
-        return VisionSdk.isAcceptedClass(topIndex);
+        return ClassLabels.isAcceptedClass(topIndex);
     }
 
     public long preprocessMs() {

@@ -1,24 +1,22 @@
 package com.unionbiometrics.vision.api;
 
-import com.unionbiometrics.vision.VisionSdk;
-
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
-public class VisionClassificationTest {
+public class ProbabilityResultTest {
     @Test
     public void computesTopIndexFromTwelveClassProbabilities() {
-        float[] probabilities = new float[VisionSdk.labels().length];
+        float[] probabilities = new float[ClassLabels.count()];
         probabilities[11] = 0.9f;
 
-        VisionClassification result = new VisionClassification(probabilities, 2L, 3L);
+        ProbabilityResult result = new ProbabilityResult(probabilities, 2L, 3L);
 
         assertEquals(11, result.topIndex());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNonContractProbabilityCount() {
-        new VisionClassification(new float[]{1f}, 2L, 3L);
+        new ProbabilityResult(new float[]{1f}, 2L, 3L);
     }
 }

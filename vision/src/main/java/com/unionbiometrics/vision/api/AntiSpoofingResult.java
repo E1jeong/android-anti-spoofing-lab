@@ -2,12 +2,10 @@ package com.unionbiometrics.vision.api;
 
 import androidx.annotation.RestrictTo;
 
-import com.unionbiometrics.vision.VisionSdk;
-
-public final class VisionResult {
+public final class AntiSpoofingResult {
     public enum Status {
-        SETTLING,
-        COLLECTING,
+        SETTLING, //IRLED를 켠 후에 대기하는 상태, 들어오는 이미지의 안정화를 위해
+        COLLECTING, //프레임 수집 하는 상태 (DEFAULT_SAMPLE_COUNT)
         LIVE,
         SPOOF,
         ERROR
@@ -23,7 +21,7 @@ public final class VisionResult {
     private final long settleRemainingMs;
     private final String message;
 
-    private VisionResult(Status status, float[] probabilities, int topIndex, int sampleCount,
+    private AntiSpoofingResult(Status status, float[] probabilities, int topIndex, int sampleCount,
                          int requiredSampleCount, long preprocessMs, long inferenceMs,
                          long settleRemainingMs, String message) {
         this.status = status;
@@ -38,28 +36,28 @@ public final class VisionResult {
     }
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
-    public static VisionResult settling(int requiredSampleCount, long remainingMs) {
-        return new VisionResult(Status.SETTLING, null, -1, 0, requiredSampleCount,
+    public static AntiSpoofingResult settling(int requiredSampleCount, long remainingMs) {
+        return new AntiSpoofingResult(Status.SETTLING, null, -1, 0, requiredSampleCount,
                 0L, 0L, Math.max(0L, remainingMs), null);
     }
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
-    public static VisionResult collecting(float[] probabilities, int topIndex, int sampleCount,
+    public static AntiSpoofingResult collecting(float[] probabilities, int topIndex, int sampleCount,
                                    int requiredSampleCount, long preprocessMs, long inferenceMs) {
-        return new VisionResult(Status.COLLECTING, probabilities, topIndex, sampleCount,
+        return new AntiSpoofingResult(Status.COLLECTING, probabilities, topIndex, sampleCount,
                 requiredSampleCount, preprocessMs, inferenceMs, 0L, null);
     }
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
-    public static VisionResult terminal(boolean live, float[] probabilities, int topIndex, int sampleCount,
+    public static AntiSpoofingResult terminal(boolean live, float[] probabilities, int topIndex, int sampleCount,
                                  long preprocessMs, long inferenceMs) {
-        return new VisionResult(live ? Status.LIVE : Status.SPOOF, probabilities, topIndex,
+        return new AntiSpoofingResult(live ? Status.LIVE : Status.SPOOF, probabilities, topIndex,
                 sampleCount, sampleCount, preprocessMs, inferenceMs, 0L, null);
     }
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
-    public static VisionResult error(int requiredSampleCount, String message) {
-        return new VisionResult(Status.ERROR, null, -1, 0, requiredSampleCount,
+    public static AntiSpoofingResult error(int requiredSampleCount, String message) {
+        return new AntiSpoofingResult(Status.ERROR, null, -1, 0, requiredSampleCount,
                 0L, 0L, 0L, message == null ? "Unknown Vision error" : message);
     }
 
@@ -76,7 +74,7 @@ public final class VisionResult {
     }
 
     public String topLabel() {
-        return topIndex < 0 ? null : VisionSdk.labels()[topIndex];
+        return topIndex < 0 ? null : ClassLabels.label(topIndex);
     }
 
     public int sampleCount() {

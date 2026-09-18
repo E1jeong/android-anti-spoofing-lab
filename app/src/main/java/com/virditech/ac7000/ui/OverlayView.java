@@ -10,7 +10,7 @@ import android.view.View;
 import com.virditech.ac7000.camera.PreviewTransform;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.unionbiometrics.vision.api.VisionClassification;
+import com.unionbiometrics.vision.api.ProbabilityResult;
 
 import java.util.Locale;
 
@@ -26,8 +26,8 @@ public final class OverlayView extends View {
     private final Paint countdownPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Rect rgbBox;
     private Rect irBox;
-    private VisionClassification result;
-    private VisionClassification irResult;
+    private ProbabilityResult result;
+    private ProbabilityResult irResult;
     private String recognitionResult;
     private boolean recognitionMatched;
     private boolean showIr;
@@ -121,11 +121,11 @@ public final class OverlayView extends View {
         invalidate();
     }
 
-    public void showResult(VisionClassification result) {
+    public void showResult(ProbabilityResult result) {
         showResult(result, null);
     }
 
-    public void showResult(VisionClassification result, VisionClassification irResult) {
+    public void showResult(ProbabilityResult result, ProbabilityResult irResult) {
         this.result = result;
         this.irResult = irResult;
         invalidate();
@@ -214,7 +214,7 @@ public final class OverlayView extends View {
         canvas.drawText(text, x, baseline, paint);
     }
 
-    private static String formatResult(VisionClassification result) {
+    private static String formatResult(ProbabilityResult result) {
         return String.format(Locale.US, "%s %.1f%%",
                 result.topDisplayLabel(), result.probability(result.topIndex()) * 100f);
     }

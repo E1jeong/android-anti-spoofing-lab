@@ -3,16 +3,12 @@ package com.unionbiometrics.vision.api;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 
-/** One borrowed RGB/IR frame pair. Both face boxes are unexpanded camera-coordinate boxes. */
-public final class VisionFrame {
-    private final Bitmap rgb;
-    private final Bitmap ir;
-    private final Rect rgbFaceBox;
-    private final Rect irFaceBox;
-    private final long rgbTimestampNs;
-    private final long irTimestampNs;
-
-    public VisionFrame(Bitmap rgb, Rect rgbFaceBox, long rgbTimestampNs,
+/**
+ * One borrowed RGB/IR frame pair. Both face boxes are unexpanded camera-coordinate boxes.
+ */
+public record AntiSpoofingFrame(Bitmap rgb, Rect rgbFaceBox, long rgbTimestampNs, Bitmap ir,
+                          Rect irFaceBox, long irTimestampNs) {
+    public AntiSpoofingFrame(Bitmap rgb, Rect rgbFaceBox, long rgbTimestampNs,
                        Bitmap ir, Rect irFaceBox, long irTimestampNs) {
         if (rgb == null) throw new IllegalArgumentException("rgb must not be null");
         if (ir == null) throw new IllegalArgumentException("ir must not be null");
@@ -29,27 +25,13 @@ public final class VisionFrame {
         this.irTimestampNs = irTimestampNs;
     }
 
-    public Bitmap rgb() {
-        return rgb;
-    }
-
-    public Bitmap ir() {
-        return ir;
-    }
-
+    @Override
     public Rect rgbFaceBox() {
         return new Rect(rgbFaceBox);
     }
 
+    @Override
     public Rect irFaceBox() {
         return new Rect(irFaceBox);
-    }
-
-    public long rgbTimestampNs() {
-        return rgbTimestampNs;
-    }
-
-    public long irTimestampNs() {
-        return irTimestampNs;
     }
 }
