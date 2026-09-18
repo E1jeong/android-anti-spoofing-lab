@@ -40,7 +40,7 @@ public final class Calibration {
 
     public static Calibration fromFaces(Rect rgb, Rect ir, int width) {
         float vertical = rgb.centerY() - ir.centerY();
-        float horizontal = ir.centerX() - rgb.centerX();
+        float horizontal = horizontalCalibration(rgb.centerX(), ir.centerX());
         float faceWidth = rgb.width();
         if (Math.abs(vertical) > 200f || Math.abs(horizontal) > 200f || faceWidth <= 0f || faceWidth > 500f) {
             throw new IllegalArgumentException("Measured calibration values are invalid");
@@ -67,9 +67,19 @@ public final class Calibration {
                 offset += count;
             }
         }
-        float vertical = readFloat(bytes, 0);
-        float horizontal = readFloat(bytes, 4);
-        float faceWidth = readFloat(bytes, 8);
+        return decode(bytes);
+    }
+
+    static Calibration decode(byte[] bytes) throws IOException {
+        if (bytes == null || bytes.length < 12) throw new IOException("Calibration file is truncated");
+        float vertical = readBigEndianFloat(bytes, 0);
+        float horizontal = readBigEndianFloat(bytes, 4);
+        float faceWidth = readBigEndianFloat(bytes, 8);
+        if (faceWidth > 0f && faceWidth < 1f) {
+            vertical = readLittleEndianFloat(bytes, 0);
+            horizontal = readLittleEndianFloat(bytes, 4);
+            faceWidth = readLittleEndianFloat(bytes, 8);
+        }
         if (!Float.isFinite(vertical) || !Float.isFinite(horizontal) || !Float.isFinite(faceWidth)
                 || Math.abs(vertical) > 200f || Math.abs(horizontal) > 200f || faceWidth <= 0f || faceWidth > 500f) {
             throw new IOException("Calibration values are invalid");
@@ -78,12 +88,11 @@ public final class Calibration {
     }
 
     public Rect rgbToIr(Rect rgb, int width, int height) {
-        float xOffset = rgb.width() * horizontal / referenceFaceWidth;
         float yOffset = rgb.width() * vertical / referenceFaceWidth;
         return new Rect(
-                clamp(Math.round(rgb.left + xOffset), 0, width),
+                clamp(mapHorizontal(rgb.left, rgb.width(), horizontal, referenceFaceWidth), 0, width),
                 clamp(Math.round(rgb.top - yOffset), 0, height),
-                clamp(Math.round(rgb.right + xOffset), 0, width),
+                clamp(mapHorizontal(rgb.right, rgb.width(), horizontal, referenceFaceWidth), 0, width),
                 clamp(Math.round(rgb.bottom - yOffset), 0, height));
     }
 
@@ -97,10 +106,7 @@ public final class Calibration {
     }
 
     private void writeTo(File file) throws IOException {
-        byte[] bytes = new byte[64];
-        writeFloat(bytes, 0, vertical);
-        writeFloat(bytes, 4, horizontal);
-        writeFloat(bytes, 8, referenceFaceWidth);
+        byte[] bytes = encode();
         File parent = file.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Unable to create calibration directory");
@@ -111,20 +117,45 @@ public final class Calibration {
         }
     }
 
-    private static float readFloat(byte[] bytes, int offset) {
-        int bits = (bytes[offset + 3] & 0xff) << 24
-                | (bytes[offset + 2] & 0xff) << 16
-                | (bytes[offset + 1] & 0xff) << 8
-                | (bytes[offset] & 0xff);
+    byte[] encode() {
+        byte[] bytes = new byte[64];
+        writeBigEndianFloat(bytes, 0, vertical);
+        writeBigEndianFloat(bytes, 4, horizontal);
+        writeBigEndianFloat(bytes, 8, referenceFaceWidth);
+        return bytes;
+    }
+
+    static float horizontalCalibration(float rgbCenterX, float irCenterX) {
+        return rgbCenterX - irCenterX;
+    }
+
+    static int mapHorizontal(int coordinate, float rgbFaceWidth, float horizontal,
+                             float referenceFaceWidth) {
+        return Math.round(coordinate - rgbFaceWidth * horizontal / referenceFaceWidth);
+    }
+
+    private static float readBigEndianFloat(byte[] bytes, int offset) {
+        int bits = bytes[offset] << 24
+                | (bytes[offset + 1] & 0xff) << 16
+                | (bytes[offset + 2] & 0xff) << 8
+                | (bytes[offset + 3] & 0xff);
         return Float.intBitsToFloat(bits);
     }
 
-    private static void writeFloat(byte[] bytes, int offset, float value) {
+    private static float readLittleEndianFloat(byte[] bytes, int offset) {
+        int bits = (bytes[offset] & 0xff)
+                | (bytes[offset + 1] & 0xff) << 8
+                | (bytes[offset + 2] & 0xff) << 16
+                | (bytes[offset + 3] & 0xff) << 24;
+        return Float.intBitsToFloat(bits);
+    }
+
+    private static void writeBigEndianFloat(byte[] bytes, int offset, float value) {
         int bits = Float.floatToIntBits(value);
-        bytes[offset + 3] = (byte) (bits >>> 24);
-        bytes[offset + 2] = (byte) (bits >>> 16);
-        bytes[offset + 1] = (byte) (bits >>> 8);
-        bytes[offset] = (byte) bits;
+        bytes[offset] = (byte) (bits >>> 24);
+        bytes[offset + 1] = (byte) (bits >>> 16);
+        bytes[offset + 2] = (byte) (bits >>> 8);
+        bytes[offset + 3] = (byte) bits;
     }
 
     private static int clamp(int value, int min, int max) {
