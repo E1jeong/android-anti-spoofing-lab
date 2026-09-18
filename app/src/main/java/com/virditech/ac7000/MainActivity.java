@@ -98,7 +98,6 @@ public final class MainActivity extends Activity {
     private static final int FACE_MANAGEMENT_REQUEST = 11;
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
     private static final int COLLECTION_TARGET_COUNT = CaptureSchedule.TARGET_COUNT;
-    private static final int IR_RESULT_COLOR = Color.rgb(64, 196, 255);
     private static final int COLLECTION_MEDIUM_QUALITY_LEVEL = 1;
     private static final int LATENCY_WINDOW_SIZE = 120;
     private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
@@ -207,8 +206,6 @@ public final class MainActivity extends Activity {
     private long inferenceWindowStartNs;
     private volatile long detectionMs;
     private volatile long inferenceMs;
-    private volatile long rgbInferenceMs = -1L;
-    private volatile long irInferenceMs = -1L;
     private volatile long recognitionInferenceMs = -1L;
     private final LatencyWindow preprocessLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
     private final LatencyWindow invokeLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
@@ -1372,8 +1369,6 @@ public final class MainActivity extends Activity {
                 || !isPipelineCurrent(task.generation)
                 || task.motionGeneration != inferenceMotionGeneration.get()) return;
         inferenceMs = result.inferenceMs();
-        rgbInferenceMs = result.rgbResult() != null ? result.rgbResult().inferenceMs() : -1L;
-        irInferenceMs = result.irResult() != null ? result.irResult().inferenceMs() : -1L;
         recordInferenceMetrics(result.preprocessMs(), result.inferenceMs(), queueMs, endToEndMs);
         updateInferenceFps();
 
@@ -1382,7 +1377,7 @@ public final class MainActivity extends Activity {
             if (isExclusiveEvaluationMode() || authVerdictShowing || !isPipelineCurrent(task.generation)
                     || task.motionGeneration != inferenceMotionGeneration.get()) return;
             if (authMode) {
-                ProbabilityResult primary = result.primaryResult();
+                ProbabilityResult primary = result.result();
                 if (primary != null && primary.probabilities().length > 0) {
                     AuthFrameAccumulator.Verdict verdict = authFrames.add(
                             primary.probabilities(), task.receivedNs,
@@ -1397,7 +1392,7 @@ public final class MainActivity extends Activity {
                 }
                 return;
             }
-            screen.overlay.showResult(result.primaryResult(), result.irResult());
+            screen.overlay.showResult(result.result());
             screen.resultsLabel.setText(formatClassificationResults(result));
             if (screen != null) screen.showCleanModeResult(result);
             
@@ -1988,7 +1983,7 @@ public final class MainActivity extends Activity {
     }
 
     private void maybeSaveAttackLiveCapture(InferenceTask task, InferenceResult result) {
-        ProbabilityResult primary = result.primaryResult();
+        ProbabilityResult primary = result.result();
         if (primary == null || !AttackLiveCaptureGate.shouldSave(primary.probabilities())) {
             return;
         }
@@ -2098,16 +2093,6 @@ public final class MainActivity extends Activity {
         String recognitionText = faceRecognitionMode && recognitionInferenceMs >= 0L
                 ? String.format(Locale.US, "\nRecog inference %d ms", recognitionInferenceMs)
                 : "";
-        if (rgbInferenceMs >= 0L && irInferenceMs >= 0L) {
-            String prefix = String.format(Locale.US,
-                    "Detect %d ms  %.1f FPS\nSpoof RGB %d ms  %.1f FPS\n",
-                    detectionMs, trackingFps, rgbInferenceMs, inferenceFps);
-            String irText = String.format(Locale.US, "Spoof IR %d ms", irInferenceMs);
-            SpannableString text = new SpannableString(prefix + irText + recognitionText);
-            text.setSpan(new ForegroundColorSpan(IR_RESULT_COLOR), prefix.length(),
-                    prefix.length() + irText.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            return text;
-        }
         return String.format(Locale.US,
                 "Detect %d ms  %.1f FPS\nSpoof inference %d ms  %.1f FPS%s",
                 detectionMs, trackingFps, inferenceMs, inferenceFps, recognitionText);
@@ -2142,17 +2127,6 @@ public final class MainActivity extends Activity {
     }
 
     private CharSequence formatClassificationResults(InferenceResult result) {
-        if (result.hasPairedResults()) {
-            StringBuilder sb = new StringBuilder();
-            appendClassificationResult(sb, null, result.rgbResult());
-            sb.append("\n\n");
-            int irStart = sb.length();
-            appendClassificationResult(sb, null, result.irResult());
-            SpannableString text = new SpannableString(sb.toString());
-            text.setSpan(new ForegroundColorSpan(IR_RESULT_COLOR), irStart, text.length(),
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            return text;
-        }
         StringBuilder sb = new StringBuilder();
         appendClassificationResult(sb, null, result.result());
         return sb.toString();

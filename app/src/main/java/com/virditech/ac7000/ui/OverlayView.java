@@ -17,7 +17,6 @@ import java.util.Locale;
 public final class OverlayView extends View {
     private final Paint boxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint irTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textBackgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint guidePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint collectionGridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -27,7 +26,6 @@ public final class OverlayView extends View {
     private Rect rgbBox;
     private Rect irBox;
     private ProbabilityResult result;
-    private ProbabilityResult irResult;
     private String recognitionResult;
     private boolean recognitionMatched;
     private boolean showIr;
@@ -47,9 +45,6 @@ public final class OverlayView extends View {
         textPaint.setColor(Color.WHITE);
         textPaint.setTextSize(28f);
         textPaint.setShadowLayer(5f, 1f, 1f, Color.BLACK);
-        irTextPaint.setColor(Color.rgb(64, 196, 255));
-        irTextPaint.setTextSize(28f);
-        irTextPaint.setShadowLayer(5f, 1f, 1f, Color.BLACK);
         textBackgroundPaint.setColor(Color.argb(176, 0, 0, 0));
         guidePaint.setColor(Color.WHITE);
         guidePaint.setStyle(Paint.Style.STROKE);
@@ -122,12 +117,7 @@ public final class OverlayView extends View {
     }
 
     public void showResult(ProbabilityResult result) {
-        showResult(result, null);
-    }
-
-    public void showResult(ProbabilityResult result, ProbabilityResult irResult) {
         this.result = result;
-        this.irResult = irResult;
         invalidate();
     }
 
@@ -139,7 +129,6 @@ public final class OverlayView extends View {
 
     public void clearClassificationResult() {
         result = null;
-        irResult = null;
         invalidate();
     }
 
@@ -183,16 +172,9 @@ public final class OverlayView extends View {
         if (result == null) {
             textPaint.setColor(Color.WHITE);
             drawLabel(canvas, "FACE", box.left, titleY, textPaint);
-        } else if (irResult == null) {
-            textPaint.setColor(color);
-            drawLabel(canvas, formatResult(result), box.left, titleY, textPaint);
         } else {
             textPaint.setColor(color);
-            String rgbText = formatResult(result);
-            String irText = formatResult(irResult);
-            float topLineY = Math.max(32f, box.top - 42f);
-            drawLabel(canvas, rgbText, box.left, topLineY, textPaint);
-            drawLabel(canvas, irText, box.left, Math.max(64f, box.top - 10f), irTextPaint);
+            drawLabel(canvas, formatResult(result), box.left, titleY, textPaint);
         }
 
         if (recognitionResult != null) {

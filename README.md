@@ -39,10 +39,8 @@ RGB and IR frames are paired within 150 ms. Tracking, anti-spoofing inference, r
 
 Model slots are configured in `vision/src/main/assets/ubio-vision/model_manifest.json`. Supported anti-spoofing layouts are:
 
-- `single_1_input`: one RGB or IR crop input;
-- `paired_1_input`: separate RGB and IR one-input models;
-- `dual_2_input`: one model with RGB and IR crop inputs;
-- `five_input`: RGB crop, IR crop, full RGB, full IR, and heatmap inputs.
+- `single_1_input`: one IR crop input;
+- `dual_2_input`: one model with RGB and IR crop inputs.
 
 The current evaluator requires the anti-spoofing output shape and class order to match `ClassLabels.values()`, currently `[1,12]`. Legacy ten-class assets are rejected.
 

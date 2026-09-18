@@ -588,38 +588,17 @@ public final class MainScreenView {
             clearCleanModeResult();
             return;
         }
-        if (slotResult.hasPairedResults()) {
-            ProbabilityResult rgb = slotResult.rgbResult();
-            ProbabilityResult ir = slotResult.irResult();
-            String rgbText = rgb != null ? formatResult(rgb) : "-";
-            String irText = ir != null ? formatResult(ir) : "-";
-            int rgbColor = (rgb != null && rgb.isLive())
-                    ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
-            int irColor = (ir != null && ir.isLive())
-                    ? Color.rgb(64, 196, 255) : Color.rgb(255, 82, 82);
-
-            String fullStr = "RGB: " + rgbText + "   IR: " + irText;
-            SpannableString spannable = new SpannableString(fullStr);
-            int rgbEnd = ("RGB: " + rgbText).length();
-            spannable.setSpan(new ForegroundColorSpan(rgbColor), 0, rgbEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            int irStart = fullStr.indexOf("IR: ");
-            if (irStart >= 0) {
-                spannable.setSpan(new ForegroundColorSpan(irColor), irStart, fullStr.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-            currentCleanResultText = spannable;
-        } else {
-            ProbabilityResult primary = slotResult.primaryResult();
-            if (primary == null) {
-                clearCleanModeResult();
-                return;
-            }
-            int color = primary.isLive()
-                ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
-            String text = formatResult(primary);
-            SpannableString spannable = new SpannableString(text);
-            spannable.setSpan(new ForegroundColorSpan(color), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            currentCleanResultText = spannable;
+        ProbabilityResult result = slotResult.result();
+        if (result == null) {
+            clearCleanModeResult();
+            return;
         }
+        int color = result.isLive()
+            ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
+        String text = formatResult(result);
+        SpannableString spannable = new SpannableString(text);
+        spannable.setSpan(new ForegroundColorSpan(color), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        currentCleanResultText = spannable;
         cleanModeResultView.setText(currentCleanResultText);
         updateCleanModeResultVisibility();
     }

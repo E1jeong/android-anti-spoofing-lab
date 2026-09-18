@@ -10,21 +10,18 @@ import static org.junit.Assert.assertTrue;
 
 public class InferenceResultTest {
     @Test
-    public void convertsPairedInternalResultWithoutExposingMutableProbabilities() {
+    public void exposesResultWithoutExposingMutableProbabilities() {
         InferenceResult result = InferenceResult.success(
-                null,
                 new ProbabilityResult(probabilitiesAt(0), 2L, 3L),
-                new ProbabilityResult(probabilitiesAt(1), 5L, 7L),
-                7L, 10L);
-        float[] probabilities = result.rgbResult().probabilities();
+                2L, 3L);
+        float[] probabilities = result.result().probabilities();
         probabilities[0] = 0f;
 
         assertTrue(result.successful());
-        assertTrue(result.hasPairedResults());
-        assertEquals(7L, result.preprocessMs());
-        assertEquals(10L, result.inferenceMs());
-        assertEquals(1f, result.rgbResult().probability(0), 0.0001f);
-        assertArrayEquals(probabilitiesAt(0), result.rgbResult().probabilities(), 0.0001f);
+        assertEquals(2L, result.preprocessMs());
+        assertEquals(3L, result.inferenceMs());
+        assertEquals(1f, result.result().probability(0), 0.0001f);
+        assertArrayEquals(probabilitiesAt(0), result.result().probabilities(), 0.0001f);
     }
 
     @Test
@@ -33,19 +30,12 @@ public class InferenceResultTest {
 
         assertFalse(result.successful());
         assertEquals("broken frame", result.errorMessage());
-        assertNull(result.primaryResult());
+        assertNull(result.result());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsSuccessfulResultWithoutOutput() {
-        InferenceResult.success(null, null, null, 0L, 0L);
-    }
-
-    @Test(expected = IllegalArgumentException.class)
-    public void rejectsIncompletePairedResult() {
-        InferenceResult.success(null,
-                new ProbabilityResult(probabilitiesAt(0), 2L, 3L),
-                null, 2L, 3L);
+        InferenceResult.success(null, 0L, 0L);
     }
 
     private static float[] probabilitiesAt(int index) {

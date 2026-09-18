@@ -48,15 +48,38 @@ tasks.register('verifyVisionAssets') {
         if (!(models instanceof List) || models.isEmpty()) {
             throw new GradleException(manifestFile.name + ' has no models')
         }
+        def supportedTypes = ['single_1_input', 'dual_2_input'] as Set
         models.each { model ->
-            ['model', 'spec', 'rgbModel', 'rgbSpec', 'irModel', 'irSpec'].each { key ->
+            def type = model.type
+            if (!(type instanceof String) || !supportedTypes.contains(type)) {
+                throw new GradleException('Unsupported Vision model type: ' + type)
+            }
+            ['model', 'spec'].each { key ->
                 def name = model[key]
-                if (name) {
-                    def asset = new File(visionAssetDir, name as String)
-                    if (!asset.exists()) {
-                        throw new GradleException('Vision manifest references missing asset: ' + asset)
-                    }
+                if (!(name instanceof String) || name.isEmpty()) {
+                    throw new GradleException('Vision manifest entry is missing ' + key + ': ' + model)
                 }
+                def asset = new File(visionAssetDir, name)
+                if (!asset.exists()) {
+                    throw new GradleException('Vision manifest references missing asset: ' + asset)
+                }
+            }
+            def specFile = new File(visionAssetDir, model.spec as String)
+            def spec = new groovy.json.JsonSlurper().parseText(specFile.getText('UTF-8'))
+            def inputs = spec.inputs
+            if (!(inputs instanceof List)) {
+                throw new GradleException('Vision sidecar must contain generated inputs: ' + model.spec)
+            }
+            def inputKinds = inputs.collect { it.input_kind }
+            def inputIndices = inputs.collect { it.index }
+            def validSingle = type == 'single_1_input'
+                    && inputKinds == ['ir'] && inputIndices == [0]
+            def validDual = type == 'dual_2_input'
+                    && inputs.size() == 2
+                    && inputKinds.toSet() == ['rgb', 'ir'] as Set
+                    && inputIndices.toSet() == [0, 1] as Set
+            if (!validSingle && !validDual) {
+                throw new GradleException('Vision sidecar inputs do not match ' + type + ': ' + model.spec)
             }
         }
     }

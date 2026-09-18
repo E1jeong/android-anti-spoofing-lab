@@ -46,8 +46,7 @@ public final class DefaultAntiSpoofingEngine implements AntiSpoofingEngine {
         try {
             SlotClassificationResult source = classifyFrame(frame);
             return InferenceResult.success(
-                    toPublic(source.result), toPublic(source.rgbResult), toPublic(source.irResult),
-                    source.preprocessMs, source.inferenceMs);
+                    toPublic(source.result), source.preprocessMs, source.inferenceMs);
         } catch (RuntimeException e) {
             return InferenceResult.error("Vision inference failed: " + e.getMessage());
         }
@@ -69,7 +68,7 @@ public final class DefaultAntiSpoofingEngine implements AntiSpoofingEngine {
         InferenceResult inference = infer(frame);
         if (!inference.successful()) return fail(inference.errorMessage());
         try {
-            return session.add(inference.primaryResult());
+            return session.add(inference.result());
         } catch (RuntimeException e) {
             return fail("Vision inference failed: " + e.getMessage());
         }

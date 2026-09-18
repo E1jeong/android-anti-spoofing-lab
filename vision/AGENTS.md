@@ -26,10 +26,12 @@ All Java paths below are relative to `vision/src/main/java/com/unionbiometrics/v
 3. The default session contract requests IR illumination, waits 400 ms, and averages three probability vectors. `reset()`/`close()` clear session state and request IR off.
 4. Sidecar `normalization` / `quantization` is the runtime recipe for incoming 0–255 pixels. Resize to the tensor HxW, apply mean/std, then INT8 quantize. Do not treat a quantized `.tflite` as already-preprocessed camera input.
 5. Model file and sidecar are one set in this module under `assets/ubio-vision/`. Do not load a host tflite with this module's sidecar, or the reverse. Do not place `model_manifest.json` at the host assets root; recognition uses a different fallback when that file is absent.
-6. Output shape and class order must match `ClassLabels.values()` (currently `[1,12]`). Reject legacy ten-class assets.
-7. A manifest slot that fails NNAPI setup or warmup is rejected. No silent CPU fallback.
-8. Never enable NNAPI compilation caching (`setCacheDir`/`setModelToken`).
-9. Library `namespace` is `com.unionbiometrics.vision`. Do not use `com.virditech.ac7000` or add `sharedUserId`/camera permissions to this manifest.
+6. Supported slots are IR `single_1_input` (`ir@0`, one channel) and RGB+IR `dual_2_input` (distinct RGB/IR indices 0/1, three/one channels). Build-time asset validation and runtime parsing reject RGB-only, paired one-input, five-input, and additional-input forms.
+7. Output shape and class order must match `ClassLabels.values()` (currently `[1,12]`). Reject legacy ten-class assets.
+8. `InferenceResult` exposes one `ProbabilityResult` for either supported slot type; do not restore separate RGB/IR result branches.
+9. A manifest slot that fails NNAPI setup or warmup is rejected. No silent CPU fallback.
+10. Never enable NNAPI compilation caching (`setCacheDir`/`setModelToken`).
+11. Library `namespace` is `com.unionbiometrics.vision`. Do not use `com.virditech.ac7000` or add `sharedUserId`/camera permissions to this manifest.
 
 ## Change Gates
 

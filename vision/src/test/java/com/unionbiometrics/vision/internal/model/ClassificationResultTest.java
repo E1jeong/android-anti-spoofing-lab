@@ -44,14 +44,12 @@ public class ClassificationResultTest {
     }
 
     @Test
-    public void pairedSlotSumsPreprocessAndInvokeDurations() {
-        ClassificationResult rgb = new ClassificationResult(twelveLive(), 3L, 5L);
-        ClassificationResult ir = new ClassificationResult(twelveLive(), 7L, 11L);
+    public void slotUsesModelDurations() {
+        ClassificationResult classification = new ClassificationResult(twelveLive(), 3L, 5L);
+        SlotClassificationResult result = new SlotClassificationResult(classification);
 
-        SlotClassificationResult result = new SlotClassificationResult(null, rgb, ir);
-
-        assertEquals(10L, result.preprocessMs);
-        assertEquals(16L, result.inferenceMs);
+        assertEquals(3L, result.preprocessMs);
+        assertEquals(5L, result.inferenceMs);
     }
 
     @Test(expected = IllegalArgumentException.class)

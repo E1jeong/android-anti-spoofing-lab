@@ -27,6 +27,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 2. **anti-spoofing host**:
    - Load through `com.unionbiometrics.vision.VisionSdk.loadAll(applicationContext, IrLedController, AntiSpoofingOptions)`, pass unexpanded RGB and IR face boxes in every `AntiSpoofingFrame`, and keep app code on public types in `com.unionbiometrics.vision.api`. Use `AntiSpoofingEngine.infer(AntiSpoofingFrame)` for per-frame lab diagnostics; the product session path is `startSession()` plus `process()`. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
+   - Treat `InferenceResult.result()` as the sole per-frame probability result for both supported model layouts. Do not recreate separate RGB/IR result UI branches.
    - Use `FaceCrop.expand` with the matching `EngineInfo.cropMarginRatio()` for preview/capture crops. Model margin and the crop implementation stay in `:vision`.
    - `FaceMotionGate` (app `model/`) halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame. Lab-only helper, not part of `:vision`.
 

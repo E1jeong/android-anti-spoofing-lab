@@ -18,7 +18,6 @@ final class ModelSpec {
     final int irInputIndex;
     final int inputWidth;
     final int inputHeight;
-    final InputNames inputs;
     final String inputKind;
     final boolean bgr;
     final String rgbNormalization;
@@ -33,9 +32,7 @@ final class ModelSpec {
     private ModelSpec(JSONObject json) throws JSONException {
         Object inputsObj = json.opt("inputs");
         if (inputsObj instanceof JSONArray) {
-            // 1. 새롭게 자동 추출된 manifest 스펙 파싱
             JSONArray inputsArray = (JSONArray) inputsObj;
-            inputs = null;
             inputWidth = json.optInt("inputWidth", 224);
             inputHeight = json.optInt("inputHeight", 224);
             bgr = false; // 기본 채널 오더는 RGB
@@ -61,22 +58,39 @@ final class ModelSpec {
                 }
                 int channels = 1;
                 JSONArray shape = inputTensor.optJSONArray("shape");
-                if (shape != null && shape.length() == 4) {
-                    channels = shape.optInt(3, 1);
+                if (shape == null || shape.length() != 4 || shape.optInt(0, -1) != 1
+                        || shape.optInt(1, -1) != inputHeight
+                        || shape.optInt(2, -1) != inputWidth) {
+                    throw new IllegalArgumentException(
+                            "model_spec.json input shape must be [1," + inputHeight + ","
+                                    + inputWidth + ",channels]");
+                }
+                channels = shape.optInt(3, -1);
+                if (("rgb".equals(itemKind) && channels != 3)
+                        || ("ir".equals(itemKind) && channels != 1)) {
+                    throw new IllegalArgumentException(
+                            "model_spec.json input channels do not match input_kind=" + itemKind);
                 }
 
                 JSONObject normObj = inputTensor.optJSONObject("normalization");
                 if (normObj != null) {
                     float[] mean = parseFloatArray(normObj, "mean");
                     float[] std = parseFloatArray(normObj, "std");
-                    if (channels == 3) {
+                    if ("rgb".equals(itemKind)) {
                         rgbM = mean;
                         rgbS = std;
-                    } else {
+                    } else if ("ir".equals(itemKind)) {
                         irM = mean;
                         irS = std;
                     }
                 }
+            }
+            boolean validIrOnly = inputsArray.length() == 1 && "ir".equals(kind) && irIndex == 0;
+            boolean validRgbAndIr = inputsArray.length() == 2 && rgbIndex >= 0 && irIndex >= 0
+                    && rgbIndex < 2 && irIndex < 2 && rgbIndex != irIndex;
+            if (!validIrOnly && !validRgbAndIr) {
+                throw new IllegalArgumentException(
+                        "model_spec.json must define one IR input or one RGB and one IR input");
             }
             inputKind = kind;
             rgbMean = rgbM;
@@ -98,14 +112,10 @@ final class ModelSpec {
             rgbInputIndex = rgbIndex;
             irInputIndex = irIndex;
         } else {
-            // 2. 레거시 model_spec.json 스펙 파싱
             rgbInputIndex = json.optInt("rgbInputIndex", -1);
             irInputIndex = json.optInt("irInputIndex", -1);
             inputWidth = json.optInt("inputWidth", -1);
             inputHeight = json.optInt("inputHeight", -1);
-            inputs = json.has("inputs") && !json.isNull("inputs")
-                    ? new InputNames(json.getJSONObject("inputs"))
-                    : null;
             inputKind = json.optString("inputKind", "").toLowerCase(Locale.US);
             bgr = "BGR".equalsIgnoreCase(json.optString("channelOrder", "RGB"));
             rgbNormalization = json.optString("rgbNormalization", RGB_NORMALIZATION_IMAGENET);
@@ -113,7 +123,7 @@ final class ModelSpec {
             rgbStd = parseFloatArray(json, "rgbStd");
             irMean = parseFloatArray(json, "irMean");
             irStd = parseFloatArray(json, "irStd");
-            delegate = json.optString("delegate", inputs == null ? "nnapi" : "cpu");
+            delegate = json.optString("delegate", "nnapi");
             outputIsLogits = json.getBoolean("outputIsLogits");
             cropMarginRatio = (float) json.getDouble("cropMarginRatio");
         }
@@ -121,13 +131,12 @@ final class ModelSpec {
         if (cropMarginRatio < 0f || cropMarginRatio > 1f) {
             throw new IllegalArgumentException("model_spec.json contains invalid cropMarginRatio");
         }
-        if (inputs == null && !(inputsObj instanceof JSONArray)) {
-            boolean singleInput = "rgb".equals(inputKind) || "ir".equals(inputKind);
-            if (!singleInput && (rgbInputIndex < 0 || irInputIndex < 0 || rgbInputIndex == irInputIndex)) {
-                throw new IllegalArgumentException("model_spec.json must define inputKind=rgb/ir or distinct rgbInputIndex and irInputIndex");
-            }
-        } else if (inputs != null && (inputWidth <= 0 || inputHeight <= 0)) {
-            throw new IllegalArgumentException("5-input model_spec.json contains invalid input dimensions");
+        boolean irOnly = "ir".equals(inputKind) && rgbInputIndex < 0;
+        boolean rgbAndIr = inputKind.isEmpty() && rgbInputIndex >= 0 && irInputIndex >= 0
+                && rgbInputIndex != irInputIndex;
+        if (!irOnly && !rgbAndIr) {
+            throw new IllegalArgumentException(
+                    "model_spec.json must define one IR input or distinct RGB/IR input indices");
         }
         if (!RGB_NORMALIZATION_IMAGENET.equals(rgbNormalization)
                 && !RGB_NORMALIZATION_MINUS_ONE_TO_ONE.equals(rgbNormalization)) {
@@ -169,21 +178,5 @@ final class ModelSpec {
 
     static ModelSpec load(Context context, String assetName) throws Exception {
         return parse(ModelAssetLoader.readUtf8(context, assetName));
-    }
-
-    static final class InputNames {
-        final String cropRgb;
-        final String cropIr;
-        final String fullRgb;
-        final String fullIr;
-        final String heatmap;
-
-        InputNames(JSONObject json) throws JSONException {
-            cropRgb = json.getString("cropRgb");
-            cropIr = json.getString("cropIr");
-            fullRgb = json.getString("fullRgb");
-            fullIr = json.getString("fullIr");
-            heatmap = json.getString("heatmap");
-        }
     }
 }
