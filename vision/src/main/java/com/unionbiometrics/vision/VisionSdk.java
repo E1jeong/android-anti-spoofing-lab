@@ -4,9 +4,9 @@ import android.content.Context;
 import android.graphics.Rect;
 
 import com.unionbiometrics.vision.api.AntiSpoofingEngine;
-import com.unionbiometrics.vision.api.AntiSpoofingHost;
 import com.unionbiometrics.vision.api.VisionLoadResult;
 import com.unionbiometrics.vision.api.VisionOptions;
+import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.internal.image.FaceCrop;
 import com.unionbiometrics.vision.internal.model.ClassificationResult;
 import com.unionbiometrics.vision.internal.model.ModelSlotClassifier;
@@ -26,8 +26,8 @@ public final class VisionSdk {
         return ClassificationResult.displayLabel(index);
     }
 
-    public static boolean isLiveClass(int index) {
-        return ClassificationResult.shouldHighlightFaceInGreen(index);
+    public static boolean isAcceptedClass(int index) {
+        return ClassificationResult.isAcceptedClass(index);
     }
 
     public static Rect expandFaceBox(Rect faceBox, float marginRatio,
@@ -35,14 +35,16 @@ public final class VisionSdk {
         return FaceCrop.expand(faceBox, marginRatio, imageWidth, imageHeight);
     }
 
-    public static VisionLoadResult loadAll(Context context, AntiSpoofingHost host) {
-        return loadAll(context, host, VisionOptions.defaults());
+    public static VisionLoadResult loadAll(Context context, IrLedController irLedController) {
+        return loadAll(context, irLedController, VisionOptions.defaults());
     }
 
-    public static VisionLoadResult loadAll(Context context, AntiSpoofingHost host,
+    public static VisionLoadResult loadAll(Context context, IrLedController irLedController,
                                            VisionOptions options) {
         if (context == null) throw new IllegalArgumentException("context must not be null");
-        if (host == null) throw new IllegalArgumentException("host must not be null");
+        if (irLedController == null) {
+            throw new IllegalArgumentException("irLedController must not be null");
+        }
         if (options == null) throw new IllegalArgumentException("options must not be null");
 
         Context applicationContext = context.getApplicationContext();
@@ -50,7 +52,7 @@ public final class VisionSdk {
                 applicationContext == null ? context : applicationContext);
         ArrayList<AntiSpoofingEngine> engines = new ArrayList<>();
         for (ModelSlotClassifier slot : loaded.slots) {
-            engines.add(new DefaultAntiSpoofingEngine(slot, host, options));
+            engines.add(new DefaultAntiSpoofingEngine(slot, irLedController, options));
         }
         return new VisionLoadResult(engines, loaded.errors);
     }

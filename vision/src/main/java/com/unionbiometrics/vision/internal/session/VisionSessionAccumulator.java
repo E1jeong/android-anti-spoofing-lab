@@ -32,7 +32,7 @@ final class VisionSessionAccumulator {
             return VisionResult.collecting(average, topIndex, sampleCount, requiredSampleCount,
                     preprocessMs, inferenceMs);
         }
-        return VisionResult.terminal(ClassificationResult.shouldHighlightFaceInGreen(topIndex),
+        return VisionResult.terminal(ClassificationResult.isAcceptedClass(topIndex),
                 average, topIndex, sampleCount, preprocessMs, inferenceMs);
     }
 

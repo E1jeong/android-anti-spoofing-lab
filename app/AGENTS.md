@@ -26,7 +26,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - `PreviewTransform` is the single source for RGB/IR raw-`TextureView`, analysis-overlay, and crop-preview display mirroring. Do not hardcode `setScaleX` or overlay mirror flags elsewhere; display transforms must not alter calibration, saved-frame, model-crop, or SDK-input coordinates.
 
 2. **anti-spoofing host**:
-   - Load through `com.unionbiometrics.vision.VisionSdk.loadAll(applicationContext, AntiSpoofingHost)` and keep app code on public types in `com.unionbiometrics.vision.api`. Use `AntiSpoofingEngine.infer(VisionFrame)` for per-frame lab diagnostics; the product session path is `startSession()` plus `process()`. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
+   - Load through `com.unionbiometrics.vision.VisionSdk.loadAll(applicationContext, IrLedController)`, pass unexpanded RGB and IR face boxes in every `VisionFrame`, and keep app code on public types in `com.unionbiometrics.vision.api`. Use `AntiSpoofingEngine.infer(VisionFrame)` for per-frame lab diagnostics; the product session path is `startSession()` plus `process()`. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
    - Use `AntiSpoofingEngine.expandFaceBox` for preview/capture crops. Model margin and the internal crop implementation stay in `:vision`.
    - `FaceMotionGate` (app `model/`) halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame. Lab-only helper, not part of `:vision`.
 

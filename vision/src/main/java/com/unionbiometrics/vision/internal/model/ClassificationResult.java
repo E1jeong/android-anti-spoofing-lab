@@ -34,7 +34,7 @@ public final class ClassificationResult {
         return label.startsWith("CURVED_") ? "C " + label.substring("CURVED_".length()) : label;
     }
 
-    public static boolean shouldHighlightFaceInGreen(int index) {
+    public static boolean isAcceptedClass(int index) {
         return index == 0 || index == 10 || index == 11;
     }
 }

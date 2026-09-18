@@ -52,7 +52,7 @@ public final class VisionClassification {
     }
 
     public boolean isLive() {
-        return VisionSdk.isLiveClass(topIndex);
+        return VisionSdk.isAcceptedClass(topIndex);
     }
 
     public long preprocessMs() {

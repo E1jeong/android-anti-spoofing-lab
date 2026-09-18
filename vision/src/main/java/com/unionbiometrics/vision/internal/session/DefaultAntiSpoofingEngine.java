@@ -6,12 +6,12 @@ import android.os.SystemClock;
 import androidx.annotation.RestrictTo;
 
 import com.unionbiometrics.vision.api.AntiSpoofingEngine;
-import com.unionbiometrics.vision.api.AntiSpoofingHost;
 import com.unionbiometrics.vision.api.VisionClassification;
 import com.unionbiometrics.vision.api.VisionFrame;
 import com.unionbiometrics.vision.api.VisionInferenceResult;
 import com.unionbiometrics.vision.api.VisionOptions;
 import com.unionbiometrics.vision.api.VisionResult;
+import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.internal.image.FaceCrop;
 import com.unionbiometrics.vision.internal.model.ClassificationResult;
 import com.unionbiometrics.vision.internal.model.ModelSlotClassifier;
@@ -20,16 +20,14 @@ import com.unionbiometrics.vision.internal.model.SlotClassificationResult;
 @RestrictTo(RestrictTo.Scope.LIBRARY)
 public final class DefaultAntiSpoofingEngine implements AntiSpoofingEngine {
     private final ModelSlotClassifier classifier;
-    private final AntiSpoofingHost host;
     private final VisionOptions options;
     private final VisionSessionController session;
 
-    public DefaultAntiSpoofingEngine(ModelSlotClassifier classifier, AntiSpoofingHost host,
+    public DefaultAntiSpoofingEngine(ModelSlotClassifier classifier, IrLedController irLedController,
                                      VisionOptions options) {
         this.classifier = classifier;
-        this.host = host;
         this.options = options;
-        session = new VisionSessionController(options, host::setIrIllumination,
+        session = new VisionSessionController(options, irLedController::setEnabled,
                 SystemClock::elapsedRealtime);
     }
 
@@ -96,12 +94,6 @@ public final class DefaultAntiSpoofingEngine implements AntiSpoofingEngine {
     private SlotClassificationResult classifyFrame(VisionFrame frame) {
         Rect rgbFace = frame.rgbFaceBox();
         Rect irFace = frame.irFaceBox();
-        if (irFace == null) {
-            irFace = host.mapRgbFaceToIr(new Rect(rgbFace),
-                    frame.ir().getWidth(), frame.ir().getHeight());
-        }
-        if (irFace == null) throw new IllegalStateException("Host returned no IR face box");
-
         Rect rgbCrop = expandFaceBox(rgbFace, frame.rgb().getWidth(), frame.rgb().getHeight());
         Rect irCrop = expandFaceBox(irFace, frame.ir().getWidth(), frame.ir().getHeight());
         return classifier.classify(frame.rgb(), rgbCrop, frame.ir(), irCrop);

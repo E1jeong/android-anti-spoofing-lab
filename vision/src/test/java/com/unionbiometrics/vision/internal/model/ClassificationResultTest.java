@@ -36,11 +36,11 @@ public class ClassificationResultTest {
     }
 
     @Test
-    public void dentalMaskClassesHighlightFaceInGreen() {
-        assertEquals(true, ClassificationResult.shouldHighlightFaceInGreen(0));
-        assertEquals(true, ClassificationResult.shouldHighlightFaceInGreen(10));
-        assertEquals(true, ClassificationResult.shouldHighlightFaceInGreen(11));
-        assertEquals(false, ClassificationResult.shouldHighlightFaceInGreen(1));
+    public void dentalMaskClassesAreAccepted() {
+        assertEquals(true, ClassificationResult.isAcceptedClass(0));
+        assertEquals(true, ClassificationResult.isAcceptedClass(10));
+        assertEquals(true, ClassificationResult.isAcceptedClass(11));
+        assertEquals(false, ClassificationResult.isAcceptedClass(1));
     }
 
     @Test

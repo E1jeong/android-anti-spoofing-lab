@@ -55,7 +55,7 @@ import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
 import com.unionbiometrics.vision.VisionSdk;
 import com.unionbiometrics.vision.api.AntiSpoofingEngine;
-import com.unionbiometrics.vision.api.AntiSpoofingHost;
+import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.api.VisionClassification;
 import com.unionbiometrics.vision.api.VisionFrame;
 import com.unionbiometrics.vision.api.VisionInferenceResult;
@@ -154,19 +154,7 @@ public final class MainActivity extends Activity {
     private volatile FaceDetectionEngine activeFaceDetector;
     private volatile AntiSpoofingEngine classifier;
     private volatile Calibration calibration;
-    private final AntiSpoofingHost antiSpoofingHost = new AntiSpoofingHost() {
-        @Override
-        public Rect mapRgbFaceToIr(Rect rgbFaceBox, int irWidth, int irHeight) {
-            Calibration current = calibration;
-            if (current == null) current = Calibration.identity();
-            return current.rgbToIr(rgbFaceBox, irWidth, irHeight);
-        }
-
-        @Override
-        public void setIrIllumination(boolean enabled) {
-            HardwareControls.setIrLed(enabled);
-        }
-    };
+    private final IrLedController irLedController = HardwareControls::setIrLed;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private final CaptureSession collectionSession = new CaptureSession();
     private volatile boolean isAttackLiveCapturing;
@@ -686,7 +674,7 @@ public final class MainActivity extends Activity {
     private void loadClassifiers() {
         VisionLoadResult result = null;
         try {
-            result = VisionSdk.loadAll(getApplicationContext(), antiSpoofingHost);
+            result = VisionSdk.loadAll(getApplicationContext(), irLedController);
         } catch (Exception e) {
             reportEngineError("MODEL LOAD FAILED: " + e.getMessage());
         }

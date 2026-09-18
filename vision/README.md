@@ -1,28 +1,20 @@
-# Vision SDK Host Contract
+# Vision SDK Contract
 
 The loading façade is `com.unionbiometrics.vision.VisionSdk`; stable host contracts are
-isolated under `com.unionbiometrics.vision.api`. A host implements `AntiSpoofingHost`
-for its device-specific RGB-to-IR mapping and IR illumination control, then uses only
-the `AntiSpoofingEngine` interface during authentication.
+isolated under `com.unionbiometrics.vision.api`. A host supplies an `IrLedController`
+and passes unexpanded RGB and IR face boxes with each frame, then uses only the
+`AntiSpoofingEngine` interface during authentication.
 
 ```java
-AntiSpoofingHost host = new AntiSpoofingHost() {
-    @Override public Rect mapRgbFaceToIr(Rect rgbFaceBox, int irWidth, int irHeight) {
-        return calibration.rgbToIr(rgbFaceBox, irWidth, irHeight);
-    }
+IrLedController irLedController = hardware::setIrLed;
 
-    @Override public void setIrIllumination(boolean enabled) {
-        hardware.setIrLed(enabled);
-    }
-};
-
-VisionLoadResult loaded = VisionSdk.loadAll(applicationContext, host);
+VisionLoadResult loaded = VisionSdk.loadAll(applicationContext, irLedController);
 AntiSpoofingEngine engine = loaded.engines().get(0);
 engine.startSession();
 
 VisionResult result = engine.process(new VisionFrame(
         rgbBitmap, rgbFaceBox, rgbTimestampNs,
-        irBitmap, null, irTimestampNs));
+        irBitmap, irFaceBox, irTimestampNs));
 ```
 
 The default session requests IR illumination, waits 400 ms, and averages three
@@ -31,7 +23,7 @@ probability vectors before returning `LIVE` or `SPOOF`. Calls made earlier retur
 completion or cancellation and `close()` at host teardown.
 
 The SDK borrows frame bitmaps only for the synchronous `process()` call and never
-recycles them. Host interface methods run synchronously on the engine caller's thread.
+recycles them. IR LED controller calls run synchronously on the engine caller's thread.
 Loading and inference must run off the Android main thread. A manifest
 slot that fails NNAPI setup or warmup is rejected without CPU fallback.
 
