@@ -27,11 +27,4 @@ public final class ClassificationResult {
         topIndex = best;
     }
 
-    public static String displayLabel(int index) {
-        return ClassLabels.displayLabel(index);
-    }
-
-    public static boolean isAcceptedClass(int index) {
-        return ClassLabels.isAcceptedClass(index);
-    }
 }

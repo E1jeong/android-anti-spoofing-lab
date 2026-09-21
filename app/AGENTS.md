@@ -22,13 +22,13 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 1. **`camera` & `calibration`**:
    - `CameraStream` owns Camera2 session lifecycle. Teardown must always be serialized on the camera handler thread.
    - `FramePair` matches RGB and IR frames within 150 ms (`MAX_PAIR_DELTA_NS`).
-   - `Calibration.rgbToIr()` maps RGB face bounding boxes to IR coordinates via the 64-byte `CalibConfig.dat` (stored at `/sdcard/devlocal/CalibConfig.dat` or internal fallback).
+   - `Calibration.rgbToIr()` maps RGB face bounding boxes to IR coordinates via the 64-byte `CalibConfig.dat` (stored at `/sdcard/devlocal/CalibConfig.dat` or internal fallback). Preserve the NPro-compatible contract: `horizontal = RGB-IR`, subtract scaled offsets when mapping, write current values as big-endian, and treat unversioned legacy Viewer files as requiring recalibration rather than silent sign conversion.
    - `PreviewTransform` is the single source for RGB/IR raw-`TextureView`, analysis-overlay, and crop-preview display mirroring. Do not hardcode `setScaleX` or overlay mirror flags elsewhere; display transforms must not alter calibration, saved-frame, model-crop, or SDK-input coordinates.
 
 2. **anti-spoofing host**:
    - Load through `com.unionbiometrics.vision.VisionSdk.loadAll(applicationContext, IrLedController, AntiSpoofingOptions)`, pass unexpanded RGB and IR face boxes in every `AntiSpoofingFrame`, and keep app code on public types in `com.unionbiometrics.vision.api`. Use `AntiSpoofingEngine.infer(AntiSpoofingFrame)` for per-frame lab diagnostics; the product session path is `startSession()` plus `process()`. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
    - Treat `InferenceResult.result()` as the sole per-frame probability result for both supported model layouts. Do not recreate separate RGB/IR result UI branches.
-   - Use `FaceCrop.expand` with the matching `EngineInfo.cropMarginRatio()` for preview/capture crops. Model margin and the crop implementation stay in `:vision`.
+   - Read slot metadata through `AntiSpoofingEngine.info()` and use its `cropMarginRatio()` with `FaceCrop.expand` for preview/capture crops. Model margin and the crop implementation stay in `:vision`; do not maintain a parallel metadata list.
    - `FaceMotionGate` (app `model/`) halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame. Lab-only helper, not part of `:vision`.
 
 3. **`recognition`**:

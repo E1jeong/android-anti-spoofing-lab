@@ -22,6 +22,7 @@ import android.widget.TextView;
 import com.virditech.ac7000.camera.PreviewTransform;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
+import com.unionbiometrics.vision.api.ClassLabels;
 import com.unionbiometrics.vision.api.ProbabilityResult;
 import com.unionbiometrics.vision.api.InferenceResult;
 
@@ -593,7 +594,7 @@ public final class MainScreenView {
             clearCleanModeResult();
             return;
         }
-        int color = result.isLive()
+        int color = result.isAccepted()
             ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         String text = formatResult(result);
         SpannableString spannable = new SpannableString(text);
@@ -619,7 +620,8 @@ public final class MainScreenView {
 
     private static String formatResult(ProbabilityResult result) {
         return String.format(Locale.US, "%s %.1f%%",
-                result.topDisplayLabel(), result.probability(result.topIndex()) * 100f);
+                ClassLabels.displayLabel(result.topIndex()),
+                result.probability(result.topIndex()) * 100f);
     }
 
     public void showAuthResult(CharSequence text) {

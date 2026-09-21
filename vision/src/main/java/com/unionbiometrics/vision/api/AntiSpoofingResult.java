@@ -12,52 +12,51 @@ public final class AntiSpoofingResult {
     }
 
     private final Status status;
-    private final float[] probabilities;
-    private final int topIndex;
+    private final ProbabilityResult result;
     private final int sampleCount;
     private final int requiredSampleCount;
-    private final long preprocessMs;
-    private final long inferenceMs;
+    private final long samplePreprocessMs;
+    private final long sampleInferenceMs;
     private final long settleRemainingMs;
-    private final String message;
+    private final String errorMessage;
 
-    private AntiSpoofingResult(Status status, float[] probabilities, int topIndex, int sampleCount,
-                         int requiredSampleCount, long preprocessMs, long inferenceMs,
-                         long settleRemainingMs, String message) {
+    private AntiSpoofingResult(Status status, ProbabilityResult result, int sampleCount,
+                         int requiredSampleCount, long samplePreprocessMs, long sampleInferenceMs,
+                         long settleRemainingMs, String errorMessage) {
         this.status = status;
-        this.probabilities = probabilities == null ? null : probabilities.clone();
-        this.topIndex = topIndex;
+        this.result = result;
         this.sampleCount = sampleCount;
         this.requiredSampleCount = requiredSampleCount;
-        this.preprocessMs = preprocessMs;
-        this.inferenceMs = inferenceMs;
+        this.samplePreprocessMs = samplePreprocessMs;
+        this.sampleInferenceMs = sampleInferenceMs;
         this.settleRemainingMs = settleRemainingMs;
-        this.message = message;
+        this.errorMessage = errorMessage;
     }
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
     public static AntiSpoofingResult settling(int requiredSampleCount, long remainingMs) {
-        return new AntiSpoofingResult(Status.SETTLING, null, -1, 0, requiredSampleCount,
+        return new AntiSpoofingResult(Status.SETTLING, null, 0, requiredSampleCount,
                 0L, 0L, Math.max(0L, remainingMs), null);
     }
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
-    public static AntiSpoofingResult collecting(float[] probabilities, int topIndex, int sampleCount,
-                                   int requiredSampleCount, long preprocessMs, long inferenceMs) {
-        return new AntiSpoofingResult(Status.COLLECTING, probabilities, topIndex, sampleCount,
-                requiredSampleCount, preprocessMs, inferenceMs, 0L, null);
+    public static AntiSpoofingResult collecting(ProbabilityResult result, int sampleCount,
+                                   int requiredSampleCount, long samplePreprocessMs,
+                                   long sampleInferenceMs) {
+        return new AntiSpoofingResult(Status.COLLECTING, result, sampleCount,
+                requiredSampleCount, samplePreprocessMs, sampleInferenceMs, 0L, null);
     }
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
-    public static AntiSpoofingResult terminal(boolean live, float[] probabilities, int topIndex, int sampleCount,
-                                 long preprocessMs, long inferenceMs) {
-        return new AntiSpoofingResult(live ? Status.LIVE : Status.SPOOF, probabilities, topIndex,
-                sampleCount, sampleCount, preprocessMs, inferenceMs, 0L, null);
+    public static AntiSpoofingResult terminal(ProbabilityResult result, int sampleCount,
+                                 long samplePreprocessMs, long sampleInferenceMs) {
+        return new AntiSpoofingResult(result.isAccepted() ? Status.LIVE : Status.SPOOF, result,
+                sampleCount, sampleCount, samplePreprocessMs, sampleInferenceMs, 0L, null);
     }
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
     public static AntiSpoofingResult error(int requiredSampleCount, String message) {
-        return new AntiSpoofingResult(Status.ERROR, null, -1, 0, requiredSampleCount,
+        return new AntiSpoofingResult(Status.ERROR, null, 0, requiredSampleCount,
                 0L, 0L, 0L, message == null ? "Unknown Vision error" : message);
     }
 
@@ -65,16 +64,9 @@ public final class AntiSpoofingResult {
         return status;
     }
 
-    public float[] probabilities() {
-        return probabilities == null ? null : probabilities.clone();
-    }
-
-    public int topIndex() {
-        return topIndex;
-    }
-
-    public String topLabel() {
-        return topIndex < 0 ? null : ClassLabels.label(topIndex);
+    /** Returns the current average result, or null while settling and on error. */
+    public ProbabilityResult result() {
+        return result;
     }
 
     public int sampleCount() {
@@ -85,20 +77,22 @@ public final class AntiSpoofingResult {
         return requiredSampleCount;
     }
 
-    public long preprocessMs() {
-        return preprocessMs;
+    /** Timing for the most recently accepted sample, not the accumulated session. */
+    public long samplePreprocessMs() {
+        return samplePreprocessMs;
     }
 
-    public long inferenceMs() {
-        return inferenceMs;
+    /** Timing for the most recently accepted sample, not the accumulated session. */
+    public long sampleInferenceMs() {
+        return sampleInferenceMs;
     }
 
     public long settleRemainingMs() {
         return settleRemainingMs;
     }
 
-    public String message() {
-        return message;
+    public String errorMessage() {
+        return errorMessage;
     }
 
     public boolean isTerminal() {

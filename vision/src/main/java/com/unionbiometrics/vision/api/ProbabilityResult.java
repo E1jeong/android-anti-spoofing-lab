@@ -4,16 +4,14 @@ import androidx.annotation.RestrictTo;
 
 import java.util.Objects;
 
-/** Immutable probabilities and timing for one model output. */
+/** Immutable probabilities for one model output. */
 public final class ProbabilityResult {
     private static final int CLASS_COUNT = ClassLabels.count();
     private final float[] probabilities;
     private final int topIndex;
-    private final long preprocessMs;
-    private final long inferenceMs;
 
     @RestrictTo(RestrictTo.Scope.LIBRARY)
-    public ProbabilityResult(float[] probabilities, long preprocessMs, long inferenceMs) {
+    public ProbabilityResult(float[] probabilities) {
         Objects.requireNonNull(probabilities, "probabilities");
         if (probabilities.length != CLASS_COUNT) {
             throw new IllegalArgumentException(
@@ -25,8 +23,6 @@ public final class ProbabilityResult {
             if (probabilities[i] > probabilities[best]) best = i;
         }
         this.topIndex = best;
-        this.preprocessMs = preprocessMs;
-        this.inferenceMs = inferenceMs;
     }
 
     public float[] probabilities() {
@@ -45,19 +41,8 @@ public final class ProbabilityResult {
         return ClassLabels.label(topIndex);
     }
 
-    public String topDisplayLabel() {
-        return ClassLabels.displayLabel(topIndex);
-    }
-
-    public boolean isLive() {
+    /** Returns whether the winning class belongs to the product bona-fide pass set. */
+    public boolean isAccepted() {
         return ClassLabels.isAcceptedClass(topIndex);
-    }
-
-    public long preprocessMs() {
-        return preprocessMs;
-    }
-
-    public long inferenceMs() {
-        return inferenceMs;
     }
 }

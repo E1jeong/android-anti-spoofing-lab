@@ -13,12 +13,12 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-public class VisionSessionControllerTest {
+public class SessionControllerTest {
     @Test
     public void runsSettleCollectAndTerminalSequence() {
         FakeClock clock = new FakeClock();
         List<Boolean> illumination = new ArrayList<>();
-        VisionSessionController controller = new VisionSessionController(
+        SessionController controller = new SessionController(
                 new AntiSpoofingOptions(400L, 3, 150_000_000L), illumination::add, clock::now);
 
         assertEquals(AntiSpoofingResult.Status.SETTLING, controller.start().status());
@@ -26,9 +26,9 @@ public class VisionSessionControllerTest {
         assertEquals(AntiSpoofingResult.Status.SETTLING, controller.beforeSample().status());
         clock.nowMs = 400L;
         assertNull(controller.beforeSample());
-        assertEquals(AntiSpoofingResult.Status.COLLECTING, controller.add(classificationAt(0)).status());
-        assertEquals(AntiSpoofingResult.Status.COLLECTING, controller.add(classificationAt(0)).status());
-        assertEquals(AntiSpoofingResult.Status.LIVE, controller.add(classificationAt(0)).status());
+        assertEquals(AntiSpoofingResult.Status.COLLECTING, controller.add(classificationAt(0), 2L, 3L).status());
+        assertEquals(AntiSpoofingResult.Status.COLLECTING, controller.add(classificationAt(0), 2L, 3L).status());
+        assertEquals(AntiSpoofingResult.Status.LIVE, controller.add(classificationAt(0), 2L, 3L).status());
         assertEquals(AntiSpoofingResult.Status.LIVE, controller.beforeSample().status());
         assertEquals(List.of(true), illumination);
     }
@@ -37,7 +37,7 @@ public class VisionSessionControllerTest {
     public void resetAndCloseAlwaysRequestIlluminationOff() {
         FakeClock clock = new FakeClock();
         List<Boolean> illumination = new ArrayList<>();
-        VisionSessionController controller = new VisionSessionController(
+        SessionController controller = new SessionController(
                 AntiSpoofingOptions.defaults(), illumination::add, clock::now);
 
         controller.reset();
@@ -49,7 +49,7 @@ public class VisionSessionControllerTest {
     @Test
     public void failedIlluminationEnableRequestsCleanup() {
         List<Boolean> illumination = new ArrayList<>();
-        VisionSessionController controller = new VisionSessionController(
+        SessionController controller = new SessionController(
                 AntiSpoofingOptions.defaults(), enabled -> {
                     illumination.add(enabled);
                     if (enabled) throw new IllegalStateException("driver failure");
@@ -58,6 +58,7 @@ public class VisionSessionControllerTest {
         AntiSpoofingResult result = controller.start();
 
         assertEquals(AntiSpoofingResult.Status.ERROR, result.status());
+        assertEquals("IR illumination failed: driver failure", result.errorMessage());
         assertEquals(List.of(true, false), illumination);
     }
 
@@ -65,15 +66,15 @@ public class VisionSessionControllerTest {
     public void failureClearsSamplesAndRequestsIlluminationOff() {
         FakeClock clock = new FakeClock();
         List<Boolean> illumination = new ArrayList<>();
-        VisionSessionController controller = new VisionSessionController(
+        SessionController controller = new SessionController(
                 new AntiSpoofingOptions(0L, 3, 150_000_000L), illumination::add, clock::now);
         controller.start();
-        controller.add(classificationAt(0));
+        controller.add(classificationAt(0), 2L, 3L);
 
         assertEquals(AntiSpoofingResult.Status.ERROR, controller.fail("bad frame").status());
         assertEquals(AntiSpoofingResult.Status.SETTLING, controller.beforeSample().status());
         assertNull(controller.beforeSample());
-        AntiSpoofingResult restarted = controller.add(classificationAt(0));
+        AntiSpoofingResult restarted = controller.add(classificationAt(0), 2L, 3L);
         assertEquals(AntiSpoofingResult.Status.COLLECTING, restarted.status());
         assertEquals(1, restarted.sampleCount());
         assertEquals(List.of(true, false, true), illumination);
@@ -82,7 +83,7 @@ public class VisionSessionControllerTest {
     private static ProbabilityResult classificationAt(int index) {
         float[] probabilities = new float[ClassLabels.count()];
         probabilities[index] = 1f;
-        return new ProbabilityResult(probabilities, 2L, 3L);
+        return new ProbabilityResult(probabilities);
     }
 
     private static final class FakeClock {

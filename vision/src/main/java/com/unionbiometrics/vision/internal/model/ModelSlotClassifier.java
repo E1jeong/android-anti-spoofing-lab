@@ -41,10 +41,6 @@ public final class ModelSlotClassifier implements AutoCloseable {
         return classifier.inferenceBackend();
     }
 
-    public String backendStatus() {
-        return label + ": " + classifier.backendStatus();
-    }
-
     public SlotClassificationResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
         return new SlotClassificationResult(classifier.classify(rgb, rgbBox, ir, irBox));
     }

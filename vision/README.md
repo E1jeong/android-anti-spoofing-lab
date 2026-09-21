@@ -11,7 +11,7 @@ IrLedController irLedController = hardware::setIrLed;
 EngineLoadResult loaded = VisionSdk.loadAll(
         applicationContext, irLedController, AntiSpoofingOptions.defaults());
 AntiSpoofingEngine engine = loaded.engines().get(0);
-EngineInfo engineInfo = loaded.engineInfos().get(0);
+EngineInfo engineInfo = engine.info();
 engine.startSession();
 
 AntiSpoofingResult result = engine.process(new AntiSpoofingFrame(
@@ -31,13 +31,13 @@ slot that fails NNAPI setup or warmup is rejected without CPU fallback.
 
 Probability vectors follow the defensive label array returned by `ClassLabels.values()`;
 hosts do not need to import `ClassificationResult`.
-Model-slot label, backend status, and crop-margin metadata are exposed separately through
-`EngineLoadResult.engineInfos()` and are not part of the inference engine contract.
+Each loaded engine owns immutable model-slot label, backend, and crop-margin metadata,
+exposed through `AntiSpoofingEngine.info()`.
 
 The Lab app uses `AntiSpoofingEngine.infer(AntiSpoofingFrame)` for raw per-frame diagnostics.
 Product hosts use `startSession()` plus `process()`. Implementation is grouped by
-responsibility under `com.unionbiometrics.vision.internal.asset`, `.model`, and `.session`;
-those packages are unsupported and are not part of the AAR's host API.
+responsibility under `com.unionbiometrics.vision.internal.asset`, `.engine`, `.model`, and
+`.session`; those packages are unsupported and are not part of the AAR's host API.
 Public declarations required for cross-package SDK wiring are marked library-only for
 consumer lint. Result construction is likewise library-only; hosts consume results
 returned by `VisionSdk` and `AntiSpoofingEngine` rather than manufacturing them.

@@ -34,7 +34,6 @@ final class AntiSpoofingClassifier implements AutoCloseable {
 
     private final Interpreter interpreter;
     private final String inferenceBackend;
-    private final String backendStatus;
     private final ModelSpec spec;
     private final InputMapping inputMapping;
     private final InputBuffer cropRgbInput;
@@ -51,7 +50,6 @@ final class AntiSpoofingClassifier implements AutoCloseable {
         InterpreterBundle bundle = createInterpreter(loadModel(context, modelName), spec.delegate, modelName, specName);
         interpreter = bundle.interpreter;
         inferenceBackend = bundle.backend;
-        backendStatus = bundle.status;
         InputMapping mapping = null;
         InputBuffer cropRgb = null;
         InputBuffer cropIr = null;
@@ -126,18 +124,16 @@ final class AntiSpoofingClassifier implements AutoCloseable {
         return inferenceBackend;
     }
 
-    public String backendStatus() {
-        return backendStatus;
-    }
-
     public int inputTensorCount() {
         return interpreter.getInputTensorCount();
     }
 
     public ClassificationResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
         long preprocessStart = SystemClock.elapsedRealtimeNanos();
-        if (cropRgbInput != null) inputs[inputMapping.cropRgbIndex] = cropRgbInput.fillImage(rgb, rgbBox);
-        if (cropIrInput != null) inputs[inputMapping.cropIrIndex] = cropIrInput.fillImage(ir, irBox);
+        if (cropRgbInput != null)
+            inputs[inputMapping.cropRgbIndex] = cropRgbInput.fillImage(rgb, rgbBox);
+        if (cropIrInput != null)
+            inputs[inputMapping.cropIrIndex] = cropIrInput.fillImage(ir, irBox);
         long preprocessMs = (SystemClock.elapsedRealtimeNanos() - preprocessStart) / 1_000_000L;
         long start = SystemClock.elapsedRealtimeNanos();
         interpreter.runForMultipleInputsOutputs(inputs, outputs);
@@ -244,7 +240,8 @@ final class AntiSpoofingClassifier implements AutoCloseable {
             }
             sum += value;
         }
-        if (Math.abs(sum - 1f) > 0.02f) throw new IllegalStateException("Model probabilities do not sum to 1");
+        if (Math.abs(sum - 1f) > 0.02f)
+            throw new IllegalStateException("Model probabilities do not sum to 1");
         return values.clone();
     }
 
@@ -257,7 +254,8 @@ final class AntiSpoofingClassifier implements AutoCloseable {
         if (cropIr != null) cropIr.close();
         try {
             interpreter.close();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     // Do NOT enable NNAPI compilation caching (NnApiDelegate.Options.setCacheDir/setModelToken)
@@ -270,13 +268,13 @@ final class AntiSpoofingClassifier implements AutoCloseable {
             Interpreter.Options cpuOptions = new Interpreter.Options()
                     .setNumThreads(THREAD_COUNT)
                     .setUseXNNPACK(true);
-            return createAllocatedInterpreter(model, cpuOptions, "CPU", "Ready - CPU requested");
+            return createAllocatedInterpreter(model, cpuOptions, "CPU");
         }
         try {
             Interpreter.Options nnapiOptions = new Interpreter.Options()
                     .setNumThreads(THREAD_COUNT)
                     .setUseNNAPI(true);
-            return createAllocatedInterpreter(model, nnapiOptions, "NNAPI", "Ready");
+            return createAllocatedInterpreter(model, nnapiOptions, "NNAPI");
         } catch (RuntimeException nnapiError) {
             throw new IllegalStateException("NNAPI delegate failed for " + modelName + " with " + specName, nnapiError);
         }
@@ -284,11 +282,11 @@ final class AntiSpoofingClassifier implements AutoCloseable {
 
     private static InterpreterBundle createAllocatedInterpreter(MappedByteBuffer model,
                                                                 Interpreter.Options options,
-                                                                String backend, String status) {
+                                                                String backend) {
         Interpreter interpreter = new Interpreter(model, options);
         try {
             interpreter.allocateTensors();
-            return new InterpreterBundle(interpreter, backend, status);
+            return new InterpreterBundle(interpreter, backend);
         } catch (RuntimeException e) {
             try {
                 interpreter.close();
@@ -299,7 +297,8 @@ final class AntiSpoofingClassifier implements AutoCloseable {
         }
     }
 
-    @Override public void close() {
+    @Override
+    public void close() {
         if (cropRgbInput != null) cropRgbInput.close();
         if (cropIrInput != null) cropIrInput.close();
         interpreter.close();
@@ -318,12 +317,10 @@ final class AntiSpoofingClassifier implements AutoCloseable {
     private static final class InterpreterBundle {
         final Interpreter interpreter;
         final String backend;
-        final String status;
 
-        InterpreterBundle(Interpreter interpreter, String backend, String status) {
+        InterpreterBundle(Interpreter interpreter, String backend) {
             this.interpreter = interpreter;
             this.backend = backend;
-            this.status = status;
         }
     }
 

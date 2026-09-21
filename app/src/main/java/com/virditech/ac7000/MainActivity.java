@@ -140,7 +140,6 @@ public final class MainActivity extends Activity {
     private final StringBuilder engineErrors = new StringBuilder();
     private final AtomicInteger pendingEngineLoads = new AtomicInteger(2);
     private final ArrayList<AntiSpoofingEngine> antiSpoofingEngines = new ArrayList<>();
-    private final ArrayList<EngineInfo> antiSpoofingEngineInfos = new ArrayList<>();
     private int activeEngineIndex;
     private volatile boolean enginesShutDown;
     // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
@@ -157,7 +156,6 @@ public final class MainActivity extends Activity {
     private volatile MediaPipeFaceDetector mediaPipeFaceDetector;
     private volatile FaceDetectionEngine activeFaceDetector;
     private volatile AntiSpoofingEngine antiSpoofingEngine;
-    private volatile EngineInfo antiSpoofingEngineInfo;
     private volatile Calibration calibration;
     private final IrLedController irLedController = HardwareControls::setIrLed;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
@@ -710,8 +708,6 @@ public final class MainActivity extends Activity {
             android.util.Log.w(TAG, "FaceRecognitionManager load failed: " + e.getMessage());
         }
         List<AntiSpoofingEngine> loaded = result != null ? result.engines() : new ArrayList<>();
-        List<EngineInfo> loadedInfos = result != null
-                ? result.engineInfos() : new ArrayList<>();
         if (result != null) {
             for (String error : result.errors()) reportEngineError(error);
         }
@@ -724,16 +720,12 @@ public final class MainActivity extends Activity {
             }
             antiSpoofingEngines.clear();
             antiSpoofingEngines.addAll(loaded);
-            antiSpoofingEngineInfos.clear();
-            antiSpoofingEngineInfos.addAll(loadedInfos);
             activeEngineIndex = 0;
             antiSpoofingEngine = antiSpoofingEngines.isEmpty() ? null : antiSpoofingEngines.get(0);
-            antiSpoofingEngineInfo = antiSpoofingEngineInfos.isEmpty()
-                    ? null : antiSpoofingEngineInfos.get(0);
         }
         runOnUiThread(() -> {
             screen.modelSwitchButton.setEnabled(antiSpoofingEngines.size() > 1);
-            EngineInfo activeInfo = antiSpoofingEngineInfo;
+            EngineInfo activeInfo = antiSpoofingEngine != null ? antiSpoofingEngine.info() : null;
             if (activeInfo != null) screen.modelSwitchButton.setText(activeInfo.label());
             if (antiSpoofingEngine != null && cameras != null) cameras.setIrFramesEnabled(true);
         });
@@ -766,9 +758,10 @@ public final class MainActivity extends Activity {
         synchronized (engineErrors) {
             errors = engineErrors.toString();
         }
-        EngineInfo activeInfo = antiSpoofingEngineInfo;
+        AntiSpoofingEngine activeEngine = antiSpoofingEngine;
+        EngineInfo activeInfo = activeEngine != null ? activeEngine.info() : null;
         String message = errors.isEmpty()
-                ? (activeInfo != null ? activeInfo.backendStatus() : "Loading model...")
+                ? (activeInfo != null ? "Backend " + activeInfo.backend() : "Loading model...")
                 : errors;
         normalStatusMessage = message;
         runOnUiThread(() -> screen.status.setText(message));
@@ -1075,7 +1068,7 @@ public final class MainActivity extends Activity {
         EngineInfo activeEngineInfo;
         synchronized (engineLock) {
             activeEngine = antiSpoofingEngine;
-            activeEngineInfo = antiSpoofingEngineInfo;
+            activeEngineInfo = activeEngine != null ? activeEngine.info() : null;
         }
         if (activeEngine != null) {
             float margin = activeEngineInfo.cropMarginRatio();
@@ -2155,10 +2148,10 @@ public final class MainActivity extends Activity {
             if (antiSpoofingEngines.isEmpty()) return;
             activeEngineIndex = (activeEngineIndex + 1) % antiSpoofingEngines.size();
             antiSpoofingEngine = antiSpoofingEngines.get(activeEngineIndex);
-            antiSpoofingEngineInfo = antiSpoofingEngineInfos.get(activeEngineIndex);
+            EngineInfo activeInfo = antiSpoofingEngine.info();
 
-            final String btnText = antiSpoofingEngineInfo.label();
-            final String message = antiSpoofingEngineInfo.backendStatus();
+            final String btnText = activeInfo.label();
+            final String message = "Backend " + activeInfo.backend();
             normalStatusMessage = message;
 
             runOnUiThread(() -> {
@@ -2556,8 +2549,6 @@ public final class MainActivity extends Activity {
             }
             antiSpoofingEngine = null;
             antiSpoofingEngines.clear();
-            antiSpoofingEngineInfo = null;
-            antiSpoofingEngineInfos.clear();
         }
     }
 

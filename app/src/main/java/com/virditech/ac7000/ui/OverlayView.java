@@ -10,6 +10,7 @@ import android.view.View;
 import com.virditech.ac7000.camera.PreviewTransform;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
+import com.unionbiometrics.vision.api.ClassLabels;
 import com.unionbiometrics.vision.api.ProbabilityResult;
 
 import java.util.Locale;
@@ -160,7 +161,7 @@ public final class OverlayView extends View {
             color = Color.CYAN;
         } else {
             color = result == null ? Color.YELLOW
-                    : result.isLive()
+                    : result.isAccepted()
                     ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         }
         boxPaint.setColor(color);
@@ -198,7 +199,8 @@ public final class OverlayView extends View {
 
     private static String formatResult(ProbabilityResult result) {
         return String.format(Locale.US, "%s %.1f%%",
-                result.topDisplayLabel(), result.probability(result.topIndex()) * 100f);
+                ClassLabels.displayLabel(result.topIndex()),
+                result.probability(result.topIndex()) * 100f);
     }
 
     private void drawCollectionGuide(Canvas canvas) {

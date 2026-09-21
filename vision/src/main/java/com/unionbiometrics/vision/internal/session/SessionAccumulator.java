@@ -1,14 +1,15 @@
 package com.unionbiometrics.vision.internal.session;
 
 import com.unionbiometrics.vision.api.AntiSpoofingResult;
+import com.unionbiometrics.vision.api.ProbabilityResult;
 import com.unionbiometrics.vision.internal.model.ClassificationResult;
 
-final class VisionSessionAccumulator {
+final class SessionAccumulator {
     private final int requiredSampleCount;
     private final float[] sums = new float[ClassificationResult.LABELS.length];
     private int sampleCount;
 
-    VisionSessionAccumulator(int requiredSampleCount) {
+    SessionAccumulator(int requiredSampleCount) {
         this.requiredSampleCount = requiredSampleCount;
     }
 
@@ -23,17 +24,15 @@ final class VisionSessionAccumulator {
         sampleCount++;
 
         float[] average = new float[sums.length];
-        int topIndex = 0;
         for (int i = 0; i < sums.length; i++) {
             average[i] = sums[i] / sampleCount;
-            if (average[i] > average[topIndex]) topIndex = i;
         }
+        ProbabilityResult result = new ProbabilityResult(average);
         if (sampleCount < requiredSampleCount) {
-            return AntiSpoofingResult.collecting(average, topIndex, sampleCount, requiredSampleCount,
+            return AntiSpoofingResult.collecting(result, sampleCount, requiredSampleCount,
                     preprocessMs, inferenceMs);
         }
-        return AntiSpoofingResult.terminal(ClassificationResult.isAcceptedClass(topIndex),
-                average, topIndex, sampleCount, preprocessMs, inferenceMs);
+        return AntiSpoofingResult.terminal(result, sampleCount, preprocessMs, inferenceMs);
     }
 
     void reset() {

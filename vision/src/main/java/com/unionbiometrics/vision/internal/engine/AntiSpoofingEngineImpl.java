@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision.internal.session;
+package com.unionbiometrics.vision.internal.engine;
 
 import android.graphics.Rect;
 import android.os.SystemClock;
@@ -13,22 +13,33 @@ import com.unionbiometrics.vision.api.AntiSpoofingOptions;
 import com.unionbiometrics.vision.api.AntiSpoofingResult;
 import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.api.FaceCrop;
+import com.unionbiometrics.vision.api.EngineInfo;
 import com.unionbiometrics.vision.internal.model.ClassificationResult;
 import com.unionbiometrics.vision.internal.model.ModelSlotClassifier;
 import com.unionbiometrics.vision.internal.model.SlotClassificationResult;
+import com.unionbiometrics.vision.internal.session.SessionController;
 
 @RestrictTo(RestrictTo.Scope.LIBRARY)
-public final class DefaultAntiSpoofingEngine implements AntiSpoofingEngine {
+public final class AntiSpoofingEngineImpl implements AntiSpoofingEngine {
     private final ModelSlotClassifier slotClassifier;
     private final AntiSpoofingOptions options;
-    private final VisionSessionController session;
+    private final SessionController session;
+    private final EngineInfo info;
 
-    public DefaultAntiSpoofingEngine(ModelSlotClassifier slotClassifier, IrLedController irLedController,
-                                     AntiSpoofingOptions options) {
+    public AntiSpoofingEngineImpl(ModelSlotClassifier slotClassifier, IrLedController irLedController,
+                                  AntiSpoofingOptions options) {
         this.slotClassifier = slotClassifier;
         this.options = options;
-        session = new VisionSessionController(options, irLedController::setEnabled,
+        info = new EngineInfo(
+                slotClassifier.label(), slotClassifier.inferenceBackend(),
+                slotClassifier.cropMarginRatio());
+        session = new SessionController(options, irLedController::setEnabled,
                 SystemClock::elapsedRealtime);
+    }
+
+    @Override
+    public EngineInfo info() {
+        return info;
     }
 
     private Rect expandFaceBox(Rect faceBox, int imageWidth, int imageHeight) {
@@ -68,7 +79,8 @@ public final class DefaultAntiSpoofingEngine implements AntiSpoofingEngine {
         InferenceResult inference = infer(frame);
         if (!inference.successful()) return fail(inference.errorMessage());
         try {
-            return session.add(inference.result());
+            return session.add(
+                    inference.result(), inference.preprocessMs(), inference.inferenceMs());
         } catch (RuntimeException e) {
             return fail("Vision inference failed: " + e.getMessage());
         }
@@ -84,7 +96,7 @@ public final class DefaultAntiSpoofingEngine implements AntiSpoofingEngine {
 
     private static ProbabilityResult toPublic(ClassificationResult result) {
         if (result == null) return null;
-        return new ProbabilityResult(result.probabilities, result.preprocessMs, result.inferenceMs);
+        return new ProbabilityResult(result.probabilities);
     }
 
     @Override

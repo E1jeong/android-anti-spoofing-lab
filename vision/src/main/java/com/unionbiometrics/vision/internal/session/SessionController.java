@@ -1,35 +1,38 @@
 package com.unionbiometrics.vision.internal.session;
 
+import androidx.annotation.RestrictTo;
+
 import com.unionbiometrics.vision.api.ProbabilityResult;
 import com.unionbiometrics.vision.api.AntiSpoofingOptions;
 import com.unionbiometrics.vision.api.AntiSpoofingResult;
 
-final class VisionSessionController {
-    interface IlluminationControl {
+@RestrictTo(RestrictTo.Scope.LIBRARY)
+public final class SessionController {
+    public interface IlluminationControl {
         void setEnabled(boolean enabled);
     }
 
-    interface Clock {
+    public interface Clock {
         long elapsedRealtimeMs();
     }
 
     private final AntiSpoofingOptions options;
     private final IlluminationControl illumination;
     private final Clock clock;
-    private final VisionSessionAccumulator accumulator;
+    private final SessionAccumulator accumulator;
     private boolean sessionActive;
     private boolean closed;
     private long settleStartedMs;
     private AntiSpoofingResult terminalResult;
 
-    VisionSessionController(AntiSpoofingOptions options, IlluminationControl illumination, Clock clock) {
+    public SessionController(AntiSpoofingOptions options, IlluminationControl illumination, Clock clock) {
         this.options = options;
         this.illumination = illumination;
         this.clock = clock;
-        accumulator = new VisionSessionAccumulator(options.sampleCount());
+        accumulator = new SessionAccumulator(options.sampleCount());
     }
 
-    AntiSpoofingResult start() {
+    public AntiSpoofingResult start() {
         if (closed) return error("Vision engine is closed");
         clearState();
         try {
@@ -44,7 +47,7 @@ final class VisionSessionController {
     }
 
     /** Returns null only when the caller may classify and add a sample. */
-    AntiSpoofingResult beforeSample() {
+    public AntiSpoofingResult beforeSample() {
         if (closed) return error("Vision engine is closed");
         if (!sessionActive) return start();
         if (terminalResult != null) return terminalResult;
@@ -55,10 +58,11 @@ final class VisionSessionController {
         return null;
     }
 
-    AntiSpoofingResult add(ProbabilityResult classification) {
+    public AntiSpoofingResult add(ProbabilityResult classification,
+                                  long preprocessMs, long inferenceMs) {
         if (classification == null) return fail("Vision slot produced no primary result");
-        AntiSpoofingResult result = accumulator.add(classification.probabilities(),
-                classification.preprocessMs(), classification.inferenceMs());
+        AntiSpoofingResult result = accumulator.add(
+                classification.probabilities(), preprocessMs, inferenceMs);
         if (result.status() == AntiSpoofingResult.Status.LIVE
                 || result.status() == AntiSpoofingResult.Status.SPOOF) {
             terminalResult = result;
@@ -66,26 +70,26 @@ final class VisionSessionController {
         return result;
     }
 
-    AntiSpoofingResult fail(String message) {
+    public AntiSpoofingResult fail(String message) {
         clearState();
         requestIlluminationOff();
         return error(message);
     }
 
-    void reset() {
+    public void reset() {
         if (closed) return;
         clearState();
         requestIlluminationOff();
     }
 
-    void close() {
+    public void close() {
         if (closed) return;
         clearState();
         requestIlluminationOff();
         closed = true;
     }
 
-    boolean isClosed() {
+    public boolean isClosed() {
         return closed;
     }
 

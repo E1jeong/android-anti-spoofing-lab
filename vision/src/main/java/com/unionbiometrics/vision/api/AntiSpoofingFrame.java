@@ -7,9 +7,9 @@ import android.graphics.Rect;
  * One borrowed RGB/IR frame pair. Both face boxes are unexpanded camera-coordinate boxes.
  */
 public record AntiSpoofingFrame(Bitmap rgb, Rect rgbFaceBox, long rgbTimestampNs, Bitmap ir,
-                          Rect irFaceBox, long irTimestampNs) {
+                                Rect irFaceBox, long irTimestampNs) {
     public AntiSpoofingFrame(Bitmap rgb, Rect rgbFaceBox, long rgbTimestampNs,
-                       Bitmap ir, Rect irFaceBox, long irTimestampNs) {
+                             Bitmap ir, Rect irFaceBox, long irTimestampNs) {
         if (rgb == null) throw new IllegalArgumentException("rgb must not be null");
         if (ir == null) throw new IllegalArgumentException("ir must not be null");
         if (rgbFaceBox == null) throw new IllegalArgumentException("rgbFaceBox must not be null");

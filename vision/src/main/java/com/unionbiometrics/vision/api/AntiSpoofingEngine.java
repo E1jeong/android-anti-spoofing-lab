@@ -2,6 +2,9 @@ package com.unionbiometrics.vision.api;
 
 /** Stable host-facing anti-spoofing session contract. */
 public interface AntiSpoofingEngine extends AutoCloseable {
+    /** Returns immutable metadata for this loaded model slot. */
+    EngineInfo info();
+
     /** Runs one raw diagnostic inference without the product settle/averaging session. */
     InferenceResult infer(AntiSpoofingFrame frame);
 

@@ -12,7 +12,7 @@ public class InferenceResultTest {
     @Test
     public void exposesResultWithoutExposingMutableProbabilities() {
         InferenceResult result = InferenceResult.success(
-                new ProbabilityResult(probabilitiesAt(0), 2L, 3L),
+                new ProbabilityResult(probabilitiesAt(0)),
                 2L, 3L);
         float[] probabilities = result.result().probabilities();
         probabilities[0] = 0f;

@@ -29,21 +29,6 @@ public class ClassificationResultTest {
     }
 
     @Test
-    public void displayLabelShortensCurvedClassNames() {
-        assertEquals("C PRINT", ClassificationResult.displayLabel(6));
-        assertEquals("C PMASK", ClassificationResult.displayLabel(9));
-        assertEquals("DENTAL_WHITE", ClassificationResult.displayLabel(10));
-    }
-
-    @Test
-    public void dentalMaskClassesAreAccepted() {
-        assertEquals(true, ClassificationResult.isAcceptedClass(0));
-        assertEquals(true, ClassificationResult.isAcceptedClass(10));
-        assertEquals(true, ClassificationResult.isAcceptedClass(11));
-        assertEquals(false, ClassificationResult.isAcceptedClass(1));
-    }
-
-    @Test
     public void slotUsesModelDurations() {
         ClassificationResult classification = new ClassificationResult(twelveLive(), 3L, 5L);
         SlotClassificationResult result = new SlotClassificationResult(classification);

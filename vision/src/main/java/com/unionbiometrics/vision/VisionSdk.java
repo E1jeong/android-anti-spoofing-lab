@@ -4,11 +4,10 @@ import android.content.Context;
 
 import com.unionbiometrics.vision.api.AntiSpoofingEngine;
 import com.unionbiometrics.vision.api.IrLedController;
-import com.unionbiometrics.vision.api.EngineInfo;
 import com.unionbiometrics.vision.api.EngineLoadResult;
 import com.unionbiometrics.vision.api.AntiSpoofingOptions;
 import com.unionbiometrics.vision.internal.model.ModelSlotClassifier;
-import com.unionbiometrics.vision.internal.session.DefaultAntiSpoofingEngine;
+import com.unionbiometrics.vision.internal.engine.AntiSpoofingEngineImpl;
 
 import java.util.ArrayList;
 
@@ -27,12 +26,9 @@ public final class VisionSdk {
         ModelSlotClassifier.LoadResult loaded = ModelSlotClassifier.loadAll(
                 applicationContext == null ? context : applicationContext);
         ArrayList<AntiSpoofingEngine> engines = new ArrayList<>();
-        ArrayList<EngineInfo> engineInfos = new ArrayList<>();
         for (ModelSlotClassifier slot : loaded.slots) {
-            engines.add(new DefaultAntiSpoofingEngine(slot, irLedController, options));
-            engineInfos.add(new EngineInfo(
-                    slot.label(), slot.backendStatus(), slot.cropMarginRatio()));
+            engines.add(new AntiSpoofingEngineImpl(slot, irLedController, options));
         }
-        return new EngineLoadResult(engines, engineInfos, loaded.errors);
+        return new EngineLoadResult(engines, loaded.errors);
     }
 }
