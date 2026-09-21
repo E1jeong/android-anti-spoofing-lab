@@ -168,8 +168,6 @@ public final class MainScreenView {
         uiContainer.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
 
         status.setText("Initializing...");
-        diagnosticsLayout.addView(status, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         uiContainer.addView(diagnosticsLayout, diagnosticsParams);
     }
 
@@ -246,6 +244,7 @@ public final class MainScreenView {
 
         configureControlButton(startCollectionButton, "START CAPTURE", buttonWidth,
                 v -> toggleCollectionClassMenu());
+        startCollectionButton.setVisibility(View.GONE);
         configureControlButton(switchButton, "SHOW IR", buttonWidth,
                 v -> listener.onSwitchPreview());
         configureControlButton(modelSwitchButton, "MODEL 1", buttonWidth,
@@ -348,13 +347,11 @@ public final class MainScreenView {
         cancelParams.width = buttonWidth;
         uiContainer.addView(calibrationCancel, cancelParams);
 
-        calibrationHotspot.setOnClickListener(v -> listener.onCalibrationTap());
         uiContainer.addView(calibrationHotspot, new FrameLayout.LayoutParams(
                 dp(180), dp(180), Gravity.TOP | Gravity.START));
     }
 
     private void buildSettingsHotspot(Listener listener) {
-        settingsHotspot.setOnClickListener(v -> listener.onSettingsTap());
         uiContainer.addView(settingsHotspot, new FrameLayout.LayoutParams(
                 dp(180), dp(180), Gravity.BOTTOM | Gravity.START));
     }
