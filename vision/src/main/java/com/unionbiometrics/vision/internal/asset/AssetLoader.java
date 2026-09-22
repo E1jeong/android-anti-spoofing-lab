@@ -14,11 +14,11 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 
 @RestrictTo(RestrictTo.Scope.LIBRARY)
-public final class ModelAssetLoader {
+public final class AssetLoader {
     public static final String DIRECTORY = "ubio-vision";
     public static final String MANIFEST = "model_manifest.json";
 
-    private ModelAssetLoader() {}
+    private AssetLoader() {}
 
     public static String path(String relativeName) {
         if (relativeName == null || relativeName.isEmpty()) {

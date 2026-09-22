@@ -11,10 +11,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-public class InferenceResultTest {
+public class FrameResultTest {
     @Test
     public void exposesResultWithoutExposingMutableProbabilities() {
-        InferenceResult result = InferenceResult.success(
+        FrameResult result = FrameResult.success(
                 new ProbabilityResult(probabilitiesAt(0)),
                 2L, 3L);
         float[] probabilities = result.result().probabilities();
@@ -29,7 +29,7 @@ public class InferenceResultTest {
 
     @Test
     public void exposesExplicitErrorWithoutClassification() {
-        InferenceResult result = InferenceResult.error("broken frame");
+        FrameResult result = FrameResult.error("broken frame");
 
         assertFalse(result.successful());
         assertEquals("broken frame", result.errorMessage());
@@ -38,7 +38,7 @@ public class InferenceResultTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsSuccessfulResultWithoutOutput() {
-        InferenceResult.success(null, 0L, 0L);
+        FrameResult.success(null, 0L, 0L);
     }
 
     private static float[] probabilitiesAt(int index) {

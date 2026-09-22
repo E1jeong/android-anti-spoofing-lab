@@ -8,7 +8,7 @@ import android.graphics.Rect;
 import android.os.SystemClock;
 import android.util.Log;
 
-import com.unionbiometrics.vision.internal.asset.ModelAssetLoader;
+import com.unionbiometrics.vision.internal.asset.AssetLoader;
 
 import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
@@ -22,7 +22,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
-final class AntiSpoofingClassifier implements AutoCloseable {
+final class Classifier implements AutoCloseable {
     private static final String TAG = "AntiSpoofingClassifier";
     private static final int THREAD_COUNT = Math.min(4, Runtime.getRuntime().availableProcessors());
     private static final int ONE_INPUT_COUNT = 1;
@@ -34,7 +34,7 @@ final class AntiSpoofingClassifier implements AutoCloseable {
 
     private final Interpreter interpreter;
     private final String inferenceBackend;
-    private final ModelSpec spec;
+    private final Spec spec;
     private final InputMapping inputMapping;
     private final InputBuffer cropRgbInput;
     private final InputBuffer cropIrInput;
@@ -45,8 +45,8 @@ final class AntiSpoofingClassifier implements AutoCloseable {
     private final byte[][] outputInt8 = new byte[1][ClassificationResult.LABELS.length];
     private final Map<Integer, Object> outputs = new HashMap<>();
 
-    AntiSpoofingClassifier(Context context, String modelName, String specName) throws Exception {
-        spec = ModelSpec.load(context, specName);
+    Classifier(Context context, String modelName, String specName) throws Exception {
+        spec = Spec.load(context, specName);
         InterpreterBundle bundle = createInterpreter(loadModel(context, modelName), spec.delegate, modelName, specName);
         interpreter = bundle.interpreter;
         inferenceBackend = bundle.backend;
@@ -246,7 +246,7 @@ final class AntiSpoofingClassifier implements AutoCloseable {
     }
 
     private static MappedByteBuffer loadModel(Context context, String modelName) throws Exception {
-        return ModelAssetLoader.mapModel(context, modelName);
+        return AssetLoader.mapModel(context, modelName);
     }
 
     private static void releasePartial(Interpreter interpreter, InputBuffer cropRgb, InputBuffer cropIr) {
@@ -514,7 +514,7 @@ final class AntiSpoofingClassifier implements AutoCloseable {
             if (kind == InputKind.IR) {
                 return normalizeWithMeanStd(value / 255.0f, spec.irMean, spec.irStd, channel);
             }
-            if (ModelSpec.RGB_NORMALIZATION_MINUS_ONE_TO_ONE.equals(spec.rgbNormalization)) {
+            if (Spec.RGB_NORMALIZATION_MINUS_ONE_TO_ONE.equals(spec.rgbNormalization)) {
                 return value / 127.5f - 1.0f;
             }
             return normalizeWithMeanStd(value / 255.0f, spec.rgbMean, spec.rgbStd, channel);

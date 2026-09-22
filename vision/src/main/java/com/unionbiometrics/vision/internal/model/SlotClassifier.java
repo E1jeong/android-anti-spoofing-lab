@@ -9,21 +9,21 @@ import androidx.annotation.RestrictTo;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import com.unionbiometrics.vision.internal.asset.ModelAssetLoader;
+import com.unionbiometrics.vision.internal.asset.AssetLoader;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @RestrictTo(RestrictTo.Scope.LIBRARY)
-public final class ModelSlotClassifier implements AutoCloseable {
+public final class SlotClassifier implements AutoCloseable {
     private static final String TYPE_DUAL_2_INPUT = "dual_2_input";
     private static final String TYPE_SINGLE_1_INPUT = "single_1_input";
 
     private final String label;
-    private final AntiSpoofingClassifier classifier;
+    private final Classifier classifier;
     private final float cropMarginRatio;
 
-    private ModelSlotClassifier(String label, AntiSpoofingClassifier classifier) {
+    private SlotClassifier(String label, Classifier classifier) {
         this.label = label;
         this.classifier = classifier;
         this.cropMarginRatio = classifier.cropMarginRatio();
@@ -50,7 +50,7 @@ public final class ModelSlotClassifier implements AutoCloseable {
     }
 
     public static LoadResult loadAll(Context context) {
-        ArrayList<ModelSlotClassifier> slots = new ArrayList<>();
+        ArrayList<SlotClassifier> slots = new ArrayList<>();
         ArrayList<String> errors = new ArrayList<>();
         JSONArray models;
         try {
@@ -77,19 +77,19 @@ public final class ModelSlotClassifier implements AutoCloseable {
     }
 
     private static JSONArray loadManifest(Context context) throws Exception {
-        JSONObject root = new JSONObject(ModelAssetLoader.readUtf8(context, ModelAssetLoader.MANIFEST));
+        JSONObject root = new JSONObject(AssetLoader.readUtf8(context, AssetLoader.MANIFEST));
         JSONArray models = root.optJSONArray("models");
         if (models == null || models.length() == 0) {
-            throw new IllegalStateException(ModelAssetLoader.path(ModelAssetLoader.MANIFEST) + " has no models");
+            throw new IllegalStateException(AssetLoader.path(AssetLoader.MANIFEST) + " has no models");
         }
         return models;
     }
 
-    private static ModelSlotClassifier loadSlot(Context context, String label, JSONObject json) throws Exception {
+    private static SlotClassifier loadSlot(Context context, String label, JSONObject json) throws Exception {
         String type = json.getString("type");
         validateType(type);
 
-        AntiSpoofingClassifier classifier = new AntiSpoofingClassifier(context,
+        Classifier classifier = new Classifier(context,
                 json.getString("model"), json.getString("spec"));
         int inputCount = classifier.inputTensorCount();
         if ((TYPE_SINGLE_1_INPUT.equals(type) && inputCount != 1)
@@ -97,7 +97,7 @@ public final class ModelSlotClassifier implements AutoCloseable {
             closeQuietly(classifier);
             throw new IllegalArgumentException(type + " model has " + inputCount + " inputs");
         }
-        return new ModelSlotClassifier(label, classifier);
+        return new SlotClassifier(label, classifier);
     }
 
     static void validateType(String type) {
@@ -106,15 +106,15 @@ public final class ModelSlotClassifier implements AutoCloseable {
         }
     }
 
-    private static void closeQuietly(AntiSpoofingClassifier classifier) {
+    private static void closeQuietly(Classifier classifier) {
         try { classifier.close(); } catch (Exception ignored) {}
     }
 
     public static final class LoadResult {
-        public final List<ModelSlotClassifier> slots;
+        public final List<SlotClassifier> slots;
         public final List<String> errors;
 
-        LoadResult(List<ModelSlotClassifier> slots, List<String> errors) {
+        LoadResult(List<SlotClassifier> slots, List<String> errors) {
             this.slots = slots;
             this.errors = errors;
         }

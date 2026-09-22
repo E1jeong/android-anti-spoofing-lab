@@ -2,25 +2,25 @@ package com.unionbiometrics.vision.internal.model;
 
 import org.junit.Test;
 
-public class ModelSlotClassifierTest {
+public class SlotClassifierTest {
     @Test
     public void acceptsIrAndRgbIrModelTypes() {
-        ModelSlotClassifier.validateType("single_1_input");
-        ModelSlotClassifier.validateType("dual_2_input");
+        SlotClassifier.validateType("single_1_input");
+        SlotClassifier.validateType("dual_2_input");
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsPairedOneInputModels() {
-        ModelSlotClassifier.validateType("paired_1_input");
+        SlotClassifier.validateType("paired_1_input");
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsFiveInputModels() {
-        ModelSlotClassifier.validateType("five_input");
+        SlotClassifier.validateType("five_input");
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNonCanonicalTypeCasing() {
-        ModelSlotClassifier.validateType("SINGLE_1_INPUT");
+        SlotClassifier.validateType("SINGLE_1_INPUT");
     }
 }

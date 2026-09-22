@@ -24,7 +24,7 @@ import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.unionbiometrics.vision.api.ClassLabels;
 import com.unionbiometrics.vision.api.ProbabilityResult;
-import com.unionbiometrics.vision.internal.inference.InferenceResult;
+import com.unionbiometrics.vision.internal.inference.FrameResult;
 
 import java.util.Locale;
 
@@ -584,7 +584,7 @@ public final class MainScreenView {
         if (show) root.bringChildToFront(cleanModeSnapshotButton);
     }
 
-    public void showCleanModeResult(InferenceResult slotResult) {
+    public void showCleanModeResult(FrameResult slotResult) {
         if (slotResult == null) {
             clearCleanModeResult();
             return;

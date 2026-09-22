@@ -6,11 +6,11 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import com.unionbiometrics.vision.internal.asset.ModelAssetLoader;
+import com.unionbiometrics.vision.internal.asset.AssetLoader;
 
 import java.util.Locale;
 
-final class ModelSpec {
+final class Spec {
     static final String RGB_NORMALIZATION_IMAGENET = "imagenet";
     static final String RGB_NORMALIZATION_MINUS_ONE_TO_ONE = "minus_one_to_one";
 
@@ -29,7 +29,7 @@ final class ModelSpec {
     final boolean outputIsLogits;
     final float cropMarginRatio;
 
-    private ModelSpec(JSONObject json) throws JSONException {
+    private Spec(JSONObject json) throws JSONException {
         Object inputsObj = json.opt("inputs");
         if (inputsObj instanceof JSONArray) {
             JSONArray inputsArray = (JSONArray) inputsObj;
@@ -172,11 +172,11 @@ final class ModelSpec {
         }
     }
 
-    static ModelSpec parse(String json) throws Exception {
-        return new ModelSpec(new JSONObject(json));
+    static Spec parse(String json) throws Exception {
+        return new Spec(new JSONObject(json));
     }
 
-    static ModelSpec load(Context context, String assetName) throws Exception {
-        return parse(ModelAssetLoader.readUtf8(context, assetName));
+    static Spec load(Context context, String assetName) throws Exception {
+        return parse(AssetLoader.readUtf8(context, assetName));
     }
 }

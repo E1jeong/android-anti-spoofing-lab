@@ -54,7 +54,7 @@ import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
 import com.unionbiometrics.vision.VisionSdk;
-import com.unionbiometrics.vision.internal.inference.FrameInference;
+import com.unionbiometrics.vision.internal.inference.FrameClassifier;
 import com.unionbiometrics.vision.api.AntiSpoofingEngine;
 import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.api.EngineInfo;
@@ -64,7 +64,7 @@ import com.unionbiometrics.vision.api.ClassLabels;
 import com.unionbiometrics.vision.api.EngineLoadResult;
 import com.unionbiometrics.vision.api.AntiSpoofingOptions;
 import com.unionbiometrics.vision.api.ProbabilityResult;
-import com.unionbiometrics.vision.internal.inference.InferenceResult;
+import com.unionbiometrics.vision.internal.inference.FrameResult;
 import com.virditech.ac7000.model.AuthFrameAccumulator;
 import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.performance.LatencyWindow;
@@ -1354,7 +1354,7 @@ public final class MainActivity extends Activity {
                 || !isPipelineCurrent(task.generation) || task.engine == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
-        InferenceResult result = FrameInference.infer(task.engine, new AntiSpoofingFrame(
+        FrameResult result = FrameClassifier.infer(task.engine, new AntiSpoofingFrame(
                 task.pair.rgb.bitmap, task.rgbFace, task.pair.rgb.timestampNs,
                 task.pair.ir.bitmap, task.irFace, task.pair.ir.timestampNs));
         if (!result.successful()) throw new IllegalStateException(result.errorMessage());
@@ -1976,7 +1976,7 @@ public final class MainActivity extends Activity {
         showTransientStatus("Attack Live capture stopped: " + attackCaptureCount + " saved");
     }
 
-    private void maybeSaveAttackLiveCapture(InferenceTask task, InferenceResult result) {
+    private void maybeSaveAttackLiveCapture(InferenceTask task, FrameResult result) {
         ProbabilityResult primary = result.result();
         if (primary == null || !AttackLiveCaptureGate.shouldSave(primary.probabilities())) {
             return;
@@ -2120,7 +2120,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private CharSequence formatClassificationResults(InferenceResult result) {
+    private CharSequence formatClassificationResults(FrameResult result) {
         StringBuilder sb = new StringBuilder();
         appendClassificationResult(sb, null, result.result());
         return sb.toString();

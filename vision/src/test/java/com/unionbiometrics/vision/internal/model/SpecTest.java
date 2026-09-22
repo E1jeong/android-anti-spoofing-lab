@@ -5,10 +5,10 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-public class ModelSpecTest {
+public class SpecTest {
     @Test
     public void parsesCurrentIrSidecarContract() throws Exception {
-        ModelSpec spec = ModelSpec.parse("{"
+        Spec spec = Spec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":[{"
@@ -32,7 +32,7 @@ public class ModelSpecTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsInvalidCropMargin() throws Exception {
-        ModelSpec.parse("{"
+        Spec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":1.5,"
                 + "\"inputs\":[{"
@@ -46,7 +46,7 @@ public class ModelSpecTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsRgbOnlySidecar() throws Exception {
-        ModelSpec.parse("{"
+        Spec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":[{"
@@ -60,7 +60,7 @@ public class ModelSpecTest {
 
     @Test
     public void parsesRgbIrSidecar() throws Exception {
-        ModelSpec spec = ModelSpec.parse("{"
+        Spec spec = Spec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":["
@@ -77,7 +77,7 @@ public class ModelSpecTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsAdditionalInputs() throws Exception {
-        ModelSpec.parse("{"
+        Spec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":["
@@ -93,7 +93,7 @@ public class ModelSpecTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsIrSidecarWithNonzeroTensorIndex() throws Exception {
-        ModelSpec.parse("{"
+        Spec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":[{"
@@ -107,7 +107,7 @@ public class ModelSpecTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsDualSidecarWithOutOfRangeTensorIndex() throws Exception {
-        ModelSpec.parse("{"
+        Spec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":["
@@ -121,7 +121,7 @@ public class ModelSpecTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsSidecarChannelsThatDoNotMatchInputKind() throws Exception {
-        ModelSpec.parse("{"
+        Spec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":[{"

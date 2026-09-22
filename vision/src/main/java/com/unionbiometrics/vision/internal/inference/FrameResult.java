@@ -3,13 +3,13 @@ package com.unionbiometrics.vision.internal.inference;
 import com.unionbiometrics.vision.api.ProbabilityResult;
 
 /** Internal raw single-frame result used by the Lab app and product session pipeline. */
-public final class InferenceResult {
+public final class FrameResult {
     private final ProbabilityResult result;
     private final long preprocessMs;
     private final long inferenceMs;
     private final String errorMessage;
 
-    private InferenceResult(ProbabilityResult result, long preprocessMs,
+    private FrameResult(ProbabilityResult result, long preprocessMs,
                             long inferenceMs, String errorMessage) {
         this.result = result;
         this.preprocessMs = preprocessMs;
@@ -17,14 +17,14 @@ public final class InferenceResult {
         this.errorMessage = errorMessage;
     }
 
-    public static InferenceResult success(ProbabilityResult result,
+    public static FrameResult success(ProbabilityResult result,
                                           long preprocessMs, long inferenceMs) {
         if (result == null) throw new IllegalArgumentException("Success requires a result");
-        return new InferenceResult(result, preprocessMs, inferenceMs, null);
+        return new FrameResult(result, preprocessMs, inferenceMs, null);
     }
 
-    public static InferenceResult error(String message) {
-        return new InferenceResult(null, 0L, 0L,
+    public static FrameResult error(String message) {
+        return new FrameResult(null, 0L, 0L,
                 message == null ? "Unknown Vision inference error" : message);
     }
 
