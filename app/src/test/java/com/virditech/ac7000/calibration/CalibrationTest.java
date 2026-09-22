@@ -24,16 +24,26 @@ public final class CalibrationTest {
     @Test public void usesNProHorizontalConvention() {
         assertEquals(27f, Calibration.horizontalCalibration(100f, 73f), 0f);
         assertEquals(73, Calibration.mapHorizontal(100, 164f, 27f, 164f));
+        assertEquals(117, Calibration.mapHorizontal(100, 164f, -19f, 177f));
+        assertEquals(202, (int) (200 - 164f * -3f / 177f));
     }
 
-    @Test public void decodesCurrentBigEndianAndLegacyLittleEndianFiles() throws Exception {
+    @Test public void decodesCurrentBigEndianFile() throws Exception {
         assertValues(Calibration.decode(BIG_ENDIAN_VALUES));
-        assertValues(Calibration.decode(LITTLE_ENDIAN_VALUES));
     }
 
     @Test public void writesCurrentNProBigEndianFormat() throws Exception {
-        Calibration calibration = Calibration.decode(LITTLE_ENDIAN_VALUES);
+        Calibration calibration = Calibration.decode(BIG_ENDIAN_VALUES);
         assertArrayEquals(BIG_ENDIAN_VALUES, Arrays.copyOf(calibration.encode(), 12));
+    }
+
+    @Test public void rejectsLegacyLittleEndianData() {
+        try {
+            Calibration.decode(LITTLE_ENDIAN_VALUES);
+            fail("Expected little-endian calibration data to be rejected");
+        } catch (IOException expected) {
+            assertEquals("Calibration values are invalid", expected.getMessage());
+        }
     }
 
     @Test public void rejectsTruncatedData() {

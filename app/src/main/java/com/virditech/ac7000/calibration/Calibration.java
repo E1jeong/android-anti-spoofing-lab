@@ -75,25 +75,28 @@ public final class Calibration {
         float vertical = readBigEndianFloat(bytes, 0);
         float horizontal = readBigEndianFloat(bytes, 4);
         float faceWidth = readBigEndianFloat(bytes, 8);
-        if (faceWidth > 0f && faceWidth < 1f) {
-            vertical = readLittleEndianFloat(bytes, 0);
-            horizontal = readLittleEndianFloat(bytes, 4);
-            faceWidth = readLittleEndianFloat(bytes, 8);
-        }
         if (!Float.isFinite(vertical) || !Float.isFinite(horizontal) || !Float.isFinite(faceWidth)
-                || Math.abs(vertical) > 200f || Math.abs(horizontal) > 200f || faceWidth <= 0f || faceWidth > 500f) {
+                || Math.abs(vertical) > 200f || Math.abs(horizontal) > 200f || faceWidth < 1f || faceWidth > 500f) {
             throw new IOException("Calibration values are invalid");
         }
         return new Calibration(vertical, horizontal, faceWidth);
     }
 
     public Rect rgbToIr(Rect rgb, int width, int height) {
-        float yOffset = rgb.width() * vertical / referenceFaceWidth;
-        return new Rect(
-                clamp(mapHorizontal(rgb.left, rgb.width(), horizontal, referenceFaceWidth), 0, width),
-                clamp(Math.round(rgb.top - yOffset), 0, height),
-                clamp(mapHorizontal(rgb.right, rgb.width(), horizontal, referenceFaceWidth), 0, width),
-                clamp(Math.round(rgb.bottom - yOffset), 0, height));
+        Rect ir = new Rect(rgb);
+        if ((vertical != 0f || horizontal != 0f) && referenceFaceWidth != 0f) {
+            float verticalOffset = rgb.width() * vertical / referenceFaceWidth;
+            ir.left = mapHorizontal(rgb.left, rgb.width(), horizontal, referenceFaceWidth);
+            ir.right = mapHorizontal(rgb.right, rgb.width(), horizontal, referenceFaceWidth);
+            ir.top = (int) (rgb.top - verticalOffset);
+            ir.bottom = (int) (rgb.bottom - verticalOffset);
+
+            if (ir.left < 0) ir.left = 0;
+            if (ir.right >= width) ir.right = width - 1;
+            if (ir.top < 0) ir.top = 0;
+            if (ir.bottom >= height) ir.bottom = height - 1;
+        }
+        return ir;
     }
 
     public void save() throws IOException {
@@ -131,7 +134,7 @@ public final class Calibration {
 
     static int mapHorizontal(int coordinate, float rgbFaceWidth, float horizontal,
                              float referenceFaceWidth) {
-        return Math.round(coordinate - rgbFaceWidth * horizontal / referenceFaceWidth);
+        return (int) (coordinate - rgbFaceWidth * horizontal / referenceFaceWidth);
     }
 
     private static float readBigEndianFloat(byte[] bytes, int offset) {
@@ -139,14 +142,6 @@ public final class Calibration {
                 | (bytes[offset + 1] & 0xff) << 16
                 | (bytes[offset + 2] & 0xff) << 8
                 | (bytes[offset + 3] & 0xff);
-        return Float.intBitsToFloat(bits);
-    }
-
-    private static float readLittleEndianFloat(byte[] bytes, int offset) {
-        int bits = (bytes[offset] & 0xff)
-                | (bytes[offset + 1] & 0xff) << 8
-                | (bytes[offset + 2] & 0xff) << 16
-                | (bytes[offset + 3] & 0xff) << 24;
         return Float.intBitsToFloat(bits);
     }
 
@@ -158,7 +153,4 @@ public final class Calibration {
         bytes[offset + 3] = (byte) bits;
     }
 
-    private static int clamp(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
-    }
 }
