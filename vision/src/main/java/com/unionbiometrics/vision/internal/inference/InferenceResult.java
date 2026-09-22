@@ -1,8 +1,8 @@
-package com.unionbiometrics.vision.api;
+package com.unionbiometrics.vision.internal.inference;
 
-import androidx.annotation.RestrictTo;
+import com.unionbiometrics.vision.api.ProbabilityResult;
 
-/** Raw single-frame result used by diagnostic hosts such as the lab app. */
+/** Internal raw single-frame result used by the Lab app and product session pipeline. */
 public final class InferenceResult {
     private final ProbabilityResult result;
     private final long preprocessMs;
@@ -17,14 +17,12 @@ public final class InferenceResult {
         this.errorMessage = errorMessage;
     }
 
-    @RestrictTo(RestrictTo.Scope.LIBRARY)
     public static InferenceResult success(ProbabilityResult result,
                                           long preprocessMs, long inferenceMs) {
         if (result == null) throw new IllegalArgumentException("Success requires a result");
         return new InferenceResult(result, preprocessMs, inferenceMs, null);
     }
 
-    @RestrictTo(RestrictTo.Scope.LIBRARY)
     public static InferenceResult error(String message) {
         return new InferenceResult(null, 0L, 0L,
                 message == null ? "Unknown Vision inference error" : message);

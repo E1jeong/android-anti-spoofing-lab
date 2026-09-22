@@ -34,10 +34,11 @@ hosts do not need to import `ClassificationResult`.
 Each loaded engine owns immutable model-slot label, backend, and crop-margin metadata,
 exposed through `AntiSpoofingEngine.info()`.
 
-The Lab app uses `AntiSpoofingEngine.infer(AntiSpoofingFrame)` for raw per-frame diagnostics.
-Product hosts use `startSession()` plus `process()`. Implementation is grouped by
-responsibility under `com.unionbiometrics.vision.internal.asset`, `.engine`, `.model`, and
-`.session`; those packages are unsupported and are not part of the AAR's host API.
-Public declarations required for cross-package SDK wiring are marked library-only for
-consumer lint. Result construction is likewise library-only; hosts consume results
-returned by `VisionSdk` and `AntiSpoofingEngine` rather than manufacturing them.
+The in-repository Lab app uses internal `FrameInference.infer(...)` for raw per-frame
+evaluation. Product hosts use only `startSession()` plus `process()`. Implementation is
+grouped by responsibility under `com.unionbiometrics.vision.internal.asset`, `.engine`,
+`.inference`, `.model`, and `.session`; those packages are unsupported and are not part
+of the AAR's host API. SDK-only cross-package declarations are marked library-only for
+consumer lint; `FrameInference` is the explicit in-repository Lab exception. Product
+hosts consume results returned by `VisionSdk` and `AntiSpoofingEngine` rather than
+manufacturing them.

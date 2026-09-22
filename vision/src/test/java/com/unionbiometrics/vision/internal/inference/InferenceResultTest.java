@@ -1,4 +1,7 @@
-package com.unionbiometrics.vision.api;
+package com.unionbiometrics.vision.internal.inference;
+
+import com.unionbiometrics.vision.api.ClassLabels;
+import com.unionbiometrics.vision.api.ProbabilityResult;
 
 import org.junit.Test;
 

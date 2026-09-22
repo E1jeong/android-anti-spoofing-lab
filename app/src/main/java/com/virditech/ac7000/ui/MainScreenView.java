@@ -24,7 +24,7 @@ import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.unionbiometrics.vision.api.ClassLabels;
 import com.unionbiometrics.vision.api.ProbabilityResult;
-import com.unionbiometrics.vision.api.InferenceResult;
+import com.unionbiometrics.vision.internal.inference.InferenceResult;
 
 import java.util.Locale;
 

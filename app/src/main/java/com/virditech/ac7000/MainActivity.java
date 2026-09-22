@@ -54,16 +54,17 @@ import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
 import com.unionbiometrics.vision.VisionSdk;
+import com.unionbiometrics.vision.internal.inference.FrameInference;
 import com.unionbiometrics.vision.api.AntiSpoofingEngine;
 import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.api.EngineInfo;
 import com.unionbiometrics.vision.api.FaceCrop;
 import com.unionbiometrics.vision.api.AntiSpoofingFrame;
-import com.unionbiometrics.vision.api.InferenceResult;
 import com.unionbiometrics.vision.api.ClassLabels;
 import com.unionbiometrics.vision.api.EngineLoadResult;
 import com.unionbiometrics.vision.api.AntiSpoofingOptions;
 import com.unionbiometrics.vision.api.ProbabilityResult;
+import com.unionbiometrics.vision.internal.inference.InferenceResult;
 import com.virditech.ac7000.model.AuthFrameAccumulator;
 import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.performance.LatencyWindow;
@@ -1353,7 +1354,7 @@ public final class MainActivity extends Activity {
                 || !isPipelineCurrent(task.generation) || task.engine == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
-        InferenceResult result = task.engine.infer(new AntiSpoofingFrame(
+        InferenceResult result = FrameInference.infer(task.engine, new AntiSpoofingFrame(
                 task.pair.rgb.bitmap, task.rgbFace, task.pair.rgb.timestampNs,
                 task.pair.ir.bitmap, task.irFace, task.pair.ir.timestampNs));
         if (!result.successful()) throw new IllegalStateException(result.errorMessage());
