@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision.internal.model;
+package com.unionbiometrics.vision.internal.classification;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;

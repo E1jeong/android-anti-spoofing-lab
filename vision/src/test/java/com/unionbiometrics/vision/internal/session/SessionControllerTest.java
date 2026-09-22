@@ -15,20 +15,20 @@ import static org.junit.Assert.assertNull;
 
 public class SessionControllerTest {
     @Test
-    public void runsSettleCollectAndTerminalSequence() {
+    public void runsSettleCollectAndDecisionSequence() {
         FakeClock clock = new FakeClock();
         List<Boolean> illumination = new ArrayList<>();
         SessionController controller = new SessionController(
                 new AntiSpoofingOptions(400L, 3, 150_000_000L), illumination::add, clock::now);
 
-        assertEquals(AntiSpoofingResult.Status.SETTLING, controller.start().status());
+        assertEquals(AntiSpoofingResult.Status.PENDING, controller.start().status());
         clock.nowMs = 399L;
-        assertEquals(AntiSpoofingResult.Status.SETTLING, controller.beforeSample().status());
+        assertEquals(AntiSpoofingResult.Status.PENDING, controller.beforeSample().status());
         clock.nowMs = 400L;
         assertNull(controller.beforeSample());
-        assertEquals(AntiSpoofingResult.Status.COLLECTING, controller.add(classificationAt(0), 2L, 3L).status());
-        assertEquals(AntiSpoofingResult.Status.COLLECTING, controller.add(classificationAt(0), 2L, 3L).status());
-        assertEquals(AntiSpoofingResult.Status.LIVE, controller.add(classificationAt(0), 2L, 3L).status());
+        assertEquals(AntiSpoofingResult.Status.PENDING, controller.add(classificationAt(0)).status());
+        assertEquals(AntiSpoofingResult.Status.PENDING, controller.add(classificationAt(0)).status());
+        assertEquals(AntiSpoofingResult.Status.LIVE, controller.add(classificationAt(0)).status());
         assertEquals(AntiSpoofingResult.Status.LIVE, controller.beforeSample().status());
         assertEquals(List.of(true), illumination);
     }
@@ -69,14 +69,13 @@ public class SessionControllerTest {
         SessionController controller = new SessionController(
                 new AntiSpoofingOptions(0L, 3, 150_000_000L), illumination::add, clock::now);
         controller.start();
-        controller.add(classificationAt(0), 2L, 3L);
+        controller.add(classificationAt(0));
 
         assertEquals(AntiSpoofingResult.Status.ERROR, controller.fail("bad frame").status());
-        assertEquals(AntiSpoofingResult.Status.SETTLING, controller.beforeSample().status());
+        assertEquals(AntiSpoofingResult.Status.PENDING, controller.beforeSample().status());
         assertNull(controller.beforeSample());
-        AntiSpoofingResult restarted = controller.add(classificationAt(0), 2L, 3L);
-        assertEquals(AntiSpoofingResult.Status.COLLECTING, restarted.status());
-        assertEquals(1, restarted.sampleCount());
+        AntiSpoofingResult restarted = controller.add(classificationAt(0));
+        assertEquals(AntiSpoofingResult.Status.PENDING, restarted.status());
         assertEquals(List.of(true, false, true), illumination);
     }
 

@@ -6,9 +6,9 @@ import com.unionbiometrics.vision.api.AntiSpoofingEngine;
 import com.unionbiometrics.vision.api.AntiSpoofingFrame;
 import com.unionbiometrics.vision.api.FaceCrop;
 import com.unionbiometrics.vision.api.ProbabilityResult;
-import com.unionbiometrics.vision.internal.model.ClassificationResult;
-import com.unionbiometrics.vision.internal.model.SlotClassifier;
-import com.unionbiometrics.vision.internal.model.SlotClassificationResult;
+import com.unionbiometrics.vision.internal.classification.ClassificationResult;
+import com.unionbiometrics.vision.internal.classification.SlotClassifier;
+import com.unionbiometrics.vision.internal.classification.SlotClassificationResult;
 
 import java.util.Objects;
 

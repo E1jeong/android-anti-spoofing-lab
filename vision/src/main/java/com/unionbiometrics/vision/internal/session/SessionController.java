@@ -23,7 +23,7 @@ public final class SessionController {
     private boolean sessionActive;
     private boolean closed;
     private long settleStartedMs;
-    private AntiSpoofingResult terminalResult;
+    private AntiSpoofingResult decision;
 
     public SessionController(AntiSpoofingOptions options, IlluminationControl illumination, Clock clock) {
         this.options = options;
@@ -43,29 +43,27 @@ public final class SessionController {
         }
         sessionActive = true;
         settleStartedMs = clock.elapsedRealtimeMs();
-        return AntiSpoofingResult.settling(options.sampleCount(), options.irSettleMs());
+        return AntiSpoofingResult.pending(null);
     }
 
     /** Returns null only when the caller may classify and add a sample. */
     public AntiSpoofingResult beforeSample() {
         if (closed) return error("Vision engine is closed");
         if (!sessionActive) return start();
-        if (terminalResult != null) return terminalResult;
+        if (decision != null) return decision;
         long elapsedMs = clock.elapsedRealtimeMs() - settleStartedMs;
         if (elapsedMs < options.irSettleMs()) {
-            return AntiSpoofingResult.settling(options.sampleCount(), options.irSettleMs() - elapsedMs);
+            return AntiSpoofingResult.pending(null);
         }
         return null;
     }
 
-    public AntiSpoofingResult add(ProbabilityResult classification,
-                                  long preprocessMs, long inferenceMs) {
+    public AntiSpoofingResult add(ProbabilityResult classification) {
         if (classification == null) return fail("Vision slot produced no primary result");
-        AntiSpoofingResult result = accumulator.add(
-                classification.probabilities(), preprocessMs, inferenceMs);
+        AntiSpoofingResult result = accumulator.add(classification.probabilities());
         if (result.status() == AntiSpoofingResult.Status.LIVE
                 || result.status() == AntiSpoofingResult.Status.SPOOF) {
-            terminalResult = result;
+            decision = result;
         }
         return result;
     }
@@ -94,13 +92,13 @@ public final class SessionController {
     }
 
     private AntiSpoofingResult error(String message) {
-        return AntiSpoofingResult.error(options.sampleCount(), message);
+        return AntiSpoofingResult.error(message);
     }
 
     private void clearState() {
         sessionActive = false;
         settleStartedMs = 0L;
-        terminalResult = null;
+        decision = null;
         accumulator.reset();
     }
 

@@ -13,25 +13,22 @@ public class SessionAccumulatorTest {
     public void averagesThreeProbabilityVectorsBeforeLiveDecision() {
         SessionAccumulator accumulator = new SessionAccumulator(3);
 
-        assertEquals(AntiSpoofingResult.Status.COLLECTING, accumulator.add(result(0.7f, 0.3f), 2L, 3L).status());
-        assertEquals(AntiSpoofingResult.Status.COLLECTING, accumulator.add(result(0.8f, 0.2f), 2L, 3L).status());
-        AntiSpoofingResult decision = accumulator.add(result(0.9f, 0.1f), 2L, 3L);
+        assertEquals(AntiSpoofingResult.Status.PENDING, accumulator.add(result(0.7f, 0.3f)).status());
+        assertEquals(AntiSpoofingResult.Status.PENDING, accumulator.add(result(0.8f, 0.2f)).status());
+        AntiSpoofingResult decision = accumulator.add(result(0.9f, 0.1f));
 
         assertEquals(AntiSpoofingResult.Status.LIVE, decision.status());
-        assertEquals(3, decision.sampleCount());
         assertEquals(0, decision.result().topIndex());
         assertEquals(0.8f, decision.result().probability(0), 0.0001f);
-        assertEquals(2L, decision.samplePreprocessMs());
-        assertEquals(3L, decision.sampleInferenceMs());
     }
 
     @Test
     public void dentalClassIsAcceptedAsLive() {
         SessionAccumulator accumulator = new SessionAccumulator(3);
 
-        accumulator.add(resultAt(10), 2L, 3L);
-        accumulator.add(resultAt(10), 2L, 3L);
-        AntiSpoofingResult decision = accumulator.add(resultAt(10), 2L, 3L);
+        accumulator.add(resultAt(10));
+        accumulator.add(resultAt(10));
+        AntiSpoofingResult decision = accumulator.add(resultAt(10));
 
         assertEquals(AntiSpoofingResult.Status.LIVE, decision.status());
         assertEquals("DENTAL_WHITE", decision.result().topLabel());
@@ -40,12 +37,11 @@ public class SessionAccumulatorTest {
     @Test
     public void resetDropsPreviousSamples() {
         SessionAccumulator accumulator = new SessionAccumulator(3);
-        accumulator.add(result(0.9f, 0.1f), 2L, 3L);
+        accumulator.add(result(0.9f, 0.1f));
         accumulator.reset();
 
-        AntiSpoofingResult result = accumulator.add(result(0.1f, 0.9f), 2L, 3L);
+        AntiSpoofingResult result = accumulator.add(result(0.1f, 0.9f));
 
-        assertEquals(1, result.sampleCount());
         assertArrayEquals(result(0.1f, 0.9f), result.result().probabilities(), 0.0001f);
     }
 

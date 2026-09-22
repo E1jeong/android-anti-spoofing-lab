@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision.internal.model;
+package com.unionbiometrics.vision.internal.classification;
 
 import org.junit.Test;
 

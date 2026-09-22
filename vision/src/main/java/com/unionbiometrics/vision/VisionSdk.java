@@ -6,7 +6,7 @@ import com.unionbiometrics.vision.api.AntiSpoofingEngine;
 import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.api.EngineLoadResult;
 import com.unionbiometrics.vision.api.AntiSpoofingOptions;
-import com.unionbiometrics.vision.internal.model.SlotClassifier;
+import com.unionbiometrics.vision.internal.classification.SlotClassifier;
 import com.unionbiometrics.vision.internal.engine.AntiSpoofingEngineImpl;
 
 import java.util.ArrayList;

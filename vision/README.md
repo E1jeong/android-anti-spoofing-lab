@@ -21,7 +21,7 @@ AntiSpoofingResult result = engine.process(new AntiSpoofingFrame(
 
 The default session requests IR illumination, waits 400 ms, and averages three
 probability vectors before returning `LIVE` or `SPOOF`. Calls made earlier return
-`SETTLING` or `COLLECTING`; failures return `ERROR`. Call `reset()` at authentication
+`PENDING`; failures return `ERROR`. Call `reset()` at authentication
 completion or cancellation and `close()` at host teardown.
 
 The SDK borrows frame bitmaps only for the synchronous `process()` call and never
@@ -37,7 +37,7 @@ exposed through `AntiSpoofingEngine.info()`.
 The in-repository Lab app uses internal `FrameClassifier.infer(...)` for raw per-frame
 evaluation. Product hosts use only `startSession()` plus `process()`. Implementation is
 grouped by responsibility under `com.unionbiometrics.vision.internal.asset`, `.engine`,
-`.inference`, `.model`, and `.session`; those packages are unsupported and are not part
+`.inference`, `.classification`, and `.session`; those packages are unsupported and are not part
 of the AAR's host API. SDK-only cross-package declarations are marked library-only for
 consumer lint; `FrameClassifier` is the explicit in-repository Lab exception. Product
 hosts consume results returned by `VisionSdk` and `AntiSpoofingEngine` rather than

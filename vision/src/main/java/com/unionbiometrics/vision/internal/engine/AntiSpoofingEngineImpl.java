@@ -12,7 +12,7 @@ import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.api.EngineInfo;
 import com.unionbiometrics.vision.internal.inference.FrameClassifier;
 import com.unionbiometrics.vision.internal.inference.FrameResult;
-import com.unionbiometrics.vision.internal.model.SlotClassifier;
+import com.unionbiometrics.vision.internal.classification.SlotClassifier;
 import com.unionbiometrics.vision.internal.session.SessionController;
 
 @RestrictTo(RestrictTo.Scope.LIBRARY)
@@ -54,7 +54,7 @@ public final class AntiSpoofingEngineImpl
     @Override
     public synchronized AntiSpoofingResult process(AntiSpoofingFrame frame) {
         if (session.isClosed()) {
-            return AntiSpoofingResult.error(options.sampleCount(), "Vision engine is closed");
+            return AntiSpoofingResult.error("Vision engine is closed");
         }
         if (frame == null) return fail("Vision frame must not be null");
         AntiSpoofingResult sessionState = session.beforeSample();
@@ -62,8 +62,7 @@ public final class AntiSpoofingEngineImpl
         FrameResult inference = frameClassifier.infer(frame);
         if (!inference.successful()) return fail(inference.errorMessage());
         try {
-            return session.add(
-                    inference.result(), inference.preprocessMs(), inference.inferenceMs());
+            return session.add(inference.result());
         } catch (RuntimeException e) {
             return fail("Vision inference failed: " + e.getMessage());
         }
