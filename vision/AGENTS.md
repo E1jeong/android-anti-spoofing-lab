@@ -25,7 +25,7 @@ All Java paths below are relative to `vision/src/main/java/com/unionbiometrics/v
 
 1. Product hosts depend only on `com.unionbiometrics.vision.VisionSdk` and public types in `com.unionbiometrics.vision.api`. Packages under `com.unionbiometrics.vision.internal` are unsupported implementation details; the in-repository Lab app alone uses `internal.inference.FrameClassifier` for raw per-frame evaluation.
 2. `AntiSpoofingFrame` borrows both bitmaps for the duration of `process()`; the SDK never recycles host-owned frames. Keep both RGB and IR inputs even when the active slot uses IR only.
-3. The default session contract requests IR illumination, waits 400 ms, and averages three probability vectors. `reset()`/`close()` clear session state and request IR off.
+3. The host owns IR illumination. The default session discards ten incoming frames and averages three probability vectors; `reset()`/`close()` clear SDK session state only.
 4. Sidecar `normalization` / `quantization` is the runtime recipe for incoming 0–255 pixels. Resize to the tensor HxW, apply mean/std, then INT8 quantize. Do not treat a quantized `.tflite` as already-preprocessed camera input.
 5. Model file and sidecar are one set in this module under `assets/ubio-vision/`. Do not load a host tflite with this module's sidecar, or the reverse. Do not place `model_manifest.json` at the host assets root; recognition uses a different fallback when that file is absent.
 6. Supported slots are IR `single_1_input` (`ir@0`, one channel) and RGB+IR `dual_2_input` (distinct RGB/IR indices 0/1, three/one channels). Build-time asset validation and runtime parsing reject RGB-only, paired one-input, five-input, and additional-input forms.

@@ -56,7 +56,6 @@ import com.virditech.ac7000.device.UbimDaemonClient;
 import com.unionbiometrics.vision.VisionSdk;
 import com.unionbiometrics.vision.internal.inference.FrameClassifier;
 import com.unionbiometrics.vision.api.AntiSpoofingEngine;
-import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.api.EngineInfo;
 import com.unionbiometrics.vision.api.FaceCrop;
 import com.unionbiometrics.vision.api.AntiSpoofingFrame;
@@ -158,7 +157,6 @@ public final class MainActivity extends Activity {
     private volatile FaceDetectionEngine activeFaceDetector;
     private volatile AntiSpoofingEngine antiSpoofingEngine;
     private volatile Calibration calibration;
-    private final IrLedController irLedController = HardwareControls::setIrLed;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private final CaptureSession collectionSession = new CaptureSession();
     private volatile boolean isAttackLiveCapturing;
@@ -676,8 +674,7 @@ public final class MainActivity extends Activity {
     private void loadAntiSpoofingEngines() {
         EngineLoadResult result = null;
         try {
-            result = VisionSdk.loadAll(
-                    getApplicationContext(), irLedController, AntiSpoofingOptions.defaults());
+            result = VisionSdk.loadAll(getApplicationContext(), AntiSpoofingOptions.defaults());
         } catch (Exception e) {
             reportEngineError("MODEL LOAD FAILED: " + e.getMessage());
         }

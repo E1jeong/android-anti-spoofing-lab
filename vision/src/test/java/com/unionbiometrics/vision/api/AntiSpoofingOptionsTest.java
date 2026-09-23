@@ -9,13 +9,13 @@ public class AntiSpoofingOptionsTest {
     public void defaultsMatchVerifiedProductSequence() {
         AntiSpoofingOptions options = AntiSpoofingOptions.defaults();
 
-        assertEquals(400L, options.irSettleMs());
+        assertEquals(10, options.irSettleFrameCount());
         assertEquals(3, options.sampleCount());
         assertEquals(150_000_000L, options.maxPairDeltaNs());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsZeroSampleCount() {
-        new AntiSpoofingOptions(400L, 0, 150_000_000L);
+        new AntiSpoofingOptions(10, 0, 150_000_000L);
     }
 }

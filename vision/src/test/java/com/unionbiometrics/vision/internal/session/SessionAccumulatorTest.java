@@ -13,22 +13,23 @@ public class SessionAccumulatorTest {
     public void averagesThreeProbabilityVectorsBeforeLiveDecision() {
         SessionAccumulator accumulator = new SessionAccumulator(3);
 
-        assertEquals(AntiSpoofingResult.Status.PENDING, accumulator.add(result(0.7f, 0.3f)).status());
-        assertEquals(AntiSpoofingResult.Status.PENDING, accumulator.add(result(0.8f, 0.2f)).status());
-        AntiSpoofingResult decision = accumulator.add(result(0.9f, 0.1f));
+        assertEquals(AntiSpoofingResult.Status.PENDING, accumulator.add(result(0.7f, 0.3f), 11L).status());
+        assertEquals(AntiSpoofingResult.Status.PENDING, accumulator.add(result(0.8f, 0.2f), 12L).status());
+        AntiSpoofingResult decision = accumulator.add(result(0.9f, 0.1f), 13L);
 
         assertEquals(AntiSpoofingResult.Status.LIVE, decision.status());
         assertEquals(0, decision.result().topIndex());
         assertEquals(0.8f, decision.result().probability(0), 0.0001f);
+        assertEquals(Long.valueOf(13L), decision.inferenceMs());
     }
 
     @Test
     public void dentalClassIsAcceptedAsLive() {
         SessionAccumulator accumulator = new SessionAccumulator(3);
 
-        accumulator.add(resultAt(10));
-        accumulator.add(resultAt(10));
-        AntiSpoofingResult decision = accumulator.add(resultAt(10));
+        accumulator.add(resultAt(10), 1L);
+        accumulator.add(resultAt(10), 1L);
+        AntiSpoofingResult decision = accumulator.add(resultAt(10), 1L);
 
         assertEquals(AntiSpoofingResult.Status.LIVE, decision.status());
         assertEquals("DENTAL_WHITE", decision.result().topLabel());
@@ -37,10 +38,10 @@ public class SessionAccumulatorTest {
     @Test
     public void resetDropsPreviousSamples() {
         SessionAccumulator accumulator = new SessionAccumulator(3);
-        accumulator.add(result(0.9f, 0.1f));
+        accumulator.add(result(0.9f, 0.1f), 1L);
         accumulator.reset();
 
-        AntiSpoofingResult result = accumulator.add(result(0.1f, 0.9f));
+        AntiSpoofingResult result = accumulator.add(result(0.1f, 0.9f), 1L);
 
         assertArrayEquals(result(0.1f, 0.9f), result.result().probabilities(), 0.0001f);
     }

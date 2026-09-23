@@ -5,13 +5,13 @@ public interface AntiSpoofingEngine extends AutoCloseable {
     /** Returns immutable metadata for this loaded model slot. */
     EngineInfo info();
 
-    /** Starts a new IR-settle and multi-frame decision session. */
-    AntiSpoofingResult startSession();
-
-    /** Processes one borrowed RGB/IR frame pair. The SDK never recycles the supplied bitmaps. */
+    /**
+     * Processes one borrowed RGB/IR frame pair, automatically starting a session when needed.
+     * The SDK never recycles the supplied bitmaps.
+     */
     AntiSpoofingResult process(AntiSpoofingFrame frame);
 
-    /** Cancels the active session, clears accumulated probabilities, and requests IR off. */
+    /** Cancels the active session and clears accumulated probabilities. */
     void reset();
 
     @Override

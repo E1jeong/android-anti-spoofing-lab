@@ -33,10 +33,6 @@ public final class EngineLoadResultTest {
             return info;
         }
 
-        @Override public AntiSpoofingResult startSession() {
-            return null;
-        }
-
         @Override public AntiSpoofingResult process(AntiSpoofingFrame frame) {
             return null;
         }

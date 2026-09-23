@@ -1,14 +1,11 @@
 package com.unionbiometrics.vision.internal.engine;
 
-import android.os.SystemClock;
-
 import androidx.annotation.RestrictTo;
 
 import com.unionbiometrics.vision.api.AntiSpoofingEngine;
 import com.unionbiometrics.vision.api.AntiSpoofingFrame;
 import com.unionbiometrics.vision.api.AntiSpoofingOptions;
 import com.unionbiometrics.vision.api.AntiSpoofingResult;
-import com.unionbiometrics.vision.api.IrLedController;
 import com.unionbiometrics.vision.api.EngineInfo;
 import com.unionbiometrics.vision.internal.inference.FrameClassifier;
 import com.unionbiometrics.vision.internal.inference.FrameResult;
@@ -16,22 +13,17 @@ import com.unionbiometrics.vision.internal.classification.SlotClassifier;
 import com.unionbiometrics.vision.internal.session.SessionController;
 
 @RestrictTo(RestrictTo.Scope.LIBRARY)
-public final class AntiSpoofingEngineImpl
-        implements AntiSpoofingEngine, FrameClassifier.EngineAccess {
+public final class AntiSpoofingEngineImpl implements AntiSpoofingEngine, FrameClassifier.EngineAccess {
     private final FrameClassifier frameClassifier;
-    private final AntiSpoofingOptions options;
     private final SessionController session;
     private final EngineInfo info;
 
-    public AntiSpoofingEngineImpl(SlotClassifier slotClassifier, IrLedController irLedController,
-                                  AntiSpoofingOptions options) {
-        this.options = options;
+    public AntiSpoofingEngineImpl(SlotClassifier slotClassifier, AntiSpoofingOptions options) {
         info = new EngineInfo(
                 slotClassifier.label(), slotClassifier.inferenceBackend(),
                 slotClassifier.cropMarginRatio());
         frameClassifier = new FrameClassifier(slotClassifier, options.maxPairDeltaNs());
-        session = new SessionController(options, irLedController::setEnabled,
-                SystemClock::elapsedRealtime);
+        session = new SessionController(options);
     }
 
     @Override
@@ -47,11 +39,6 @@ public final class AntiSpoofingEngineImpl
     }
 
     @Override
-    public synchronized AntiSpoofingResult startSession() {
-        return session.start();
-    }
-
-    @Override
     public synchronized AntiSpoofingResult process(AntiSpoofingFrame frame) {
         if (session.isClosed()) {
             return AntiSpoofingResult.error("Vision engine is closed");
@@ -62,7 +49,7 @@ public final class AntiSpoofingEngineImpl
         FrameResult inference = frameClassifier.infer(frame);
         if (!inference.successful()) return fail(inference.errorMessage());
         try {
-            return session.add(inference.result());
+            return session.add(inference.result(), inference.inferenceMs());
         } catch (RuntimeException e) {
             return fail("Vision inference failed: " + e.getMessage());
         }

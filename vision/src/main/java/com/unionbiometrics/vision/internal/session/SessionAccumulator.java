@@ -13,7 +13,7 @@ final class SessionAccumulator {
         this.requiredSampleCount = requiredSampleCount;
     }
 
-    AntiSpoofingResult add(float[] probabilities) {
+    AntiSpoofingResult add(float[] probabilities, long inferenceMs) {
         if (sampleCount >= requiredSampleCount) {
             throw new IllegalStateException("Vision session is already complete");
         }
@@ -28,8 +28,8 @@ final class SessionAccumulator {
             average[i] = sums[i] / sampleCount;
         }
         ProbabilityResult result = new ProbabilityResult(average);
-        if (sampleCount < requiredSampleCount) return AntiSpoofingResult.pending(result);
-        return AntiSpoofingResult.decision(result);
+        if (sampleCount < requiredSampleCount) return AntiSpoofingResult.pending(result, inferenceMs);
+        return AntiSpoofingResult.decision(result, inferenceMs);
     }
 
     void reset() {
