@@ -11,11 +11,10 @@ public class AntiSpoofingOptionsTest {
 
         assertEquals(10, options.irSettleFrameCount());
         assertEquals(3, options.sampleCount());
-        assertEquals(150_000_000L, options.maxPairDeltaNs());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsZeroSampleCount() {
-        new AntiSpoofingOptions(10, 0, 150_000_000L);
+        new AntiSpoofingOptions(10, 0);
     }
 }

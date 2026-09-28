@@ -14,7 +14,7 @@ public class SessionControllerTest {
     @Test
     public void discardsConfiguredFramesBeforeCollectingAndDeciding() {
         SessionController controller = new SessionController(
-                new AntiSpoofingOptions(10, 3, 150_000_000L));
+                new AntiSpoofingOptions(10, 3));
 
         for (int i = 0; i < 10; i++) {
             assertEquals(AntiSpoofingResult.Status.PENDING, controller.beforeSample().status());
@@ -34,7 +34,7 @@ public class SessionControllerTest {
     @Test
     public void failureClearsSamplesAndRestartsSession() {
         SessionController controller = new SessionController(
-                new AntiSpoofingOptions(0, 3, 150_000_000L));
+                new AntiSpoofingOptions(0, 3));
         assertNull(controller.beforeSample());
         controller.add(classificationAt(0), 1L);
 

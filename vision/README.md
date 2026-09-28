@@ -12,8 +12,8 @@ AntiSpoofingEngine engine = loaded.engines().get(0);
 EngineInfo engineInfo = engine.info();
 
 AntiSpoofingResult result = engine.process(new AntiSpoofingFrame(
-        rgbBitmap, rgbFaceBox, rgbTimestampNs,
-        irBitmap, irFaceBox, irTimestampNs));
+        rgbBitmap, rgbFaceBox,
+        irBitmap, irFaceBox));
 ```
 
 The host turns on IR illumination before it begins passing frames and turns it off at every
@@ -27,6 +27,7 @@ cancellation and `close()` at host teardown.
 The SDK borrows frame bitmaps only for the synchronous `process()` call and never
 recycles them. Loading and inference must run off the Android main thread. A manifest
 slot that fails NNAPI setup or warmup is rejected without CPU fallback.
+The host pairs RGB and IR frames before calling the SDK.
 
 Probability vectors follow the defensive label array returned by `ClassLabels.values()`;
 hosts do not need to import `ClassificationResult`.

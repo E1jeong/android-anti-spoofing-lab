@@ -22,7 +22,7 @@ public final class AntiSpoofingEngineImpl implements AntiSpoofingEngine, FrameCl
         info = new EngineInfo(
                 slotClassifier.label(), slotClassifier.inferenceBackend(),
                 slotClassifier.cropMarginRatio());
-        frameClassifier = new FrameClassifier(slotClassifier, options.maxPairDeltaNs());
+        frameClassifier = new FrameClassifier(slotClassifier);
         session = new SessionController(options);
     }
 

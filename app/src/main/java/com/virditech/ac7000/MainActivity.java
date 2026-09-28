@@ -1352,8 +1352,8 @@ public final class MainActivity extends Activity {
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
         FrameResult result = FrameClassifier.infer(task.engine, new AntiSpoofingFrame(
-                task.pair.rgb.bitmap, task.rgbFace, task.pair.rgb.timestampNs,
-                task.pair.ir.bitmap, task.irFace, task.pair.ir.timestampNs));
+                task.pair.rgb.bitmap, task.rgbFace,
+                task.pair.ir.bitmap, task.irFace));
         if (!result.successful()) throw new IllegalStateException(result.errorMessage());
         long endToEndMs = (SystemClock.elapsedRealtimeNanos() - task.receivedNs) / 1_000_000L;
         if (isExclusiveEvaluationMode() || authVerdictShowing || testMenuShowing

@@ -19,11 +19,8 @@ public final class FrameClassifier {
     }
 
     private final SlotClassifier slotClassifier;
-    private final long maxPairDeltaNs;
-
-    public FrameClassifier(SlotClassifier slotClassifier, long maxPairDeltaNs) {
+    public FrameClassifier(SlotClassifier slotClassifier) {
         this.slotClassifier = Objects.requireNonNull(slotClassifier, "slotClassifier");
-        this.maxPairDeltaNs = maxPairDeltaNs;
     }
 
     public static FrameResult infer(AntiSpoofingEngine engine, AntiSpoofingFrame frame) {
@@ -36,10 +33,6 @@ public final class FrameClassifier {
 
     public FrameResult infer(AntiSpoofingFrame frame) {
         if (frame == null) return FrameResult.error("Vision frame must not be null");
-        if (Math.abs(frame.rgbTimestampNs() - frame.irTimestampNs()) > maxPairDeltaNs) {
-            return FrameResult.error(
-                    "RGB/IR frame delta exceeds " + maxPairDeltaNs + " ns");
-        }
         try {
             Rect rgbCrop = expandFaceBox(
                     frame.rgbFaceBox(), frame.rgb().getWidth(), frame.rgb().getHeight());
