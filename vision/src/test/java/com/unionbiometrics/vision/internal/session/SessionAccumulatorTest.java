@@ -32,7 +32,7 @@ public class SessionAccumulatorTest {
         AntiSpoofingResult decision = accumulator.add(resultAt(10), 1L);
 
         assertEquals(AntiSpoofingResult.Status.LIVE, decision.status());
-        assertEquals("DENTAL_WHITE", decision.result().topLabel());
+        assertEquals("DENTAL_WHITE", ClassLabels.values()[decision.result().topIndex()]);
     }
 
     @Test

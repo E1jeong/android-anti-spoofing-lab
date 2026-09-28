@@ -11,8 +11,8 @@ public class ClassLabelsTest {
         labels[0] = "changed";
 
         assertEquals(12, ClassLabels.count());
-        assertEquals("LIVE", ClassLabels.label(0));
-        assertEquals("DENTAL_BLACK", ClassLabels.label(11));
+        assertEquals("LIVE", ClassLabels.values()[0]);
+        assertEquals("DENTAL_BLACK", ClassLabels.values()[11]);
     }
 
     @Test

@@ -37,10 +37,6 @@ public final class ProbabilityResult {
         return topIndex;
     }
 
-    public String topLabel() {
-        return ClassLabels.label(topIndex);
-    }
-
     /** Returns whether the winning class belongs to the product bona-fide pass set. */
     public boolean isAccepted() {
         return ClassLabels.isAcceptedClass(topIndex);

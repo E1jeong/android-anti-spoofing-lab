@@ -63,8 +63,4 @@ public final class AntiSpoofingResult {
     public String errorMessage() {
         return errorMessage;
     }
-
-    public boolean isFinished() {
-        return status == Status.LIVE || status == Status.SPOOF || status == Status.ERROR;
-    }
 }

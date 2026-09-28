@@ -17,10 +17,6 @@ public final class ClassLabels {
         return VALUES.clone();
     }
 
-    public static String label(int index) {
-        return VALUES[index];
-    }
-
     public static String displayLabel(int index) {
         String label = VALUES[index];
         return label.startsWith("CURVED_")
