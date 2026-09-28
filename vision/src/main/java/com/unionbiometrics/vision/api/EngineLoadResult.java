@@ -6,10 +6,21 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public record EngineLoadResult(List<AntiSpoofingEngine> engines, List<String> errors) {
+public final class EngineLoadResult {
+    private final List<AntiSpoofingEngine> engines;
+    private final List<String> errors;
+
     @RestrictTo(RestrictTo.Scope.LIBRARY)
     public EngineLoadResult(List<AntiSpoofingEngine> engines, List<String> errors) {
         this.engines = Collections.unmodifiableList(new ArrayList<>(engines));
         this.errors = Collections.unmodifiableList(new ArrayList<>(errors));
+    }
+
+    public List<AntiSpoofingEngine> engines() {
+        return engines;
+    }
+
+    public List<String> errors() {
+        return errors;
     }
 }
