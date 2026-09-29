@@ -54,7 +54,7 @@ import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
 import com.unionbiometrics.vision.VisionSdk;
-import com.unionbiometrics.vision.internal.inference.FrameClassifier;
+import com.unionbiometrics.vision.internal.engine.DemoInferenceEngine;
 import com.unionbiometrics.vision.api.AntiSpoofingEngine;
 import com.unionbiometrics.vision.api.EngineInfo;
 import com.unionbiometrics.vision.api.FaceCrop;
@@ -1351,7 +1351,7 @@ public final class MainActivity extends Activity {
                 || !isPipelineCurrent(task.generation) || task.engine == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
-        FrameResult result = FrameClassifier.infer(task.engine, new AntiSpoofingFrame(
+        FrameResult result = DemoInferenceEngine.infer(task.engine, new AntiSpoofingFrame(
                 task.pair.rgb.bitmap, task.rgbFace,
                 task.pair.ir.bitmap, task.irFace));
         if (!result.successful()) throw new IllegalStateException(result.errorMessage());

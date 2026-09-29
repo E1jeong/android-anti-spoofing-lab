@@ -2,7 +2,6 @@ package com.unionbiometrics.vision.internal.inference;
 
 import android.graphics.Rect;
 
-import com.unionbiometrics.vision.api.AntiSpoofingEngine;
 import com.unionbiometrics.vision.api.AntiSpoofingFrame;
 import com.unionbiometrics.vision.api.FaceCrop;
 import com.unionbiometrics.vision.api.ProbabilityResult;
@@ -14,21 +13,9 @@ import java.util.Objects;
 
 /** Internal raw single-frame inference shared by product sessions and the Lab app. */
 public final class FrameClassifier {
-    public interface EngineAccess {
-        FrameResult inferFrame(AntiSpoofingFrame frame);
-    }
-
     private final SlotClassifier slotClassifier;
     public FrameClassifier(SlotClassifier slotClassifier) {
         this.slotClassifier = Objects.requireNonNull(slotClassifier, "slotClassifier");
-    }
-
-    public static FrameResult infer(AntiSpoofingEngine engine, AntiSpoofingFrame frame) {
-        Objects.requireNonNull(engine, "engine");
-        if (!(engine instanceof EngineAccess)) {
-            return FrameResult.error("Unsupported anti-spoofing engine implementation");
-        }
-        return ((EngineAccess) engine).inferFrame(frame);
     }
 
     public FrameResult infer(AntiSpoofingFrame frame) {

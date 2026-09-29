@@ -17,13 +17,13 @@ All Java paths below are relative to `vision/src/main/java/com/unionbiometrics/v
 - Crop implementation: `api/FaceCrop.java`.
 - Manifest, model slots, preprocess, and interpreter: `internal/classification/`.
 - Engine implementation and model/session composition: `internal/engine/`.
-- Shared raw-frame inference and the Lab-only entry point: `internal/inference/`.
+- Shared raw-frame inference: `internal/inference/`. Lab-only entry: `internal/engine/DemoInferenceEngine.java`.
 - Product-session state and probability averaging: `internal/session/`.
 - Assets: `vision/src/main/assets/ubio-vision/model_manifest.json`, matching `.tflite` and sidecar JSON in the same folder.
 
 ## Boundary & Architecture Constraints
 
-1. Product hosts depend only on `com.unionbiometrics.vision.VisionSdk` and public types in `com.unionbiometrics.vision.api`. Packages under `com.unionbiometrics.vision.internal` are unsupported implementation details; the in-repository Lab app alone uses `internal.inference.FrameClassifier` for raw per-frame evaluation.
+1. Product hosts depend only on `com.unionbiometrics.vision.VisionSdk` and public types in `com.unionbiometrics.vision.api`. Packages under `com.unionbiometrics.vision.internal` are unsupported implementation details; the in-repository Lab app alone uses `internal.engine.DemoInferenceEngine` for raw per-frame evaluation.
 2. `AntiSpoofingFrame` borrows both bitmaps for the duration of `process()`; the SDK never recycles host-owned frames. Keep both RGB and IR inputs even when the active slot uses IR only.
 3. The host owns IR illumination. The default session discards ten incoming frames and averages three probability vectors; `reset()`/`close()` clear SDK session state only.
 4. Sidecar `normalization` / `quantization` is the runtime recipe for incoming 0–255 pixels. Resize to the tensor HxW, apply mean/std, then INT8 quantize. Do not treat a quantized `.tflite` as already-preprocessed camera input.

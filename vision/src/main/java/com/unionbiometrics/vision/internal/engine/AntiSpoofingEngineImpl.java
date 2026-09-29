@@ -13,7 +13,7 @@ import com.unionbiometrics.vision.internal.classification.SlotClassifier;
 import com.unionbiometrics.vision.internal.session.SessionController;
 
 @RestrictTo(RestrictTo.Scope.LIBRARY)
-public final class AntiSpoofingEngineImpl implements AntiSpoofingEngine, FrameClassifier.EngineAccess {
+public final class AntiSpoofingEngineImpl implements AntiSpoofingEngine {
     private final FrameClassifier frameClassifier;
     private final SessionController session;
     private final EngineInfo info;
@@ -31,9 +31,7 @@ public final class AntiSpoofingEngineImpl implements AntiSpoofingEngine, FrameCl
         return info;
     }
 
-    @RestrictTo(RestrictTo.Scope.LIBRARY)
-    @Override
-    public synchronized FrameResult inferFrame(AntiSpoofingFrame frame) {
+    synchronized FrameResult inferFrame(AntiSpoofingFrame frame) {
         if (session.isClosed()) return FrameResult.error("Vision engine is closed");
         return frameClassifier.infer(frame);
     }
