@@ -11,26 +11,21 @@
 
 All Java paths below are relative to `vision/src/main/java/com/unionbiometrics/vision/`.
 
-- Public loading façade: `VisionSdk.java`.
-- Stable host API/SPI and result contract: `api/`.
-- Asset access: `internal/asset/AssetLoader.java`.
-- Crop implementation: `api/FaceCrop.java`.
-- Manifest, model slots, preprocess, and interpreter: `internal/classification/`.
-- Engine implementation and model/session composition: `internal/engine/`.
-- Shared raw-frame inference: `internal/inference/`. Lab-only entry: `internal/engine/DemoInferenceEngine.java`.
-- Product-session state and probability averaging: `internal/session/`.
+- Public loading and session façade: `AntiSpoofingEngine.java`; public callback and result: `AntiSpoofingCallback.java`, `AntiSpoofingResult.java`.
+- Model loading, crop, inference, and session implementation: `internal/`.
+- Lab-only raw-frame entry: `internal/DemoInferenceEngine.java`.
 - Assets: `vision/src/main/assets/ubio-vision/model_manifest.json`, matching `.tflite` and sidecar JSON in the same folder.
 
 ## Boundary & Architecture Constraints
 
-1. Product hosts depend only on `com.unionbiometrics.vision.VisionSdk` and public types in `com.unionbiometrics.vision.api`. Packages under `com.unionbiometrics.vision.internal` are unsupported implementation details; the in-repository Lab app alone uses `internal.engine.DemoInferenceEngine` for raw per-frame evaluation.
-2. `AntiSpoofingFrame` borrows both bitmaps for the duration of `process()`; the SDK never recycles host-owned frames. Keep both RGB and IR inputs even when the active slot uses IR only.
+1. Product hosts use only `AntiSpoofingEngine`, `AntiSpoofingResult`, and `AntiSpoofingCallback`. The `com.unionbiometrics.vision.internal` package is an unsupported implementation detail; the in-repository Lab app alone uses `internal.DemoInferenceEngine` for raw per-frame evaluation and multi-slot loading.
+2. `AntiSpoofingEngine.Frame.ir` supplies IR only; `Frame.dual` supplies RGB and IR. `process()` borrows host bitmaps for one synchronous call; `submit()` copies expanded crops before returning. The SDK never recycles host-owned frames.
 3. The host owns IR illumination. The default session discards ten incoming frames and averages three probability vectors; `reset()`/`close()` clear SDK session state only.
 4. Sidecar `normalization` / `quantization` is the runtime recipe for incoming 0–255 pixels. Resize to the tensor HxW, apply mean/std, then INT8 quantize. Do not treat a quantized `.tflite` as already-preprocessed camera input.
 5. Model file and sidecar are one set in this module under `assets/ubio-vision/`. Do not load a host tflite with this module's sidecar, or the reverse. Do not place `model_manifest.json` at the host assets root; recognition uses a different fallback when that file is absent.
 6. Supported slots are IR `single_1_input` (`ir@0`, one channel) and RGB+IR `dual_2_input` (distinct RGB/IR indices 0/1, three/one channels). Build-time asset validation and runtime parsing reject RGB-only, paired one-input, five-input, and additional-input forms.
-7. Output shape and class order must match `ClassLabels.values()` (currently `[1,12]`). Reject legacy ten-class assets.
-8. Each `AntiSpoofingEngine` owns its immutable `EngineInfo`; do not recreate parallel engine/metadata lists. `ProbabilityResult` contains classification data only. Internal `FrameResult` owns Lab per-frame timing, and `AntiSpoofingResult` carries session status, the probability result, and an error message. Do not restore separate RGB/IR result branches or expose raw inference on `AntiSpoofingEngine`.
+7. Output shape and class order must match `internal.ClassLabels.values()` (currently `[1,12]`). Reject legacy ten-class assets.
+8. Each `AntiSpoofingEngine` owns one model slot and exposes its label, backend, and crop margin. Internal `FrameResult` owns Lab per-frame timing; public `AntiSpoofingResult` carries session status, probabilities, score, attack, counts, and error. Do not restore separate RGB/IR result branches or put Lab raw inference in the product API.
 9. A manifest slot that fails NNAPI setup or warmup is rejected. No silent CPU fallback.
 10. Never enable NNAPI compilation caching (`setCacheDir`/`setModelToken`).
 11. Library `namespace` is `com.unionbiometrics.vision`. Do not use `com.virditech.ac7000` or add `sharedUserId`/camera permissions to this manifest.

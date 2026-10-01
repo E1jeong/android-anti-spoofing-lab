@@ -10,8 +10,8 @@ import android.view.View;
 import com.virditech.ac7000.camera.PreviewTransform;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.unionbiometrics.vision.api.ClassLabels;
-import com.unionbiometrics.vision.api.ProbabilityResult;
+import com.unionbiometrics.vision.internal.ClassLabels;
+import com.unionbiometrics.vision.internal.ProbabilityResult;
 
 import java.util.Locale;
 

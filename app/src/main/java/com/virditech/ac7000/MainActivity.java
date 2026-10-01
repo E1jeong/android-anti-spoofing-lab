@@ -53,17 +53,12 @@ import com.virditech.ac7000.device.LightingExperimentLogger;
 import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
-import com.unionbiometrics.vision.VisionSdk;
-import com.unionbiometrics.vision.internal.engine.DemoInferenceEngine;
-import com.unionbiometrics.vision.api.AntiSpoofingEngine;
-import com.unionbiometrics.vision.api.EngineInfo;
-import com.unionbiometrics.vision.api.FaceCrop;
-import com.unionbiometrics.vision.api.AntiSpoofingFrame;
-import com.unionbiometrics.vision.api.ClassLabels;
-import com.unionbiometrics.vision.api.EngineLoadResult;
-import com.unionbiometrics.vision.api.AntiSpoofingOptions;
-import com.unionbiometrics.vision.api.ProbabilityResult;
-import com.unionbiometrics.vision.internal.inference.FrameResult;
+import com.unionbiometrics.vision.internal.DemoInferenceEngine;
+import com.unionbiometrics.vision.internal.FaceCrop;
+import com.unionbiometrics.vision.internal.FrameInput;
+import com.unionbiometrics.vision.internal.ClassLabels;
+import com.unionbiometrics.vision.internal.ProbabilityResult;
+import com.unionbiometrics.vision.internal.FrameResult;
 import com.virditech.ac7000.model.AuthFrameAccumulator;
 import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.performance.LatencyWindow;
@@ -139,7 +134,7 @@ public final class MainActivity extends Activity {
     private final Object engineLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
     private final AtomicInteger pendingEngineLoads = new AtomicInteger(2);
-    private final ArrayList<AntiSpoofingEngine> antiSpoofingEngines = new ArrayList<>();
+    private final ArrayList<DemoInferenceEngine.LabEngine> antiSpoofingEngines = new ArrayList<>();
     private int activeEngineIndex;
     private volatile boolean enginesShutDown;
     // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
@@ -155,7 +150,7 @@ public final class MainActivity extends Activity {
     private volatile FaceDetector faceDetector;
     private volatile MediaPipeFaceDetector mediaPipeFaceDetector;
     private volatile FaceDetectionEngine activeFaceDetector;
-    private volatile AntiSpoofingEngine antiSpoofingEngine;
+    private volatile DemoInferenceEngine.LabEngine antiSpoofingEngine;
     private volatile Calibration calibration;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private final CaptureSession collectionSession = new CaptureSession();
@@ -672,9 +667,9 @@ public final class MainActivity extends Activity {
     }
 
     private void loadAntiSpoofingEngines() {
-        EngineLoadResult result = null;
+        DemoInferenceEngine.LoadResult result = null;
         try {
-            result = VisionSdk.loadAll(getApplicationContext(), AntiSpoofingOptions.defaults());
+            result = DemoInferenceEngine.loadAll(getApplicationContext());
         } catch (Exception e) {
             reportEngineError("MODEL LOAD FAILED: " + e.getMessage());
         }
@@ -705,13 +700,13 @@ public final class MainActivity extends Activity {
         } catch (Exception e) {
             android.util.Log.w(TAG, "FaceRecognitionManager load failed: " + e.getMessage());
         }
-        List<AntiSpoofingEngine> loaded = result != null ? result.engines() : new ArrayList<>();
+        List<DemoInferenceEngine.LabEngine> loaded = result != null ? result.engines : new ArrayList<>();
         if (result != null) {
-            for (String error : result.errors()) reportEngineError(error);
+            for (String error : result.errors) reportEngineError(error);
         }
         synchronized (engineLock) {
             if (enginesShutDown) {
-                for (AntiSpoofingEngine slot : loaded) {
+                for (DemoInferenceEngine.LabEngine slot : loaded) {
                     try { slot.close(); } catch (Exception ignored) {}
                 }
                 return;
@@ -723,7 +718,7 @@ public final class MainActivity extends Activity {
         }
         runOnUiThread(() -> {
             screen.modelSwitchButton.setEnabled(antiSpoofingEngines.size() > 1);
-            EngineInfo activeInfo = antiSpoofingEngine != null ? antiSpoofingEngine.info() : null;
+            DemoInferenceEngine.LabEngine activeInfo = antiSpoofingEngine;
             if (activeInfo != null) screen.modelSwitchButton.setText(activeInfo.label());
             if (antiSpoofingEngine != null && cameras != null) cameras.setIrFramesEnabled(true);
         });
@@ -756,8 +751,8 @@ public final class MainActivity extends Activity {
         synchronized (engineErrors) {
             errors = engineErrors.toString();
         }
-        AntiSpoofingEngine activeEngine = antiSpoofingEngine;
-        EngineInfo activeInfo = activeEngine != null ? activeEngine.info() : null;
+        DemoInferenceEngine.LabEngine activeEngine = antiSpoofingEngine;
+        DemoInferenceEngine.LabEngine activeInfo = activeEngine;
         String message = errors.isEmpty()
                 ? (activeInfo != null ? "Backend " + activeInfo.backend() : "Loading model...")
                 : errors;
@@ -1062,11 +1057,11 @@ public final class MainActivity extends Activity {
 
         Rect rgbCrop = null;
         Rect irCrop = null;
-        AntiSpoofingEngine activeEngine;
-        EngineInfo activeEngineInfo;
+        DemoInferenceEngine.LabEngine activeEngine;
+        DemoInferenceEngine.LabEngine activeEngineInfo;
         synchronized (engineLock) {
             activeEngine = antiSpoofingEngine;
-            activeEngineInfo = activeEngine != null ? activeEngine.info() : null;
+            activeEngineInfo = activeEngine;
         }
         if (activeEngine != null) {
             float margin = activeEngineInfo.cropMarginRatio();
@@ -1351,7 +1346,7 @@ public final class MainActivity extends Activity {
                 || !isPipelineCurrent(task.generation) || task.engine == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
-        FrameResult result = DemoInferenceEngine.infer(task.engine, new AntiSpoofingFrame(
+        FrameResult result = DemoInferenceEngine.infer(task.engine, new FrameInput(
                 task.pair.rgb.bitmap, task.rgbFace,
                 task.pair.ir.bitmap, task.irFace));
         if (!result.successful()) throw new IllegalStateException(result.errorMessage());
@@ -2146,7 +2141,7 @@ public final class MainActivity extends Activity {
             if (antiSpoofingEngines.isEmpty()) return;
             activeEngineIndex = (activeEngineIndex + 1) % antiSpoofingEngines.size();
             antiSpoofingEngine = antiSpoofingEngines.get(activeEngineIndex);
-            EngineInfo activeInfo = antiSpoofingEngine.info();
+            DemoInferenceEngine.LabEngine activeInfo = antiSpoofingEngine;
 
             final String btnText = activeInfo.label();
             final String message = "Backend " + activeInfo.backend();
@@ -2403,14 +2398,14 @@ public final class MainActivity extends Activity {
         final Rect irCrop;
         final PointF[] landmarks;
         final int generation;
-        final AntiSpoofingEngine engine;
+        final DemoInferenceEngine.LabEngine engine;
         final float cropMarginRatio;
         final long receivedNs;
         final long enqueuedNs;
         final long motionGeneration;
 
         InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, PointF[] landmarks,
-                      int generation, AntiSpoofingEngine engine, float cropMarginRatio,
+                      int generation, DemoInferenceEngine.LabEngine engine, float cropMarginRatio,
                       long receivedNs, long motionGeneration) {
             this.pair = pair;
             this.rgbFace = rgbFace;
@@ -2542,7 +2537,7 @@ public final class MainActivity extends Activity {
 
     private void closeAntiSpoofingEngines() {
         synchronized (engineLock) {
-            for (AntiSpoofingEngine engine : antiSpoofingEngines) {
+            for (DemoInferenceEngine.LabEngine engine : antiSpoofingEngines) {
                 try { engine.close(); } catch (Exception ignored) {}
             }
             antiSpoofingEngine = null;

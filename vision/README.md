@@ -1,44 +1,39 @@
 # Vision SDK Contract
 
-The loading façade is `com.unionbiometrics.vision.VisionSdk`; stable host contracts are
-isolated under `com.unionbiometrics.vision.api`. The host owns IR LED control and passes
-unexpanded RGB and IR face boxes with each frame, then uses only the
-`AntiSpoofingEngine` interface during authentication.
+Product hosts use `com.unionbiometrics.vision.AntiSpoofingEngine`,
+`AntiSpoofingResult`, and `AntiSpoofingCallback`. Load and warm one zero-based manifest
+slot on a background thread:
 
 ```java
-EngineLoadResult loaded = VisionSdk.loadAll(
-        applicationContext, AntiSpoofingOptions.defaults());
-AntiSpoofingEngine engine = loaded.engines().get(0);
-EngineInfo engineInfo = engine.info();
-
-AntiSpoofingResult result = engine.process(new AntiSpoofingFrame(
-        rgbBitmap, rgbFaceBox,
-        irBitmap, irFaceBox));
+AntiSpoofingEngine engine = AntiSpoofingEngine.create(applicationContext);
+// To choose another slot: create(applicationContext, Options.defaults().withSlotIndex(index)).
+AntiSpoofingEngine.Frame frame = AntiSpoofingEngine.Frame.ir(irBitmap, irFaceBox);
+AntiSpoofingResult result = engine.process(frame);
 ```
 
-The host turns on IR illumination before it begins passing frames and turns it off at every
-terminal, reset, failure, and close path. The first `process()` automatically starts a session;
-the default session discards ten incoming frames and averages three probability vectors before
-returning `LIVE` or `SPOOF`. Calls made earlier return `PENDING`; failures return `ERROR`.
-`AntiSpoofingResult.inferenceMs()` returns the TFLite invocation time for each result that
-performed inference, and null otherwise. Call `reset()` at authentication completion or
-cancellation and `close()` at host teardown.
+Use `Frame.dual(rgbBitmap, rgbFaceBox, irBitmap, irFaceBox, rgbTimestampNs,
+irTimestampNs)` for a two-input slot. Pass unexpanded face boxes. The host pairs
+RGB and IR frames and controls IR illumination across every terminal, reset,
+failure, and close path. Check `requiresRgb()` for the selected slot.
 
-The SDK borrows frame bitmaps only for the synchronous `process()` call and never
-recycles them. Loading and inference must run off the Android main thread. A manifest
-slot that fails NNAPI setup or warmup is rejected without CPU fallback.
-The host pairs RGB and IR frames before calling the SDK.
+The default session discards ten incoming frames, then averages three probability
+vectors before returning `LIVE` or `SPOOF`. Earlier calls return `PENDING`;
+inference failures return `ERROR`. `inferenceMs()` is null when no inference ran.
+The result also exposes `probabilities()`, `topIndex()`, `score()`, `attack()`,
+`displayLabel()`, `settleRemaining()`, and `acceptedSamples()`. Call `reset()`
+after authentication or cancellation and `close()` at host teardown.
 
-Probability vectors follow the defensive label array returned by `ClassLabels.values()`;
-hosts do not need to import `ClassificationResult`.
-Each loaded engine owns immutable model-slot label, backend, and crop-margin metadata,
-exposed through `AntiSpoofingEngine.info()`.
+`process()` borrows frame bitmaps for its synchronous call; keep them alive until
+it returns. For asynchronous inference, create the engine with
+`Options.defaults().live(callbackExecutor)` and call `submit(frame, callback)`.
+`submit()` copies the expanded crops before returning, so the host can release
+its bitmaps afterward. Only the newest waiting frame is kept; a superseded or
+reset frame gets no callback. A null executor sends callbacks to the Android main looper.
+Run loading and synchronous inference off the main thread.
 
-The in-repository Lab app uses internal `DemoInferenceEngine.infer(...)` for raw per-frame
-evaluation. Product hosts use `process()` for session inference. Implementation is
-grouped by responsibility under `com.unionbiometrics.vision.internal.asset`, `.engine`,
-`.inference`, `.classification`, and `.session`; those packages are unsupported and are not part
-of the AAR's host API. SDK-only cross-package declarations are marked library-only for
-consumer lint; `DemoInferenceEngine` is the explicit in-repository Lab exception. Product
-hosts consume results returned by `VisionSdk` and `AntiSpoofingEngine` rather than
-manufacturing them.
+A manifest slot that fails NNAPI setup or warmup is rejected without CPU
+fallback. Model label, backend, and crop margin are available from `label()`,
+`backend()`, and `cropMarginRatio()`. Packages under
+`com.unionbiometrics.vision.internal` are unsupported implementation details;
+the in-repository Lab app uses `internal.DemoInferenceEngine` for raw
+multi-slot evaluation.

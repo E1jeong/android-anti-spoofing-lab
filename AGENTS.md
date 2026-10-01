@@ -13,7 +13,7 @@
 
 | Module | Responsibility | First entry point | Module guide |
 | --- | --- | --- | --- |
-| `vision/` | Anti-spoofing SDK: host contract, crop, preprocess, NNAPI inference, `[1,12]` output | `vision/src/main/java/com/unionbiometrics/vision/VisionSdk.java` | `vision/AGENTS.md` |
+| `vision/` | Anti-spoofing SDK: host contract, crop, preprocess, NNAPI inference, `[1,12]` output | `vision/src/main/java/com/unionbiometrics/vision/AntiSpoofingEngine.java` | `vision/AGENTS.md` |
 | `app/` | Android evaluation runtime, capture, recognition, and WebRTC terminal PoC | `app/src/main/java/com/virditech/ac7000/MainActivity.java` | `app/AGENTS.md` |
 
 ## Change Gates
