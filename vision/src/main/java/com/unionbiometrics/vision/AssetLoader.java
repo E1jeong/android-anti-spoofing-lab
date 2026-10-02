@@ -12,9 +12,6 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 
 final class AssetLoader {
-    static final String DIRECTORY = "ubio-vision";
-    static final String MANIFEST = "model_manifest.json";
-
     private AssetLoader() {}
 
     static String path(String relativeName) {
@@ -25,8 +22,8 @@ final class AssetLoader {
         if (normalized.startsWith("/")) {
             throw new IllegalArgumentException("Asset name must be relative: " + relativeName);
         }
-        if (normalized.startsWith(DIRECTORY + "/")) return normalized;
-        return DIRECTORY + "/" + normalized;
+        if (normalized.startsWith(VisionConstants.DIRECTORY + "/")) return normalized;
+        return VisionConstants.DIRECTORY + "/" + normalized;
     }
 
     static String readUtf8(Context context, String relativeName) throws IOException {

@@ -23,8 +23,6 @@ import java.util.Map;
 final class Classifier {
     private static final String TAG = "AntiSpoofingClassifier";
     private static final int THREAD_COUNT = Math.min(4, Runtime.getRuntime().availableProcessors());
-    private static final int ONE_INPUT_COUNT = 1;
-    private static final int TWO_INPUT_COUNT = 2;
     // Match the host's former ColorMatrix.setSaturation(0) conversion.
     private static final float LUMINANCE_RED = 0.213f;
     private static final float LUMINANCE_GREEN = 0.715f;
@@ -39,8 +37,8 @@ final class Classifier {
     private final Object[] inputs;
     private final DataType outputDataType;
     private final Tensor.QuantizationParams outputQuantization;
-    private final float[][] outputFloat = new float[1][ClassLabels.count()];
-    private final byte[][] outputInt8 = new byte[1][ClassLabels.count()];
+    private final float[][] outputFloat = new float[1][VisionConstants.CLASS_COUNT];
+    private final byte[][] outputInt8 = new byte[1][VisionConstants.CLASS_COUNT];
     private final Map<Integer, Object> outputs = new HashMap<>();
 
     Classifier(Context context, String modelName, String specName) throws Exception {
@@ -56,7 +54,8 @@ final class Classifier {
         Tensor.QuantizationParams liveOutputQuantization;
         try {
             int inputTensorCount = interpreter.getInputTensorCount();
-            if ((inputTensorCount != ONE_INPUT_COUNT && inputTensorCount != TWO_INPUT_COUNT)
+            if ((inputTensorCount != VisionConstants.IR_INPUT_COUNT
+                    && inputTensorCount != VisionConstants.DUAL_INPUT_COUNT)
                     || interpreter.getOutputTensorCount() != 1) {
                 throw new IllegalArgumentException("Model must have exactly one or two inputs and one output");
             }
@@ -81,9 +80,9 @@ final class Classifier {
             int[] outputShape = outputTensor.shape();
             if ((liveOutputType != DataType.FLOAT32 && liveOutputType != DataType.INT8)
                     || outputShape.length != 2 || outputShape[0] != 1
-                    || outputShape[1] != ClassLabels.count()) {
+                    || outputShape[1] != VisionConstants.CLASS_COUNT) {
                 throw new IllegalArgumentException("Output must be FLOAT32/INT8 [1,"
-                        + ClassLabels.count() + "], actual="
+                        + VisionConstants.CLASS_COUNT + "], actual="
                         + liveOutputType + " " + Arrays.toString(outputShape));
             }
             if (liveOutputType == DataType.INT8 && liveOutputQuantization.getScale() <= 0f) {
@@ -126,7 +125,7 @@ final class Classifier {
         return interpreter.getInputTensorCount();
     }
 
-    FrameResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
+    AntiSpoofingResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
         long preprocessStart = SystemClock.elapsedRealtimeNanos();
         if (cropRgbInput != null)
             inputs[inputMapping.cropRgbIndex] = cropRgbInput.fillImage(rgb, rgbBox);
@@ -139,7 +138,7 @@ final class Classifier {
         float[] modelOutput = readModelOutput();
         float[] probabilities = spec.outputIsLogits ? softmax(modelOutput) : validateProbabilities(modelOutput);
 
-        return FrameResult.success(new ProbabilityResult(probabilities), preprocessMs, inferenceMs);
+        return AntiSpoofingResult.frame(probabilities, preprocessMs, inferenceMs);
     }
 
     private void logModelIo() {
@@ -157,7 +156,7 @@ final class Classifier {
     }
 
     private InputMapping resolveInputMapping() {
-        if (interpreter.getInputTensorCount() == ONE_INPUT_COUNT) {
+        if (interpreter.getInputTensorCount() == VisionConstants.IR_INPUT_COUNT) {
             InputMapping mapping = new InputMapping();
             if (!"ir".equals(spec.inputKind)) {
                 throw new IllegalArgumentException("1-input model requires inputKind=ir in model_spec.json");
@@ -166,11 +165,12 @@ final class Classifier {
             Log.i(TAG, "Resolved 1-input mapping ir=0");
             return mapping;
         }
-        if (interpreter.getInputTensorCount() == TWO_INPUT_COUNT) {
+        if (interpreter.getInputTensorCount() == VisionConstants.DUAL_INPUT_COUNT) {
             InputMapping mapping = new InputMapping();
             if (spec.rgbInputIndex < 0 || spec.irInputIndex < 0
                     || spec.rgbInputIndex == spec.irInputIndex
-                    || spec.rgbInputIndex >= TWO_INPUT_COUNT || spec.irInputIndex >= TWO_INPUT_COUNT) {
+                    || spec.rgbInputIndex >= VisionConstants.DUAL_INPUT_COUNT
+                    || spec.irInputIndex >= VisionConstants.DUAL_INPUT_COUNT) {
                 throw new IllegalArgumentException("2-input model requires rgbInputIndex and irInputIndex in model_spec.json");
             }
             mapping.cropRgbIndex = spec.rgbInputIndex;
@@ -457,18 +457,10 @@ final class Classifier {
                 float[] lut0 = floatLut[0];
                 float[] lut1 = floatLut[1];
                 float[] lut2 = floatLut[2];
-                if (spec.bgr) {
-                    for (int pixel : pixels) {
-                        floatScratch[index++] = lut0[pixel & 0xFF];
-                        floatScratch[index++] = lut1[(pixel >> 8) & 0xFF];
-                        floatScratch[index++] = lut2[(pixel >> 16) & 0xFF];
-                    }
-                } else {
-                    for (int pixel : pixels) {
-                        floatScratch[index++] = lut0[(pixel >> 16) & 0xFF];
-                        floatScratch[index++] = lut1[(pixel >> 8) & 0xFF];
-                        floatScratch[index++] = lut2[pixel & 0xFF];
-                    }
+                for (int pixel : pixels) {
+                    floatScratch[index++] = lut0[(pixel >> 16) & 0xFF];
+                    floatScratch[index++] = lut1[(pixel >> 8) & 0xFF];
+                    floatScratch[index++] = lut2[pixel & 0xFF];
                 }
             }
         }
@@ -491,18 +483,10 @@ final class Classifier {
                 byte[] lut0 = byteLut[0];
                 byte[] lut1 = byteLut[1];
                 byte[] lut2 = byteLut[2];
-                if (spec.bgr) {
-                    for (int pixel : pixels) {
-                        byteScratch[index++] = lut0[pixel & 0xFF];
-                        byteScratch[index++] = lut1[(pixel >> 8) & 0xFF];
-                        byteScratch[index++] = lut2[(pixel >> 16) & 0xFF];
-                    }
-                } else {
-                    for (int pixel : pixels) {
-                        byteScratch[index++] = lut0[(pixel >> 16) & 0xFF];
-                        byteScratch[index++] = lut1[(pixel >> 8) & 0xFF];
-                        byteScratch[index++] = lut2[pixel & 0xFF];
-                    }
+                for (int pixel : pixels) {
+                    byteScratch[index++] = lut0[(pixel >> 16) & 0xFF];
+                    byteScratch[index++] = lut1[(pixel >> 8) & 0xFF];
+                    byteScratch[index++] = lut2[pixel & 0xFF];
                 }
             }
         }
@@ -510,9 +494,6 @@ final class Classifier {
         private float normalizeImage(int value, int channel) {
             if (kind == InputKind.IR) {
                 return normalizeWithMeanStd(value / 255.0f, spec.irMean, spec.irStd, channel);
-            }
-            if (ModelSpec.RGB_NORMALIZATION_MINUS_ONE_TO_ONE.equals(spec.rgbNormalization)) {
-                return value / 127.5f - 1.0f;
             }
             return normalizeWithMeanStd(value / 255.0f, spec.rgbMean, spec.rgbStd, channel);
         }

@@ -49,6 +49,9 @@ tasks.register('verifyVisionAssets') {
             throw new GradleException(manifestFile.name + ' has no models')
         }
         def supportedTypes = ['single_1_input', 'dual_2_input'] as Set
+        def expectedClassOrder = ['live', 'print', 'picture', 'mask', 'display', 'pmask',
+                                  'curved_print', 'curved_mask', 'curved_picture', 'curved_pmask',
+                                  'dental_white', 'dental_black']
         models.each { model ->
             def type = model.type
             if (!(type instanceof String) || !supportedTypes.contains(type)) {
@@ -66,6 +69,12 @@ tasks.register('verifyVisionAssets') {
             }
             def specFile = new File(visionAssetDir, model.spec as String)
             def spec = new groovy.json.JsonSlurper().parseText(specFile.getText('UTF-8'))
+            def classOrder = spec.class_order
+            if (!(classOrder instanceof List) || classOrder.size() != expectedClassOrder.size()
+                    || !(0..<classOrder.size()).every { i -> classOrder[i] instanceof String
+                    && classOrder[i].equalsIgnoreCase(expectedClassOrder[i]) }) {
+                throw new GradleException('Vision sidecar class_order does not match expected labels: ' + model.spec)
+            }
             def inputs = spec.inputs
             if (!(inputs instanceof List)) {
                 throw new GradleException('Vision sidecar must contain generated inputs: ' + model.spec)

@@ -28,8 +28,7 @@ public final class FacadeContractTest {
 
     @Test
     public void errorIsDistinctFromSpoof() {
-        AntiSpoofingResult result = AntiSpoofingResult.fromInternal(
-                SessionResult.error("bad slot"), 0, 0);
+        AntiSpoofingResult result = AntiSpoofingResult.sessionError("bad slot");
         assertEquals(AntiSpoofingResult.Status.ERROR, result.status());
         assertEquals("bad slot", result.errorMessage());
         assertEquals(0f, result.score(), 0f);
@@ -37,11 +36,22 @@ public final class FacadeContractTest {
     }
 
     @Test
+    public void runningKeepsCollectedSample() {
+        float[] probabilities = new float[12];
+        probabilities[0] = 0.8f;
+        AntiSpoofingResult result = AntiSpoofingResult.sessionRunning(probabilities, 4L, 0, 1);
+
+        assertEquals(AntiSpoofingResult.Status.RUNNING, result.status());
+        assertEquals(1, result.acceptedSamples());
+        assertEquals(0.8f, result.probability(0), 0f);
+        assertEquals(Long.valueOf(4L), result.inferenceMs());
+    }
+
+    @Test
     public void probabilitiesAreDefensive() {
         float[] probabilities = new float[12];
         probabilities[1] = 0.8f;
-        AntiSpoofingResult result = AntiSpoofingResult.fromInternal(
-                ResultFixture.decision(probabilities), 0, 3);
+        AntiSpoofingResult result = AntiSpoofingResult.sessionDecision(probabilities, 4L, 0, 3);
         probabilities[1] = 0f;
         assertEquals(AntiSpoofingResult.Status.SPOOF, result.status());
         assertEquals(0.8f, result.score(), 0f);
@@ -53,8 +63,7 @@ public final class FacadeContractTest {
     public void acceptedDentalClassKeepsDisplayLabel() {
         float[] probabilities = new float[12];
         probabilities[10] = 1f;
-        AntiSpoofingResult result = AntiSpoofingResult.fromInternal(
-                ResultFixture.decision(probabilities), 0, 3);
+        AntiSpoofingResult result = AntiSpoofingResult.sessionDecision(probabilities, 4L, 0, 3);
         assertEquals(AntiSpoofingResult.Status.LIVE, result.status());
         assertEquals("DENTAL_WHITE", result.displayLabel());
     }
@@ -63,20 +72,37 @@ public final class FacadeContractTest {
     public void rawFrameKeepsProbabilitiesAndTiming() {
         float[] probabilities = new float[12];
         probabilities[0] = 0.9f;
-        AntiSpoofingResult result = AntiSpoofingResult.fromFrame(
-                ResultFixture.frame(probabilities));
+        AntiSpoofingResult result = AntiSpoofingResult.frame(probabilities, 2L, 4L);
+        probabilities[0] = 0f;
         assertEquals(AntiSpoofingResult.Status.LIVE, result.status());
         assertEquals(0.9f, result.probability(0), 0f);
         assertEquals(2L, result.preprocessMs());
         assertEquals(Long.valueOf(4L), result.inferenceMs());
+        result.probabilities()[0] = 0f;
+        assertEquals(0.9f, result.probability(0), 0f);
     }
 
     @Test
     public void rawFrameErrorHasNoProbability() {
-        AntiSpoofingResult result = AntiSpoofingResult.fromFrame(
-                ResultFixture.frameError("invalid crop"));
+        AntiSpoofingResult result = AntiSpoofingResult.frameError("invalid crop");
         assertEquals(AntiSpoofingResult.Status.ERROR, result.status());
         assertEquals("invalid crop", result.errorMessage());
         assertNull(result.probabilities());
+        assertEquals(Long.valueOf(0L), result.inferenceMs());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rawFrameRejectsMissingProbabilities() {
+        AntiSpoofingResult.frame(null, 0L, 0L);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rawFrameRejectsWrongProbabilityCount() {
+        AntiSpoofingResult.frame(new float[]{1f}, 0L, 0L);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void sessionRejectsWrongProbabilityCount() {
+        AntiSpoofingResult.sessionDecision(new float[]{1f}, 0L, 0, 1);
     }
 }

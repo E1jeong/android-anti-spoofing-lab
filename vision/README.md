@@ -21,13 +21,13 @@ Call `create`, `process`, `infer`, `reset`, and `close` off the main thread;
 `infer` invokes its callback on the main looper.
 
 The session discards the configured number of incoming frames, then averages
-the configured number of probability vectors. Results contain `LIVE`, `SPOOF`,
-or `ERROR` status and the corresponding probabilities,
-score, attack, counts, and error. Call `reset()` after authentication or
+the configured number of probability vectors. Delivered results contain `LIVE`,
+`SPOOF`, or `ERROR` status and the corresponding probabilities, score, counts,
+and error. Call `reset()` after authentication or
 cancellation and `close()` at host teardown.
 
 A manifest slot that fails NNAPI setup or warmup is rejected without CPU
 fallback. The in-repository Lab app uses `AntiSpoofingEngine.process(...)`
 for return-valued raw frame evaluation and reads slot metadata from the engine.
 It accesses the Vision module only through `AntiSpoofingEngine` and
-`AntiSpoofingResult`; the `internal` package is not a host API.
+`AntiSpoofingResult`; package-private implementation classes are not a host API.

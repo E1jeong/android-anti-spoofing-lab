@@ -6,9 +6,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 final class ModelLoader {
-    private static final String TYPE_DUAL_2_INPUT = "dual_2_input";
-    private static final String TYPE_SINGLE_1_INPUT = "single_1_input";
-
     private ModelLoader() {}
 
     static final class LoadedModel {
@@ -38,10 +35,10 @@ final class ModelLoader {
     }
 
     private static JSONArray loadManifest(Context context) throws Exception {
-        JSONObject root = new JSONObject(AssetLoader.readUtf8(context, AssetLoader.MANIFEST));
+        JSONObject root = new JSONObject(AssetLoader.readUtf8(context, VisionConstants.MANIFEST));
         JSONArray models = root.optJSONArray("models");
         if (models == null || models.length() == 0) {
-            throw new IllegalStateException(AssetLoader.path(AssetLoader.MANIFEST) + " has no models");
+            throw new IllegalStateException(AssetLoader.path(VisionConstants.MANIFEST) + " has no models");
         }
         return models;
     }
@@ -55,8 +52,10 @@ final class ModelLoader {
         boolean loaded = false;
         try {
             int inputCount = classifier.inputTensorCount();
-            if ((TYPE_SINGLE_1_INPUT.equals(type) && inputCount != 1)
-                    || (TYPE_DUAL_2_INPUT.equals(type) && inputCount != 2)) {
+            if ((VisionConstants.SINGLE_1_INPUT.equals(type)
+                    && inputCount != VisionConstants.IR_INPUT_COUNT)
+                    || (VisionConstants.DUAL_2_INPUT.equals(type)
+                    && inputCount != VisionConstants.DUAL_INPUT_COUNT)) {
                 throw new IllegalArgumentException(type + " model has " + inputCount + " inputs");
             }
             LoadedModel model = new LoadedModel(label, classifier);
@@ -68,7 +67,8 @@ final class ModelLoader {
     }
 
     static void validateType(String type) {
-        if (!TYPE_SINGLE_1_INPUT.equals(type) && !TYPE_DUAL_2_INPUT.equals(type)) {
+        if (!VisionConstants.SINGLE_1_INPUT.equals(type)
+                && !VisionConstants.DUAL_2_INPUT.equals(type)) {
             throw new IllegalArgumentException("Unsupported model type: " + type);
         }
     }

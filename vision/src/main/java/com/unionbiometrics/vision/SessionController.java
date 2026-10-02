@@ -1,20 +1,24 @@
 package com.unionbiometrics.vision;
 
+import java.util.Arrays;
+
 final class SessionController {
     private final int irSettleFrameCount;
-    private final SessionAccumulator accumulator;
+    private final int requiredSamplingCount;
+    private final float[] sums = new float[VisionConstants.CLASS_COUNT];
+    private int samplingCount;
     private boolean sessionActive;
     private boolean closed;
     private int settleFramesRemaining;
-    private SessionResult decision;
+    private AntiSpoofingResult decision;
 
-    SessionController(int irSettleFrameCount, int sampleCount) {
+    SessionController(int irSettleFrameCount, int samplingCount) {
         if (irSettleFrameCount < 0) {
             throw new IllegalArgumentException("irSettleFrameCount must be >= 0");
         }
-        if (sampleCount <= 0) throw new IllegalArgumentException("sampleCount must be > 0");
+        if (samplingCount <= 0) throw new IllegalArgumentException("sampleCount must be > 0");
         this.irSettleFrameCount = irSettleFrameCount;
-        accumulator = new SessionAccumulator(sampleCount);
+        this.requiredSamplingCount = samplingCount;
     }
 
     private void start() {
@@ -23,31 +27,45 @@ final class SessionController {
         settleFramesRemaining = irSettleFrameCount;
     }
 
-    /** Returns null only when the caller may classify and add a sample. */
-    SessionResult beforeSample() {
-        if (closed) return error("Vision engine is closed");
+    /** Returns null only when the caller may run inference and add a sample. */
+    AntiSpoofingResult prepare() {
+        if (closed) return AntiSpoofingResult.sessionError("Vision engine is closed");
         if (!sessionActive) start();
         if (decision != null) return decision;
         if (settleFramesRemaining > 0) {
             settleFramesRemaining--;
-            return SessionResult.pending(null);
+            return AntiSpoofingResult.sessionRunning(null, null, settleFramesRemaining, 0);
         }
         return null;
     }
 
-    SessionResult add(ProbabilityResult classification, long inferenceMs) {
+    AntiSpoofingResult add(float[] classification, long inferenceMs) {
         if (classification == null) return fail("Vision slot produced no primary result");
-        SessionResult result = accumulator.add(classification.probabilities(), inferenceMs);
-        if (result.status() == SessionResult.Status.LIVE
-                || result.status() == SessionResult.Status.SPOOF) {
+        if (samplingCount >= requiredSamplingCount) {
+            throw new IllegalStateException("Vision session is already complete");
+        }
+        if (classification.length != sums.length) {
+            throw new IllegalArgumentException("Probabilities must have length " + sums.length);
+        }
+        for (int i = 0; i < sums.length; i++) sums[i] += classification[i];
+        samplingCount++;
+        float[] average = new float[sums.length];
+        for (int i = 0; i < sums.length; i++) average[i] = sums[i] / samplingCount;
+        AntiSpoofingResult result = samplingCount < requiredSamplingCount
+                ? AntiSpoofingResult.sessionRunning(average, inferenceMs,
+                        settleFramesRemaining, samplingCount)
+                : AntiSpoofingResult.sessionDecision(average, inferenceMs,
+                        settleFramesRemaining, samplingCount);
+        if (result.status() == AntiSpoofingResult.Status.LIVE
+                || result.status() == AntiSpoofingResult.Status.SPOOF) {
             decision = result;
         }
         return result;
     }
 
-    SessionResult fail(String message) {
+    AntiSpoofingResult fail(String message) {
         clearState();
-        return error(message);
+        return AntiSpoofingResult.sessionError(message);
     }
 
     void reset() {
@@ -61,23 +79,12 @@ final class SessionController {
         closed = true;
     }
 
-    int settleRemaining() {
-        return settleFramesRemaining;
-    }
-
-    int acceptedSamples() {
-        return accumulator.sampleCount();
-    }
-
-    private SessionResult error(String message) {
-        return SessionResult.error(message);
-    }
-
     private void clearState() {
         sessionActive = false;
         settleFramesRemaining = 0;
         decision = null;
-        accumulator.reset();
+        Arrays.fill(sums, 0f);
+        samplingCount = 0;
     }
 
 }
