@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
 import android.content.Context;
 
@@ -8,7 +8,7 @@ import org.json.JSONObject;
 
 import java.util.Locale;
 
-final class Spec {
+final class ModelSpec {
     static final String RGB_NORMALIZATION_IMAGENET = "imagenet";
     static final String RGB_NORMALIZATION_MINUS_ONE_TO_ONE = "minus_one_to_one";
 
@@ -27,7 +27,7 @@ final class Spec {
     final boolean outputIsLogits;
     final float cropMarginRatio;
 
-    private Spec(JSONObject json) throws JSONException {
+    private ModelSpec(JSONObject json) throws JSONException {
         Object inputsObj = json.opt("inputs");
         if (inputsObj instanceof JSONArray) {
             JSONArray inputsArray = (JSONArray) inputsObj;
@@ -170,11 +170,11 @@ final class Spec {
         }
     }
 
-    static Spec parse(String json) throws Exception {
-        return new Spec(new JSONObject(json));
+    static ModelSpec parse(String json) throws Exception {
+        return new ModelSpec(new JSONObject(json));
     }
 
-    static Spec load(Context context, String assetName) throws Exception {
+    static ModelSpec load(Context context, String assetName) throws Exception {
         return parse(AssetLoader.readUtf8(context, assetName));
     }
 }

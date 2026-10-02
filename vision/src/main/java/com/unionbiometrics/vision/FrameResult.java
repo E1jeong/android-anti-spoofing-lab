@@ -1,7 +1,7 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
 /** Internal raw single-frame result converted by the public engine. */
-public final class FrameResult {
+final class FrameResult {
     private final ProbabilityResult result;
     private final long preprocessMs;
     private final long inferenceMs;
@@ -26,23 +26,23 @@ public final class FrameResult {
                 message == null ? "Unknown Vision inference error" : message);
     }
 
-    public boolean successful() {
+    boolean successful() {
         return errorMessage == null;
     }
 
-    public String errorMessage() {
+    String errorMessage() {
         return errorMessage;
     }
 
-    public ProbabilityResult result() {
+    ProbabilityResult result() {
         return result;
     }
 
-    public long preprocessMs() {
+    long preprocessMs() {
         return preprocessMs;
     }
 
-    public long inferenceMs() {
+    long inferenceMs() {
         return inferenceMs;
     }
 }

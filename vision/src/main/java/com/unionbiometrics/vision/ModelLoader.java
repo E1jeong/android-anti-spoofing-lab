@@ -1,71 +1,31 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
 import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.Rect;
-
-import androidx.annotation.RestrictTo;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-@RestrictTo(RestrictTo.Scope.LIBRARY)
-public final class SlotClassifier {
+final class ModelLoader {
     private static final String TYPE_DUAL_2_INPUT = "dual_2_input";
     private static final String TYPE_SINGLE_1_INPUT = "single_1_input";
 
-    private final String label;
-    private final Classifier classifier;
-    private final float cropMarginRatio;
+    private ModelLoader() {}
 
-    private SlotClassifier(String label, Classifier classifier) {
-        this.label = label;
-        this.classifier = classifier;
-        this.cropMarginRatio = classifier.cropMarginRatio();
-    }
+    static final class LoadedModel {
+        final String label;
+        final Classifier classifier;
 
-    public String label() {
-        return label;
-    }
-
-    public float cropMarginRatio() {
-        return cropMarginRatio;
-    }
-
-    public String inferenceBackend() {
-        return classifier.inferenceBackend();
-    }
-
-    public boolean isDualInput() {
-        return classifier.inputTensorCount() == 2;
-    }
-
-    FrameResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
-        return classifier.classify(rgb, rgbBox, ir, irBox);
-    }
-
-    public FrameResult classify(FrameInput frame) {
-        if (frame == null) return FrameResult.error("Vision frame must not be null");
-        try {
-            Rect rgbCrop = frame.expanded() ? frame.rgbFaceBox() : FaceCrop.expand(
-                    frame.rgbFaceBox(), cropMarginRatio, frame.rgb().getWidth(), frame.rgb().getHeight());
-            Rect irCrop = frame.expanded() ? frame.irFaceBox() : FaceCrop.expand(
-                    frame.irFaceBox(), cropMarginRatio, frame.ir().getWidth(), frame.ir().getHeight());
-            return classify(frame.rgb(), rgbCrop, frame.ir(), irCrop);
-        } catch (RuntimeException e) {
-            return FrameResult.error("Vision inference failed: " + e.getMessage());
+        private LoadedModel(String label, Classifier classifier) {
+            this.label = label;
+            this.classifier = classifier;
         }
     }
 
-    public void close() {
-        classifier.close();
-    }
-
-    public static int slotCount(Context context) throws Exception {
+    static int slotCount(Context context) throws Exception {
         return loadManifest(context).length();
     }
 
-    public static SlotClassifier loadSelected(Context context, int index) throws Exception {
+    static LoadedModel loadSelected(Context context, int index) throws Exception {
         JSONArray models = loadManifest(context);
         if (index < 0 || index >= models.length()) {
             throw new IllegalArgumentException("Model slot index is out of range: " + index);
@@ -86,7 +46,7 @@ public final class SlotClassifier {
         return models;
     }
 
-    private static SlotClassifier loadSlot(Context context, String label, JSONObject json) throws Exception {
+    private static LoadedModel loadSlot(Context context, String label, JSONObject json) throws Exception {
         String type = json.getString("type");
         validateType(type);
 
@@ -99,9 +59,9 @@ public final class SlotClassifier {
                     || (TYPE_DUAL_2_INPUT.equals(type) && inputCount != 2)) {
                 throw new IllegalArgumentException(type + " model has " + inputCount + " inputs");
             }
-            SlotClassifier slot = new SlotClassifier(label, classifier);
+            LoadedModel model = new LoadedModel(label, classifier);
             loaded = true;
-            return slot;
+            return model;
         } finally {
             if (!loaded) closeQuietly(classifier);
         }
@@ -116,5 +76,4 @@ public final class SlotClassifier {
     private static void closeQuietly(Classifier classifier) {
         try { classifier.close(); } catch (Exception ignored) {}
     }
-
 }

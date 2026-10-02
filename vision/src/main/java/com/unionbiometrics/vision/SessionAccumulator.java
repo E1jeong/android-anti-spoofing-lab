@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
 final class SessionAccumulator {
     private final int requiredSampleCount;

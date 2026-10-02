@@ -1,9 +1,7 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
-import androidx.annotation.RestrictTo;
-
-public final class SessionResult {
-    public enum Status {
+final class SessionResult {
+    enum Status {
         PENDING,
         LIVE,
         SPOOF,
@@ -34,30 +32,29 @@ public final class SessionResult {
         return new SessionResult(result.isAccepted() ? Status.LIVE : Status.SPOOF, result, inferenceMs, null);
     }
 
-    @RestrictTo(RestrictTo.Scope.LIBRARY)
-    public static SessionResult error(String message) {
+    static SessionResult error(String message) {
         return new SessionResult(Status.ERROR, null, null, message == null ? "Unknown Vision error" : message);
     }
 
-    public Status status() {
+    Status status() {
         return status;
     }
 
     /**
      * Returns the running average after an accepted sample, or null before the first sample and on error.
      */
-    public ProbabilityResult result() {
+    ProbabilityResult result() {
         return result;
     }
 
     /**
      * Returns the TFLite invocation time for the current accepted sample, or null when no inference ran.
      */
-    public Long inferenceMs() {
+    Long inferenceMs() {
         return inferenceMs;
     }
 
-    public String errorMessage() {
+    String errorMessage() {
         return errorMessage;
     }
 }

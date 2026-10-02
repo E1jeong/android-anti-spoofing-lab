@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
 /** Builds internal results for public facade tests without widening the AAR API. */
 public final class ResultFixture {

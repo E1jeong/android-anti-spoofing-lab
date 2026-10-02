@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -32,7 +32,7 @@ final class Classifier {
 
     private final Interpreter interpreter;
     private final String inferenceBackend;
-    private final Spec spec;
+    private final ModelSpec spec;
     private final InputMapping inputMapping;
     private final InputBuffer cropRgbInput;
     private final InputBuffer cropIrInput;
@@ -44,7 +44,7 @@ final class Classifier {
     private final Map<Integer, Object> outputs = new HashMap<>();
 
     Classifier(Context context, String modelName, String specName) throws Exception {
-        spec = Spec.load(context, specName);
+        spec = ModelSpec.load(context, specName);
         InterpreterBundle bundle = createInterpreter(loadModel(context, modelName), spec.delegate, modelName, specName);
         interpreter = bundle.interpreter;
         inferenceBackend = bundle.backend;
@@ -511,7 +511,7 @@ final class Classifier {
             if (kind == InputKind.IR) {
                 return normalizeWithMeanStd(value / 255.0f, spec.irMean, spec.irStd, channel);
             }
-            if (Spec.RGB_NORMALIZATION_MINUS_ONE_TO_ONE.equals(spec.rgbNormalization)) {
+            if (ModelSpec.RGB_NORMALIZATION_MINUS_ONE_TO_ONE.equals(spec.rgbNormalization)) {
                 return value / 127.5f - 1.0f;
             }
             return normalizeWithMeanStd(value / 255.0f, spec.rgbMean, spec.rgbStd, channel);

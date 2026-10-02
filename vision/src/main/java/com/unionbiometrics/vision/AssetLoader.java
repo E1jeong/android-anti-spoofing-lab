@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;

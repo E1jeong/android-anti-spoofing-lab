@@ -1,6 +1,6 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
-public final class ClassLabels {
+final class ClassLabels {
     private static final String[] VALUES = {
             "LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK",
             "CURVED_PRINT", "CURVED_MASK", "CURVED_PICTURE", "CURVED_PMASK",
@@ -13,17 +13,17 @@ public final class ClassLabels {
         return VALUES.length;
     }
 
-    public static String[] values() {
+    static String[] values() {
         return VALUES.clone();
     }
 
-    public static String displayLabel(int index) {
+    static String displayLabel(int index) {
         String label = VALUES[index];
         return label.startsWith("CURVED_")
                 ? "C " + label.substring("CURVED_".length()) : label;
     }
 
-    public static boolean isAcceptedClass(int index) {
+    static boolean isAcceptedClass(int index) {
         return index == 0 || index == 10 || index == 11;
     }
 }

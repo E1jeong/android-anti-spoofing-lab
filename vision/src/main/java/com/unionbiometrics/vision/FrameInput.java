@@ -1,4 +1,4 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
 import android.graphics.Bitmap;
 import android.graphics.Rect;
@@ -6,18 +6,18 @@ import android.graphics.Rect;
 /**
  * One borrowed RGB/IR pair. Lab boxes are unexpanded; live snapshots mark expanded crops.
  */
-public final class FrameInput {
+final class FrameInput {
     private final Bitmap rgb;
     private final Rect rgbFaceBox;
     private final Bitmap ir;
     private final Rect irFaceBox;
     private final boolean expanded;
 
-    public FrameInput(Bitmap rgb, Rect rgbFaceBox, Bitmap ir, Rect irFaceBox) {
+    FrameInput(Bitmap rgb, Rect rgbFaceBox, Bitmap ir, Rect irFaceBox) {
         this(rgb, rgbFaceBox, ir, irFaceBox, false);
     }
 
-    public FrameInput(Bitmap rgb, Rect rgbFaceBox, Bitmap ir, Rect irFaceBox,
+    FrameInput(Bitmap rgb, Rect rgbFaceBox, Bitmap ir, Rect irFaceBox,
                              boolean expanded) {
         if (rgb == null) throw new IllegalArgumentException("rgb must not be null");
         if (ir == null) throw new IllegalArgumentException("ir must not be null");

@@ -9,19 +9,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
-import com.unionbiometrics.vision.internal.FaceCrop;
-import com.unionbiometrics.vision.internal.FrameInput;
-import com.unionbiometrics.vision.internal.FrameResult;
-import com.unionbiometrics.vision.internal.SessionController;
-import com.unionbiometrics.vision.internal.SessionResult;
-import com.unionbiometrics.vision.internal.SlotClassifier;
-
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** One model slot and one anti-spoofing session. */
 public final class AntiSpoofingEngine implements AutoCloseable {
-    private final SlotClassifier slot;
+    private final Classifier classifier;
     private final SessionController session;
     private final boolean requiresRgb;
     public final String label;
@@ -42,13 +35,13 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private boolean terminalDelivered;
     private volatile boolean closed;
 
-    private AntiSpoofingEngine(SlotClassifier slot, int settleFrames, int sampleCount) {
-        this.slot = slot;
+    private AntiSpoofingEngine(ModelLoader.LoadedModel model, int settleFrames, int sampleCount) {
+        classifier = model.classifier;
         session = new SessionController(settleFrames, sampleCount);
-        requiresRgb = slot.isDualInput();
-        label = slot.label();
-        backend = slot.inferenceBackend();
-        cropMarginRatio = slot.cropMarginRatio();
+        requiresRgb = classifier.inputTensorCount() == 2;
+        label = model.label;
+        backend = classifier.inferenceBackend();
+        cropMarginRatio = classifier.cropMarginRatio();
     }
 
     /** Returns one raw frame result without changing the callback session. Call off the main thread. */
@@ -67,7 +60,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         }
         synchronized (session) {
             if (closed) throw new IllegalStateException("Vision engine is closed");
-            return AntiSpoofingResult.fromFrame(slot.classify(new FrameInput(
+            return AntiSpoofingResult.fromFrame(classify(new FrameInput(
                     rgb == null ? ir : rgb, rgbFace == null ? irFace : rgbFace, ir, irFace)));
         }
     }
@@ -81,7 +74,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         if (context == null) throw new IllegalArgumentException("context must not be null");
         Context application = context.getApplicationContext();
         try {
-            SlotClassifier loaded = SlotClassifier.loadSelected(
+            ModelLoader.LoadedModel loaded = ModelLoader.loadSelected(
                     application == null ? context : application, slotIndex);
             boolean created = false;
             try {
@@ -91,7 +84,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                 return engine;
             } finally {
                 if (!created) {
-                    try { loaded.close(); } catch (RuntimeException ignored) {}
+                    try { loaded.classifier.close(); } catch (RuntimeException ignored) {}
                 }
             }
         } catch (Exception e) {
@@ -104,7 +97,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     public static int slotCount(Context context) {
         if (context == null) throw new IllegalArgumentException("context must not be null");
         try {
-            return SlotClassifier.slotCount(context);
+            return ModelLoader.slotCount(context);
         } catch (Exception e) {
             throw new IllegalStateException("Model manifest failed to load: " + e.getMessage(), e);
         }
@@ -112,7 +105,17 @@ public final class AntiSpoofingEngine implements AutoCloseable {
 
     /** Expands a face box for host previews or capture. */
     public static Rect expandFace(Rect face, float marginRatio, int width, int height) {
-        return FaceCrop.expand(face, marginRatio, width, height);
+        int marginX = Math.round(face.width() * marginRatio);
+        int marginY = Math.round(face.height() * marginRatio);
+        Rect expanded = new Rect(
+                Math.max(0, face.left - marginX),
+                Math.max(0, face.top - marginY),
+                Math.min(width, face.right + marginX),
+                Math.min(height, face.bottom + marginY));
+        if (expanded.width() <= 0 || expanded.height() <= 0) {
+            throw new IllegalArgumentException("Face crop is empty");
+        }
+        return expanded;
     }
 
     /** Copies expanded crops before returning. Delivers results on the main looper. */
@@ -239,11 +242,24 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         SessionResult state = session.beforeSample();
         if (state != null) return state;
         try {
-            FrameResult inference = slot.classify(frame);
+            FrameResult inference = classify(frame);
             if (!inference.successful()) return session.fail(inference.errorMessage());
             return session.add(inference.result(), inference.inferenceMs());
         } catch (RuntimeException e) {
             return session.fail("Vision inference failed: " + e.getMessage());
+        }
+    }
+
+    private FrameResult classify(FrameInput frame) {
+        if (frame == null) return FrameResult.error("Vision frame must not be null");
+        try {
+            Rect rgbCrop = frame.expanded() ? frame.rgbFaceBox() : expandFace(
+                    frame.rgbFaceBox(), cropMarginRatio, frame.rgb().getWidth(), frame.rgb().getHeight());
+            Rect irCrop = frame.expanded() ? frame.irFaceBox() : expandFace(
+                    frame.irFaceBox(), cropMarginRatio, frame.ir().getWidth(), frame.ir().getHeight());
+            return classifier.classify(frame.rgb(), rgbCrop, frame.ir(), irCrop);
+        } catch (RuntimeException e) {
+            return FrameResult.error("Vision inference failed: " + e.getMessage());
         }
     }
 
@@ -255,7 +271,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     }
 
     private static Bitmap copyCrop(Bitmap source, Rect face, float margin) {
-        Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
+        Rect crop = expandFace(face, margin, source.getWidth(), source.getHeight());
         Bitmap copy = Bitmap.createBitmap(crop.width(), crop.height(), Bitmap.Config.ARGB_8888);
         try {
             new Canvas(copy).drawBitmap(source, crop,
@@ -297,7 +313,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             worker.shutdown();
             synchronized (session) {
                 session.close();
-                slot.close();
+                classifier.close();
             }
         }
     }

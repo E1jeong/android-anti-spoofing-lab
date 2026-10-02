@@ -1,9 +1,9 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
 import java.util.Objects;
 
 /** Immutable probabilities for one model output. */
-public final class ProbabilityResult {
+final class ProbabilityResult {
     private static final int CLASS_COUNT = ClassLabels.count();
     private final float[] probabilities;
     private final int topIndex;
@@ -22,20 +22,20 @@ public final class ProbabilityResult {
         this.topIndex = best;
     }
 
-    public float[] probabilities() {
+    float[] probabilities() {
         return probabilities.clone();
     }
 
-    public float probability(int index) {
+    float probability(int index) {
         return probabilities[index];
     }
 
-    public int topIndex() {
+    int topIndex() {
         return topIndex;
     }
 
     /** Returns whether the winning class belongs to the product bona-fide pass set. */
-    public boolean isAccepted() {
+    boolean isAccepted() {
         return ClassLabels.isAcceptedClass(topIndex);
     }
 }

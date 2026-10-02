@@ -1,17 +1,8 @@
 package com.unionbiometrics.vision;
 
-import com.unionbiometrics.vision.internal.ClassLabels;
-import com.unionbiometrics.vision.internal.FrameResult;
-import com.unionbiometrics.vision.internal.ProbabilityResult;
-
 /** One raw frame result or one completed callback session result. */
 public final class AntiSpoofingResult {
     public enum Status { PENDING, LIVE, SPOOF, ERROR }
-    public enum Attack {
-        NONE, PRINT, PICTURE, MASK, DISPLAY, PMASK,
-        CURVED_PRINT, CURVED_MASK, CURVED_PICTURE, CURVED_PMASK
-    }
-
     private final Status status;
     private final float[] probabilities;
     private final int topIndex;
@@ -21,9 +12,7 @@ public final class AntiSpoofingResult {
     private final int settleRemaining;
     private final int acceptedSamples;
 
-    static AntiSpoofingResult fromInternal(
-            com.unionbiometrics.vision.internal.SessionResult source,
-            int settleRemaining, int acceptedSamples) {
+    static AntiSpoofingResult fromInternal(SessionResult source, int settleRemaining, int acceptedSamples) {
         ProbabilityResult probability = source.result();
         return new AntiSpoofingResult(Status.valueOf(source.status().name()),
                 probability == null ? null : probability.probabilities(),
@@ -62,10 +51,6 @@ public final class AntiSpoofingResult {
     public boolean isAccepted() { return status == Status.LIVE; }
     public static String[] classLabels() { return ClassLabels.values(); }
     public static String classDisplayLabel(int index) { return ClassLabels.displayLabel(index); }
-    public Attack attack() {
-        return topIndex < 0 || ClassLabels.isAcceptedClass(topIndex)
-                ? Attack.NONE : Attack.valueOf(ClassLabels.values()[topIndex]);
-    }
     public String displayLabel() { return topIndex < 0 ? null : ClassLabels.displayLabel(topIndex); }
     public Long inferenceMs() { return inferenceMs; }
     public long preprocessMs() { return preprocessMs; }

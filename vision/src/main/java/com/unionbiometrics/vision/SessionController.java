@@ -1,6 +1,6 @@
-package com.unionbiometrics.vision.internal;
+package com.unionbiometrics.vision;
 
-public final class SessionController {
+final class SessionController {
     private final int irSettleFrameCount;
     private final SessionAccumulator accumulator;
     private boolean sessionActive;
@@ -8,7 +8,7 @@ public final class SessionController {
     private int settleFramesRemaining;
     private SessionResult decision;
 
-    public SessionController(int irSettleFrameCount, int sampleCount) {
+    SessionController(int irSettleFrameCount, int sampleCount) {
         if (irSettleFrameCount < 0) {
             throw new IllegalArgumentException("irSettleFrameCount must be >= 0");
         }
@@ -24,7 +24,7 @@ public final class SessionController {
     }
 
     /** Returns null only when the caller may classify and add a sample. */
-    public SessionResult beforeSample() {
+    SessionResult beforeSample() {
         if (closed) return error("Vision engine is closed");
         if (!sessionActive) start();
         if (decision != null) return decision;
@@ -35,7 +35,7 @@ public final class SessionController {
         return null;
     }
 
-    public SessionResult add(ProbabilityResult classification, long inferenceMs) {
+    SessionResult add(ProbabilityResult classification, long inferenceMs) {
         if (classification == null) return fail("Vision slot produced no primary result");
         SessionResult result = accumulator.add(classification.probabilities(), inferenceMs);
         if (result.status() == SessionResult.Status.LIVE
@@ -45,27 +45,27 @@ public final class SessionController {
         return result;
     }
 
-    public SessionResult fail(String message) {
+    SessionResult fail(String message) {
         clearState();
         return error(message);
     }
 
-    public void reset() {
+    void reset() {
         if (closed) return;
         clearState();
     }
 
-    public void close() {
+    void close() {
         if (closed) return;
         clearState();
         closed = true;
     }
 
-    public int settleRemaining() {
+    int settleRemaining() {
         return settleFramesRemaining;
     }
 
-    public int acceptedSamples() {
+    int acceptedSamples() {
         return accumulator.sampleCount();
     }
 
