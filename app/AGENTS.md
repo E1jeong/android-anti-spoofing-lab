@@ -11,7 +11,7 @@
 All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 - Orchestration and loading: `MainActivity.java`, `IntroActivity.java`.
-- Anti-spoofing SDK (other module): `vision/` — `AntiSpoofingEngine` and the Lab-only `internal.DemoInferenceEngine`. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
+- Anti-spoofing SDK (other module): `vision/` — `AntiSpoofingEngine` for both raw Lab frames and callback sessions. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
 - Debug-only fixed-image SDK contract probe: `app/src/debug/java/com/virditech/ac7000/SdkProbeActivity.java`; target device execution remains manual.
 - Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `face/FaceDetector.java`, `calibration/Calibration.java`.
 - Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
@@ -27,9 +27,9 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - `PreviewTransform` is the single source for RGB/IR raw-`TextureView`, analysis-overlay, and crop-preview display mirroring. Do not hardcode `setScaleX` or overlay mirror flags elsewhere; display transforms must not alter calibration, saved-frame, model-crop, or SDK-input coordinates.
 
 2. **anti-spoofing host**:
-   - Product hosts load through `AntiSpoofingEngine.create(applicationContext)` or `create(applicationContext, Options)` and pass unexpanded boxes via `Frame.ir` or `Frame.dual`. The host owns IR LED ON/OFF across every terminal, reset, failure, and close path. This in-repository Lab app uses `internal.DemoInferenceEngine.loadAll(...)` and `infer(...)` for multi-slot raw per-frame evaluation. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
-   - Treat internal `FrameResult.result()` as the sole Lab per-frame probability result for both supported model layouts. Do not recreate separate RGB/IR result UI branches or expose Lab inference through `AntiSpoofingEngine`.
-   - Read Lab slot metadata from `DemoInferenceEngine.LabEngine` and use its `cropMarginRatio()` with internal `FaceCrop.expand` for preview/capture crops. Model margin and crop implementation stay in `:vision`; do not maintain a parallel metadata list.
+   - Product hosts load through `AntiSpoofingEngine.create(applicationContext, slotIndex, settleFrames, sampleCount)` on a background thread and pass unexpanded boxes to `infer(rgb, rgbFace, ir, irFace, callback)`. Pass null RGB inputs for IR-only slots. The host owns IR LED ON/OFF across every terminal, reset, failure, and close path. This in-repository Lab app discovers slots with `AntiSpoofingEngine.slotCount(...)`, creates one engine per slot, and uses `process(...)` for raw per-frame evaluation. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
+   - Treat `AntiSpoofingResult.probabilities()` as the sole Lab per-frame probability result for both supported model layouts. Do not recreate separate RGB/IR result UI branches.
+   - Read Lab slot metadata from `AntiSpoofingEngine` fields and use `cropMarginRatio` with `AntiSpoofingEngine.expandFace(...)` for preview/capture crops. Model margin and crop implementation stay in `:vision`; do not maintain a parallel metadata list.
    - `FaceMotionGate` (app `model/`) halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame. Lab-only helper, not part of `:vision`.
 
 3. **`recognition`**:

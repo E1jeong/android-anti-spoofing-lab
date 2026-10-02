@@ -9,9 +9,6 @@ import androidx.annotation.RestrictTo;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.util.ArrayList;
-import java.util.List;
-
 @RestrictTo(RestrictTo.Scope.LIBRARY)
 public final class SlotClassifier {
     private static final String TYPE_DUAL_2_INPUT = "dual_2_input";
@@ -27,15 +24,15 @@ public final class SlotClassifier {
         this.cropMarginRatio = classifier.cropMarginRatio();
     }
 
-    String label() {
+    public String label() {
         return label;
     }
 
-    float cropMarginRatio() {
+    public float cropMarginRatio() {
         return cropMarginRatio;
     }
 
-    String inferenceBackend() {
+    public String inferenceBackend() {
         return classifier.inferenceBackend();
     }
 
@@ -47,35 +44,25 @@ public final class SlotClassifier {
         return classifier.classify(rgb, rgbBox, ir, irBox);
     }
 
-    void close() {
+    public FrameResult classify(FrameInput frame) {
+        if (frame == null) return FrameResult.error("Vision frame must not be null");
+        try {
+            Rect rgbCrop = frame.expanded() ? frame.rgbFaceBox() : FaceCrop.expand(
+                    frame.rgbFaceBox(), cropMarginRatio, frame.rgb().getWidth(), frame.rgb().getHeight());
+            Rect irCrop = frame.expanded() ? frame.irFaceBox() : FaceCrop.expand(
+                    frame.irFaceBox(), cropMarginRatio, frame.ir().getWidth(), frame.ir().getHeight());
+            return classify(frame.rgb(), rgbCrop, frame.ir(), irCrop);
+        } catch (RuntimeException e) {
+            return FrameResult.error("Vision inference failed: " + e.getMessage());
+        }
+    }
+
+    public void close() {
         classifier.close();
     }
 
-    static LoadResult loadAll(Context context) {
-        ArrayList<SlotClassifier> slots = new ArrayList<>();
-        ArrayList<String> errors = new ArrayList<>();
-        JSONArray models;
-        try {
-            models = loadManifest(context);
-        } catch (Exception e) {
-            errors.add("MODEL MANIFEST FAILED: " + e.getMessage());
-            return new LoadResult(slots, errors);
-        }
-
-        for (int i = 0; i < models.length(); i++) {
-            JSONObject json = models.optJSONObject(i);
-            if (json == null) {
-                errors.add("MODEL " + (i + 1) + " FAILED: manifest entry is not an object");
-                continue;
-            }
-            String label = json.optString("label", "MODEL " + (i + 1));
-            try {
-                slots.add(loadSlot(context, label, json));
-            } catch (Exception e) {
-                errors.add(label + " FAILED: " + e.getMessage());
-            }
-        }
-        return new LoadResult(slots, errors);
+    public static int slotCount(Context context) throws Exception {
+        return loadManifest(context).length();
     }
 
     public static SlotClassifier loadSelected(Context context, int index) throws Exception {
@@ -130,13 +117,4 @@ public final class SlotClassifier {
         try { classifier.close(); } catch (Exception ignored) {}
     }
 
-    static final class LoadResult {
-        final List<SlotClassifier> slots;
-        final List<String> errors;
-
-        LoadResult(List<SlotClassifier> slots, List<String> errors) {
-            this.slots = slots;
-            this.errors = errors;
-        }
-    }
 }

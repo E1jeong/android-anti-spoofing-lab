@@ -15,14 +15,14 @@ import android.widget.TextView;
 import com.unionbiometrics.vision.AntiSpoofingEngine;
 import com.unionbiometrics.vision.AntiSpoofingResult;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
-/** Debug-only fixed-image probe for the public SDK session and callback contract. */
+/** Debug-only fixed-image probe for the public SDK session contract. */
 public final class SdkProbeActivity extends Activity {
     private static final String TAG = "SdkProbe";
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -43,6 +43,7 @@ public final class SdkProbeActivity extends Activity {
 
     private void runProbe() {
         int slot = getIntent().getIntExtra("slot", 0);
+        boolean dual = getIntent().getBooleanExtra("dual", false);
         Bitmap image = BitmapFactory.decodeResource(getResources(), R.drawable.test_image);
         if (image == null) {
             line("FAIL: bundled test image unavailable");
@@ -51,16 +52,33 @@ public final class SdkProbeActivity extends Activity {
         line("Device " + Build.MODEL + " / API " + Build.VERSION.SDK_INT
                 + " / slot " + slot);
         try {
-            AntiSpoofingEngine.Options options =
-                    AntiSpoofingEngine.Options.defaults().withSlotIndex(slot);
-            runSync(image, options);
-            runLive(image, options);
+            engine = AntiSpoofingEngine.create(getApplicationContext(), slot, 0, 1);
+            if (!"NNAPI".equals(engine.backend)) {
+                throw new IllegalStateException("Selected slot did not use NNAPI");
+            }
+            Rect face = new Rect(0, 0, image.getWidth(), image.getHeight());
+            AntiSpoofingResult raw = engine.process(
+                    dual ? image : null, dual ? face : null, image, face);
+            if (raw.status() == AntiSpoofingResult.Status.ERROR
+                    || raw.probabilities().length != 12) {
+                throw new IllegalStateException("Raw frame inference failed");
+            }
+            line("PASS: raw frame result");
+            checkDecision(inferAndWait(dual ? image : null, dual ? face : null, image, face));
+            engine.reset();
+            checkDecision(inferAndWait(dual ? image : null, dual ? face : null, image, face));
+            line("PASS: reset");
+            engine.reset();
+            runBurst(dual ? image : null, dual ? face : null, image, face);
+            engine.close();
+            engine = null;
             try {
                 AntiSpoofingEngine invalid = AntiSpoofingEngine.create(
-                        getApplicationContext(), options.withSlotIndex(9999));
+                        getApplicationContext(), 9999, 10, 3);
                 invalid.close();
                 throw new IllegalStateException("Invalid slot was accepted");
-            } catch (AntiSpoofingEngine.AntiSpoofingException expected) {
+            } catch (IllegalStateException expected) {
+                if ("Invalid slot was accepted".equals(expected.getMessage())) throw expected;
                 line("PASS: invalid slot rejected");
             }
             line("PASS: SDK probe complete");
@@ -75,108 +93,73 @@ public final class SdkProbeActivity extends Activity {
         }
     }
 
-    private void runSync(Bitmap image, AntiSpoofingEngine.Options options) throws Exception {
-        engine = AntiSpoofingEngine.create(getApplicationContext(), options);
-        line("SYNC: " + engine.label() + " / " + engine.backend());
-        if (!"NNAPI".equals(engine.backend())) {
-            throw new IllegalStateException("Selected slot did not use NNAPI");
+    private AntiSpoofingResult inferAndWait(Bitmap rgb, Rect rgbFace,
+                                           Bitmap ir, Rect irFace) throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<AntiSpoofingResult> received = new AtomicReference<>();
+        AtomicReference<String> callbackError = new AtomicReference<>();
+        Bitmap irInput = ir.copy(Bitmap.Config.ARGB_8888, false);
+        Bitmap rgbInput = rgb == null ? null : rgb == ir ? irInput
+                : rgb.copy(Bitmap.Config.ARGB_8888, false);
+        try {
+            engine.infer(rgbInput, rgbFace, irInput, irFace, result -> {
+                if (Looper.myLooper() != Looper.getMainLooper()) {
+                    callbackError.set("Callback was not on main looper");
+                }
+                received.set(result);
+                latch.countDown();
+            });
+        } finally {
+            if (rgbInput != null && rgbInput != irInput) rgbInput.recycle();
+            irInput.recycle();
         }
-        Rect face = new Rect(0, 0, image.getWidth(), image.getHeight());
-        for (int i = 1; i <= 13; i++) {
-            AntiSpoofingResult result = engine.process(frame(image, face, engine.requiresRgb()));
-            checkSessionResult(i, result);
-            line("SYNC " + i + ": " + result.status() + " / samples "
-                    + result.acceptedSamples());
+        if (!latch.await(30, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("SDK callback timed out");
         }
-        engine.reset();
-        AntiSpoofingResult restarted = engine.process(frame(image, face, engine.requiresRgb()));
-        if (restarted.status() != AntiSpoofingResult.Status.PENDING
-                || restarted.settleRemaining() != 9) {
-            throw new IllegalStateException("SYNC reset did not restart settling");
-        }
-        line("PASS: SYNC reset");
-        engine.close();
-        engine = null;
+        if (callbackError.get() != null) throw new IllegalStateException(callbackError.get());
+        return received.get();
     }
 
-    private void runLive(Bitmap image, AntiSpoofingEngine.Options options) throws Exception {
-        engine = AntiSpoofingEngine.create(getApplicationContext(), options.live(null));
-        line("LIVE: " + engine.label() + " / " + engine.backend());
-        Rect face = new Rect(0, 0, image.getWidth(), image.getHeight());
-        for (int i = 1; i <= 13; i++) {
-            Bitmap input = image.copy(Bitmap.Config.ARGB_8888, false);
-            CountDownLatch latch = new CountDownLatch(1);
-            AtomicReference<AntiSpoofingResult> received = new AtomicReference<>();
-            AtomicReference<String> callbackError = new AtomicReference<>();
-            final int frameNumber = i;
-            try {
-                engine.submit(frame(input, face, engine.requiresRgb()), result -> {
-                    if (Looper.myLooper() != Looper.getMainLooper()) {
-                        callbackError.set("Callback was not on main looper");
-                    }
-                    received.set(result);
-                    line("LIVE " + frameNumber + ": " + result.status() + " / samples "
-                            + result.acceptedSamples());
-                    latch.countDown();
-                });
-            } finally {
-                input.recycle();
-            }
-            if (!latch.await(30, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("LIVE callback timed out at frame " + i);
-            }
-            if (callbackError.get() != null) throw new IllegalStateException(callbackError.get());
-            checkSessionResult(i, received.get());
-        }
-        line("PASS: LIVE crop snapshot and main-looper callbacks");
-        engine.reset();
-        CountDownLatch lastCallback = new CountDownLatch(1);
+    private void runBurst(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace)
+            throws InterruptedException {
+        CountDownLatch firstCallback = new CountDownLatch(1);
         AtomicInteger callbackCount = new AtomicInteger();
+        AtomicReference<AntiSpoofingResult> received = new AtomicReference<>();
         for (int i = 0; i < 30; i++) {
-            Bitmap input = image.copy(Bitmap.Config.ARGB_8888, false);
-            final boolean last = i == 29;
+            Bitmap input = ir.copy(Bitmap.Config.ARGB_8888, false);
             try {
-                engine.submit(frame(input, face, engine.requiresRgb()), result -> {
+                engine.infer(rgb == null ? null : input, rgbFace, input, irFace, result -> {
+                    received.set(result);
                     callbackCount.incrementAndGet();
-                    if (last) lastCallback.countDown();
+                    firstCallback.countDown();
                 });
             } finally {
                 input.recycle();
             }
         }
-        if (!lastCallback.await(30, TimeUnit.SECONDS)) {
-            throw new IllegalStateException("Latest LIVE frame did not receive a callback");
+        if (!firstCallback.await(30, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Burst decision timed out");
         }
-        line("LIVE burst: " + callbackCount.get() + " callbacks from 30 submissions");
-        engine.close();
-        engine = null;
+        checkDecision(received.get());
+        Thread.sleep(500);
+        if (callbackCount.get() != 1) {
+            throw new IllegalStateException("Expected one callback for burst, got "
+                    + callbackCount.get());
+        }
+        line("PASS: 30-frame burst produced one terminal callback");
     }
 
-    private static AntiSpoofingEngine.Frame frame(Bitmap image, Rect face, boolean dual) {
-        return dual
-                ? AntiSpoofingEngine.Frame.dual(image, face, image, face, 1L, 1L)
-                : AntiSpoofingEngine.Frame.ir(image, face);
-    }
-
-    private static void checkSessionResult(int frame, AntiSpoofingResult result) {
+    private static void checkDecision(AntiSpoofingResult result) {
         if (result == null || result.status() == AntiSpoofingResult.Status.ERROR) {
-            throw new IllegalStateException("Frame " + frame + " failed: "
+            throw new IllegalStateException("Session failed: "
                     + (result == null ? "null result" : result.errorMessage()));
         }
-        int samples = Math.max(0, frame - 10);
-        if (result.acceptedSamples() != samples
-                || result.settleRemaining() != Math.max(0, 10 - frame)) {
-            throw new IllegalStateException("Unexpected session counts at frame " + frame);
-        }
-        if (frame <= 12 && result.status() != AntiSpoofingResult.Status.PENDING) {
-            throw new IllegalStateException("Early decision at frame " + frame);
-        }
-        if (frame == 13 && result.status() != AntiSpoofingResult.Status.LIVE
-                && result.status() != AntiSpoofingResult.Status.SPOOF) {
+        if (result.acceptedSamples() != 1 || result.settleRemaining() != 0
+                || (result.status() != AntiSpoofingResult.Status.LIVE
+                && result.status() != AntiSpoofingResult.Status.SPOOF)) {
             throw new IllegalStateException("Missing terminal decision");
         }
-        if (frame > 10 && (result.probabilities() == null
-                || result.probabilities().length != 12)) {
+        if (result.probabilities() == null || result.probabilities().length != 12) {
             throw new IllegalStateException("Output is not [1,12]");
         }
     }

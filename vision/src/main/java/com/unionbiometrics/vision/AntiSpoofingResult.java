@@ -1,9 +1,10 @@
 package com.unionbiometrics.vision;
 
 import com.unionbiometrics.vision.internal.ClassLabels;
+import com.unionbiometrics.vision.internal.FrameResult;
 import com.unionbiometrics.vision.internal.ProbabilityResult;
 
-/** One session update. A decision is final until reset(). */
+/** One raw frame result or one completed callback session result. */
 public final class AntiSpoofingResult {
     public enum Status { PENDING, LIVE, SPOOF, ERROR }
     public enum Attack {
@@ -15,6 +16,7 @@ public final class AntiSpoofingResult {
     private final float[] probabilities;
     private final int topIndex;
     private final Long inferenceMs;
+    private final long preprocessMs;
     private final String errorMessage;
     private final int settleRemaining;
     private final int acceptedSamples;
@@ -26,16 +28,27 @@ public final class AntiSpoofingResult {
         return new AntiSpoofingResult(Status.valueOf(source.status().name()),
                 probability == null ? null : probability.probabilities(),
                 probability == null ? -1 : probability.topIndex(),
-                source.inferenceMs(), source.errorMessage(), settleRemaining, acceptedSamples);
+                source.inferenceMs(), 0L, source.errorMessage(), settleRemaining, acceptedSamples);
+    }
+
+    static AntiSpoofingResult fromFrame(FrameResult source) {
+        ProbabilityResult probability = source.result();
+        Status status = !source.successful() ? Status.ERROR
+                : probability.isAccepted() ? Status.LIVE : Status.SPOOF;
+        return new AntiSpoofingResult(status,
+                probability == null ? null : probability.probabilities(),
+                probability == null ? -1 : probability.topIndex(),
+                source.inferenceMs(), source.preprocessMs(), source.errorMessage(), 0, 0);
     }
 
     private AntiSpoofingResult(Status status, float[] probabilities, int topIndex,
-                              Long inferenceMs, String errorMessage,
+                              Long inferenceMs, long preprocessMs, String errorMessage,
                               int settleRemaining, int acceptedSamples) {
         this.status = status;
         this.probabilities = probabilities == null ? null : probabilities.clone();
         this.topIndex = topIndex;
         this.inferenceMs = inferenceMs;
+        this.preprocessMs = preprocessMs;
         this.errorMessage = errorMessage;
         this.settleRemaining = settleRemaining;
         this.acceptedSamples = acceptedSamples;
@@ -45,12 +58,17 @@ public final class AntiSpoofingResult {
     public float[] probabilities() { return probabilities == null ? null : probabilities.clone(); }
     public int topIndex() { return topIndex; }
     public float score() { return topIndex < 0 ? 0f : probabilities[topIndex]; }
+    public float probability(int index) { return probabilities[index]; }
+    public boolean isAccepted() { return status == Status.LIVE; }
+    public static String[] classLabels() { return ClassLabels.values(); }
+    public static String classDisplayLabel(int index) { return ClassLabels.displayLabel(index); }
     public Attack attack() {
         return topIndex < 0 || ClassLabels.isAcceptedClass(topIndex)
                 ? Attack.NONE : Attack.valueOf(ClassLabels.values()[topIndex]);
     }
     public String displayLabel() { return topIndex < 0 ? null : ClassLabels.displayLabel(topIndex); }
     public Long inferenceMs() { return inferenceMs; }
+    public long preprocessMs() { return preprocessMs; }
     public String errorMessage() { return errorMessage; }
     public int settleRemaining() { return settleRemaining; }
     public int acceptedSamples() { return acceptedSamples; }

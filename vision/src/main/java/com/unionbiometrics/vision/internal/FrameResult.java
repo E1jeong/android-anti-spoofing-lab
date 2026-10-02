@@ -1,6 +1,6 @@
 package com.unionbiometrics.vision.internal;
 
-/** Internal raw single-frame result used by the Lab app and product session pipeline. */
+/** Internal raw single-frame result converted by the public engine. */
 public final class FrameResult {
     private final ProbabilityResult result;
     private final long preprocessMs;

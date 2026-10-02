@@ -9,34 +9,23 @@ import static org.junit.Assert.assertNull;
 
 public final class FacadeContractTest {
     @Test(expected = IllegalArgumentException.class)
-    public void optionsRejectNegativeSlot() {
-        new AntiSpoofingEngine.Options(-1, 10, 3);
+    public void createRejectsNegativeSlot() {
+        AntiSpoofingEngine.create(null, -1, 10, 3);
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void optionsRejectZeroSamples() {
-        new AntiSpoofingEngine.Options(0, 10, 0);
-    }
-
-    @Test
-    public void defaultOptionsPreserveSessionCounts() {
-        AntiSpoofingEngine.Options options = AntiSpoofingEngine.Options.defaults();
-        assertEquals(0, options.slotIndex());
-        assertEquals(10, options.irSettleFrameCount());
-        assertEquals(3, options.sampleCount());
-        assertEquals(AntiSpoofingEngine.Options.Mode.SYNC, options.mode());
-        assertEquals(AntiSpoofingEngine.Options.Mode.LIVE,
-                options.live(null).withSlotIndex(1).mode());
+    public void createRejectsZeroSamples() {
+        AntiSpoofingEngine.create(null, 0, 10, 0);
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void irFrameRejectsMissingBitmap() {
-        AntiSpoofingEngine.Frame.ir(null, null);
+    public void createRejectsNegativeSettleFrames() {
+        AntiSpoofingEngine.create(null, 0, -1, 3);
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void dualFrameRejectsMissingRgb() {
-        AntiSpoofingEngine.Frame.dual(null, null, null, null, 1L, 1L);
+    public void createRejectsMissingContext() {
+        AntiSpoofingEngine.create(null, 0, 10, 3);
     }
 
     @Test
@@ -72,5 +61,26 @@ public final class FacadeContractTest {
         assertEquals(AntiSpoofingResult.Status.LIVE, result.status());
         assertEquals(AntiSpoofingResult.Attack.NONE, result.attack());
         assertEquals("DENTAL_WHITE", result.displayLabel());
+    }
+
+    @Test
+    public void rawFrameKeepsProbabilitiesAndTiming() {
+        float[] probabilities = new float[12];
+        probabilities[0] = 0.9f;
+        AntiSpoofingResult result = AntiSpoofingResult.fromFrame(
+                ResultFixture.frame(probabilities));
+        assertEquals(AntiSpoofingResult.Status.LIVE, result.status());
+        assertEquals(0.9f, result.probability(0), 0f);
+        assertEquals(2L, result.preprocessMs());
+        assertEquals(Long.valueOf(4L), result.inferenceMs());
+    }
+
+    @Test
+    public void rawFrameErrorHasNoProbability() {
+        AntiSpoofingResult result = AntiSpoofingResult.fromFrame(
+                ResultFixture.frameError("invalid crop"));
+        assertEquals(AntiSpoofingResult.Status.ERROR, result.status());
+        assertEquals("invalid crop", result.errorMessage());
+        assertNull(result.probabilities());
     }
 }

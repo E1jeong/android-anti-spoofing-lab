@@ -9,208 +9,164 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
-import com.unionbiometrics.vision.internal.FrameInput;
 import com.unionbiometrics.vision.internal.FaceCrop;
+import com.unionbiometrics.vision.internal.FrameInput;
+import com.unionbiometrics.vision.internal.FrameResult;
+import com.unionbiometrics.vision.internal.SessionController;
+import com.unionbiometrics.vision.internal.SessionResult;
 import com.unionbiometrics.vision.internal.SlotClassifier;
-import com.unionbiometrics.vision.internal.AntiSpoofingEngineImpl;
 
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Product anti-spoofing entry point. One instance owns one model slot and session. */
+/** One model slot and one anti-spoofing session. */
 public final class AntiSpoofingEngine implements AutoCloseable {
-    public static final class AntiSpoofingException extends Exception {
-        public AntiSpoofingException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
-
-    public static final class Options {
-        public enum Mode { SYNC, LIVE }
-
-        private final int slotIndex;
-        private final int irSettleFrameCount;
-        private final int sampleCount;
-        private final Mode mode;
-        private final Executor callbackExecutor;
-
-        public Options(int slotIndex, int irSettleFrameCount, int sampleCount) {
-            this(slotIndex, irSettleFrameCount, sampleCount, Mode.SYNC, null);
-        }
-
-        private Options(int slotIndex, int irSettleFrameCount, int sampleCount,
-                        Mode mode, Executor callbackExecutor) {
-            if (slotIndex < 0) throw new IllegalArgumentException("slotIndex must be >= 0");
-            if (irSettleFrameCount < 0) {
-                throw new IllegalArgumentException("irSettleFrameCount must be >= 0");
-            }
-            if (sampleCount <= 0) throw new IllegalArgumentException("sampleCount must be > 0");
-            if (mode == null) throw new IllegalArgumentException("mode must not be null");
-            this.slotIndex = slotIndex;
-            this.irSettleFrameCount = irSettleFrameCount;
-            this.sampleCount = sampleCount;
-            this.mode = mode;
-            this.callbackExecutor = callbackExecutor;
-        }
-
-        public static Options defaults() { return new Options(0, 10, 3); }
-        public Options withSlotIndex(int index) {
-            return new Options(index, irSettleFrameCount, sampleCount, mode, callbackExecutor);
-        }
-        /** Uses asynchronous inference; null dispatches callbacks on the main looper. */
-        public Options live(Executor executor) {
-            return new Options(slotIndex, irSettleFrameCount, sampleCount, Mode.LIVE, executor);
-        }
-        public int slotIndex() { return slotIndex; }
-        public int irSettleFrameCount() { return irSettleFrameCount; }
-        public int sampleCount() { return sampleCount; }
-        public Mode mode() { return mode; }
-    }
-
-    public static final class Frame {
-        private final Bitmap rgb;
-        private final Rect rgbFace;
-        private final Bitmap ir;
-        private final Rect irFace;
-        private final long rgbTimestampNs;
-        private final long irTimestampNs;
-
-        private Frame(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
-                      long rgbTimestampNs, long irTimestampNs) {
-            if (ir == null || irFace == null || irFace.isEmpty()) {
-                throw new IllegalArgumentException("IR bitmap and nonempty face box are required");
-            }
-            if ((rgb == null) != (rgbFace == null) || (rgbFace != null && rgbFace.isEmpty())) {
-                throw new IllegalArgumentException("RGB bitmap and nonempty face box must be paired");
-            }
-            if (rgbTimestampNs < 0 || irTimestampNs < 0) {
-                throw new IllegalArgumentException("Timestamps must be >= 0");
-            }
-            validateBox(ir, irFace, "IR");
-            if (rgb != null) validateBox(rgb, rgbFace, "RGB");
-            this.rgb = rgb;
-            this.rgbFace = rgbFace == null ? null : new Rect(rgbFace);
-            this.ir = ir;
-            this.irFace = new Rect(irFace);
-            this.rgbTimestampNs = rgbTimestampNs;
-            this.irTimestampNs = irTimestampNs;
-        }
-
-        private static void validateBox(Bitmap bitmap, Rect box, String name) {
-            if (bitmap.isRecycled() || box.left < 0 || box.top < 0
-                    || box.right > bitmap.getWidth() || box.bottom > bitmap.getHeight()) {
-                throw new IllegalArgumentException(name + " frame or face box is invalid");
-            }
-        }
-
-        /** Borrows an IR bitmap and its unexpanded camera-coordinate face box. */
-        public static Frame ir(Bitmap ir, Rect irFace) {
-            return new Frame(null, null, ir, irFace, 0, 0);
-        }
-        /** Borrows paired RGB/IR bitmaps; frame pairing remains the host's responsibility. */
-        public static Frame dual(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
-                                 long rgbTimestampNs, long irTimestampNs) {
-            if (rgb == null || rgbFace == null) {
-                throw new IllegalArgumentException("RGB bitmap and face box are required");
-            }
-            return new Frame(rgb, rgbFace, ir, irFace, rgbTimestampNs, irTimestampNs);
-        }
-        public long rgbTimestampNs() { return rgbTimestampNs; }
-        public long irTimestampNs() { return irTimestampNs; }
-    }
-
-    private final AntiSpoofingEngineImpl delegate;
-    private final boolean dualInput;
-    private final Options options;
-    private final Executor callbackExecutor;
-    private final ExecutorService worker;
-    private final Object queueLock = new Object();
-    private Snapshot pending;
-    private boolean draining;
-    private boolean closed;
-    private long generation;
+    private final SlotClassifier slot;
+    private final SessionController session;
+    private final boolean requiresRgb;
+    public final String label;
+    public final String backend;
+    public final float cropMarginRatio;
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Object lock = new Object();
+    private FrameInput pendingFrame;
+    private Bitmap pendingRgbCopy;
+    private Bitmap pendingIrCopy;
+    private AntiSpoofingCallback pendingCallback;
+    private long pendingGeneration;
+    private volatile long generation;
     private long nextSubmissionId;
     private long latestQueuedSubmissionId;
+    private boolean draining;
+    private boolean terminalDelivered;
+    private volatile boolean closed;
 
-    private AntiSpoofingEngine(SlotClassifier slot, Options options) {
-        this.delegate = new AntiSpoofingEngineImpl(slot,
-                options.irSettleFrameCount, options.sampleCount);
-        this.dualInput = slot.isDualInput();
-        this.options = options;
-        this.callbackExecutor = options.callbackExecutor != null
-                ? options.callbackExecutor
-                : command -> new Handler(Looper.getMainLooper()).post(command);
-        this.worker = options.mode == Options.Mode.LIVE
-                ? Executors.newSingleThreadExecutor() : null;
+    private AntiSpoofingEngine(SlotClassifier slot, int settleFrames, int sampleCount) {
+        this.slot = slot;
+        session = new SessionController(settleFrames, sampleCount);
+        requiresRgb = slot.isDualInput();
+        label = slot.label();
+        backend = slot.inferenceBackend();
+        cropMarginRatio = slot.cropMarginRatio();
     }
 
-    /** Loads and warms manifest slot 0. Call from a background thread. */
-    public static AntiSpoofingEngine create(Context context) throws AntiSpoofingException {
-        return create(context, Options.defaults());
-    }
-
-    /** Loads and warms the selected zero-based manifest slot. Call from a background thread. */
-    public static AntiSpoofingEngine create(Context context, Options options)
-            throws AntiSpoofingException {
-        if (context == null || options == null) {
-            throw new IllegalArgumentException("context and options must not be null");
+    /** Returns one raw frame result without changing the callback session. Call off the main thread. */
+    public AntiSpoofingResult process(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace) {
+        if (ir == null || irFace == null) {
+            throw new IllegalArgumentException("IR bitmap and face box are required");
         }
+        if ((rgb == null) != (rgbFace == null)) {
+            throw new IllegalArgumentException("RGB bitmap and face box must be paired");
+        }
+        if (requiresRgb && rgb == null) {
+            throw new IllegalArgumentException("RGB and IR frame required by this slot");
+        }
+        if (ir.isRecycled() || (rgb != null && rgb.isRecycled())) {
+            throw new IllegalArgumentException("Frame bitmap is recycled");
+        }
+        synchronized (session) {
+            if (closed) throw new IllegalStateException("Vision engine is closed");
+            return AntiSpoofingResult.fromFrame(slot.classify(new FrameInput(
+                    rgb == null ? ir : rgb, rgbFace == null ? irFace : rgbFace, ir, irFace)));
+        }
+    }
+
+    /** Loads and warms a zero-based manifest slot. Call from a background thread. */
+    public static AntiSpoofingEngine create(Context context, int slotIndex,
+                                            int settleFrames, int sampleCount) {
+        if (slotIndex < 0) throw new IllegalArgumentException("slotIndex must be >= 0");
+        if (settleFrames < 0) throw new IllegalArgumentException("settleFrames must be >= 0");
+        if (sampleCount <= 0) throw new IllegalArgumentException("sampleCount must be > 0");
+        if (context == null) throw new IllegalArgumentException("context must not be null");
         Context application = context.getApplicationContext();
         try {
-            return new AntiSpoofingEngine(SlotClassifier.loadSelected(
-                    application == null ? context : application, options.slotIndex), options);
+            SlotClassifier loaded = SlotClassifier.loadSelected(
+                    application == null ? context : application, slotIndex);
+            boolean created = false;
+            try {
+                AntiSpoofingEngine engine = new AntiSpoofingEngine(
+                        loaded, settleFrames, sampleCount);
+                created = true;
+                return engine;
+            } finally {
+                if (!created) {
+                    try { loaded.close(); } catch (RuntimeException ignored) {}
+                }
+            }
         } catch (Exception e) {
-            throw new AntiSpoofingException("Model slot " + options.slotIndex
+            throw new IllegalStateException("Model slot " + slotIndex
                     + " failed to load: " + e.getMessage(), e);
         }
     }
 
-    public String label() { return delegate.label(); }
-    public String backend() { return delegate.backend(); }
-    public float cropMarginRatio() { return delegate.cropMarginRatio(); }
-    public boolean requiresRgb() { return dualInput; }
-
-    /** Processes one borrowed frame on the caller's thread in SYNC mode. */
-    public AntiSpoofingResult process(Frame frame) {
-        if (options.mode != Options.Mode.SYNC) {
-            throw new IllegalStateException("process requires SYNC mode");
+    /** Number of model entries in the bundled manifest. */
+    public static int slotCount(Context context) {
+        if (context == null) throw new IllegalArgumentException("context must not be null");
+        try {
+            return SlotClassifier.slotCount(context);
+        } catch (Exception e) {
+            throw new IllegalStateException("Model manifest failed to load: " + e.getMessage(), e);
         }
-        validate(frame);
-        synchronized (queueLock) {
-            if (closed) throw new IllegalStateException("Vision engine is closed");
-        }
-        return runFrame(borrowed(frame));
     }
 
-    /** Copies expanded crops before returning. Superseded or reset frames receive no callback. */
-    public void submit(Frame frame, AntiSpoofingCallback callback) {
-        if (options.mode != Options.Mode.LIVE) {
-            throw new IllegalStateException("submit requires LIVE mode");
-        }
+    /** Expands a face box for host previews or capture. */
+    public static Rect expandFace(Rect face, float marginRatio, int width, int height) {
+        return FaceCrop.expand(face, marginRatio, width, height);
+    }
+
+    /** Copies expanded crops before returning. Delivers results on the main looper. */
+    public void infer(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
+                      AntiSpoofingCallback callback) {
         if (callback == null) throw new IllegalArgumentException("callback must not be null");
-        validate(frame);
+        if (ir == null || irFace == null || irFace.isEmpty()) {
+            throw new IllegalArgumentException("IR bitmap and nonempty face box are required");
+        }
+        if ((rgb == null) != (rgbFace == null)
+                || (rgbFace != null && rgbFace.isEmpty())) {
+            throw new IllegalArgumentException("RGB bitmap and nonempty face box must be paired");
+        }
+        if (requiresRgb != (rgb != null)) {
+            throw new IllegalArgumentException(requiresRgb
+                    ? "RGB and IR frame required by this slot"
+                    : "IR-only frame required by this slot");
+        }
+        validateBox(ir, irFace, "IR");
+        if (rgb != null) validateBox(rgb, rgbFace, "RGB");
+
         final long submittedGeneration;
         final long submissionId;
-        synchronized (queueLock) {
+        synchronized (lock) {
             if (closed) throw new IllegalStateException("Vision engine is closed");
             submittedGeneration = generation;
             submissionId = ++nextSubmissionId;
         }
-        Snapshot snapshot = snapshot(frame, callback);
-        synchronized (queueLock) {
-            if (closed) {
-                snapshot.recycle();
-                throw new IllegalStateException("Vision engine is closed");
-            }
-            if (generation != submittedGeneration || submissionId < latestQueuedSubmissionId) {
-                snapshot.recycle();
+        float margin = cropMarginRatio;
+        Bitmap irCopy = copyCrop(ir, irFace, margin);
+        Bitmap rgbCopy = null;
+        try {
+            if (rgb != null) rgbCopy = copyCrop(rgb, rgbFace, margin);
+        } catch (RuntimeException e) {
+            irCopy.recycle();
+            throw e;
+        }
+        synchronized (lock) {
+            if (closed || generation != submittedGeneration
+                    || submissionId < latestQueuedSubmissionId) {
+                if (rgbCopy != null) rgbCopy.recycle();
+                irCopy.recycle();
                 return;
             }
             latestQueuedSubmissionId = submissionId;
-            snapshot.generation = submittedGeneration;
-            if (pending != null) pending.recycle();
-            pending = snapshot;
+            recyclePending();
+            Bitmap inputRgb = rgbCopy == null ? irCopy : rgbCopy;
+            pendingFrame = new FrameInput(
+                    inputRgb, new Rect(0, 0, inputRgb.getWidth(), inputRgb.getHeight()),
+                    irCopy, new Rect(0, 0, irCopy.getWidth(), irCopy.getHeight()), true);
+            pendingRgbCopy = rgbCopy;
+            pendingIrCopy = irCopy;
+            pendingCallback = callback;
+            pendingGeneration = submittedGeneration;
             if (!draining) {
                 draining = true;
                 worker.execute(this::drain);
@@ -219,88 +175,82 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     }
 
     private void drain() {
-        try {
-            while (true) {
-                Snapshot next;
-                synchronized (queueLock) {
-                    next = pending;
-                    pending = null;
-                    if (next == null || closed) {
-                        if (next != null) next.recycle();
-                        draining = false;
-                        return;
+        while (true) {
+            FrameInput frame;
+            Bitmap rgbCopy;
+            Bitmap irCopy;
+            AntiSpoofingCallback callback;
+            long frameGeneration;
+            synchronized (lock) {
+                if (closed || pendingFrame == null) {
+                    draining = false;
+                    return;
+                }
+                frame = pendingFrame;
+                rgbCopy = pendingRgbCopy;
+                irCopy = pendingIrCopy;
+                callback = pendingCallback;
+                frameGeneration = pendingGeneration;
+                pendingFrame = null;
+                pendingRgbCopy = null;
+                pendingIrCopy = null;
+                pendingCallback = null;
+            }
+            AntiSpoofingResult result;
+            boolean notifyResult;
+            try {
+                synchronized (session) {
+                    if (closed || generation != frameGeneration) continue;
+                    SessionResult state = process(frame);
+                    result = AntiSpoofingResult.fromInternal(
+                            state, session.settleRemaining(), session.acceptedSamples());
+                    notifyResult = result.status() == AntiSpoofingResult.Status.ERROR
+                            || (result.status() != AntiSpoofingResult.Status.PENDING
+                            && !terminalDelivered);
+                    if (result.status() == AntiSpoofingResult.Status.LIVE
+                            || result.status() == AntiSpoofingResult.Status.SPOOF) {
+                        terminalDelivered = true;
                     }
                 }
-                AntiSpoofingResult result;
-                try {
-                    result = runFrame(next.frame);
-                } catch (RuntimeException e) {
-                    result = AntiSpoofingResult.fromInternal(
-                            com.unionbiometrics.vision.internal.SessionResult.error(
-                                    "Vision inference failed: " + e.getMessage()), 0, 0);
-                } finally {
-                    next.recycle();
-                }
-                final long submittedGeneration = next.generation;
-                final AntiSpoofingResult delivered = result;
-                try {
-                    callbackExecutor.execute(() -> {
-                        synchronized (queueLock) {
-                            if (closed || generation != submittedGeneration) return;
-                        }
-                        next.callback.onResult(delivered);
-                    });
-                } catch (RuntimeException e) {
-                    Log.e("AntiSpoofingEngine", "Live callback failed", e);
-                }
+            } catch (RuntimeException e) {
+                result = AntiSpoofingResult.fromInternal(
+                        SessionResult.error("Vision inference failed: " + e.getMessage()), 0, 0);
+                notifyResult = true;
+            } finally {
+                if (rgbCopy != null) rgbCopy.recycle();
+                irCopy.recycle();
             }
-        } catch (RuntimeException e) {
-            Log.e("AntiSpoofingEngine", "Live worker failed", e);
-            synchronized (queueLock) {
-                if (pending != null) pending.recycle();
-                pending = null;
-                draining = false;
-            }
+            if (!notifyResult) continue;
+            AntiSpoofingResult delivered = result;
+            mainHandler.post(() -> {
+                synchronized (lock) {
+                    if (closed || generation != frameGeneration) return;
+                }
+                try {
+                    callback.onResult(delivered);
+                } catch (RuntimeException e) {
+                    Log.e("AntiSpoofingEngine", "Callback failed", e);
+                }
+            });
         }
     }
 
-    private AntiSpoofingResult runFrame(FrameInput frame) {
-        synchronized (delegate) {
-            com.unionbiometrics.vision.internal.SessionResult result = delegate.process(frame);
-            return AntiSpoofingResult.fromInternal(
-                    result, delegate.settleRemaining(), delegate.acceptedSamples());
-        }
-    }
-
-    private void validate(Frame frame) {
-        if (frame == null) throw new IllegalArgumentException("frame must not be null");
-        if (dualInput != (frame.rgb != null)) {
-            throw new IllegalArgumentException(dualInput
-                    ? "RGB and IR frame required by this slot" : "IR-only frame required by this slot");
-        }
-    }
-
-    private static FrameInput borrowed(Frame frame) {
-        Bitmap rgb = frame.rgb == null ? frame.ir : frame.rgb;
-        Rect rgbFace = frame.rgbFace == null ? frame.irFace : frame.rgbFace;
-        return new FrameInput(rgb, rgbFace, frame.ir, frame.irFace);
-    }
-
-    private Snapshot snapshot(Frame frame, AntiSpoofingCallback callback) {
-        float margin = cropMarginRatio();
-        Bitmap irCopy = copyCrop(frame.ir, frame.irFace, margin);
-        Bitmap rgbCopy = null;
+    private SessionResult process(FrameInput frame) {
+        SessionResult state = session.beforeSample();
+        if (state != null) return state;
         try {
-            if (frame.rgb != null) rgbCopy = copyCrop(frame.rgb, frame.rgbFace, margin);
-            Bitmap rgb = rgbCopy == null ? irCopy : rgbCopy;
-            FrameInput copied = new FrameInput(
-                    rgb, new Rect(0, 0, rgb.getWidth(), rgb.getHeight()),
-                    irCopy, new Rect(0, 0, irCopy.getWidth(), irCopy.getHeight()), true);
-            return new Snapshot(copied, rgbCopy, irCopy, callback);
+            FrameResult inference = slot.classify(frame);
+            if (!inference.successful()) return session.fail(inference.errorMessage());
+            return session.add(inference.result(), inference.inferenceMs());
         } catch (RuntimeException e) {
-            irCopy.recycle();
-            if (rgbCopy != null) rgbCopy.recycle();
-            throw e;
+            return session.fail("Vision inference failed: " + e.getMessage());
+        }
+    }
+
+    private static void validateBox(Bitmap bitmap, Rect box, String name) {
+        if (bitmap.isRecycled() || box.left < 0 || box.top < 0
+                || box.right > bitmap.getWidth() || box.bottom > bitmap.getHeight()) {
+            throw new IllegalArgumentException(name + " frame or face box is invalid");
         }
     }
 
@@ -308,8 +258,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         Rect crop = FaceCrop.expand(face, margin, source.getWidth(), source.getHeight());
         Bitmap copy = Bitmap.createBitmap(crop.width(), crop.height(), Bitmap.Config.ARGB_8888);
         try {
-            Canvas canvas = new Canvas(copy);
-            canvas.drawBitmap(source, crop,
+            new Canvas(copy).drawBitmap(source, crop,
                     new Rect(0, 0, copy.getWidth(), copy.getHeight()), new Paint());
             return copy;
         } catch (RuntimeException e) {
@@ -318,45 +267,38 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         }
     }
 
+    private void recyclePending() {
+        if (pendingRgbCopy != null) pendingRgbCopy.recycle();
+        if (pendingIrCopy != null) pendingIrCopy.recycle();
+        pendingFrame = null;
+        pendingRgbCopy = null;
+        pendingIrCopy = null;
+        pendingCallback = null;
+    }
+
     public void reset() {
-        synchronized (queueLock) {
+        synchronized (lock) {
             if (closed) return;
             generation++;
-            if (pending != null) pending.recycle();
-            pending = null;
-            delegate.reset();
+            recyclePending();
+            synchronized (session) {
+                session.reset();
+                terminalDelivered = false;
+            }
         }
     }
 
     @Override public void close() {
-        synchronized (queueLock) {
+        synchronized (lock) {
             if (closed) return;
             closed = true;
             generation++;
-            if (pending != null) pending.recycle();
-            pending = null;
-            if (worker != null) worker.shutdown();
-            delegate.close();
-        }
-    }
-
-    private static final class Snapshot {
-        final FrameInput frame;
-        final Bitmap rgbCopy;
-        final Bitmap irCopy;
-        final AntiSpoofingCallback callback;
-        long generation;
-
-        Snapshot(FrameInput frame, Bitmap rgbCopy, Bitmap irCopy,
-                 AntiSpoofingCallback callback) {
-            this.frame = frame;
-            this.rgbCopy = rgbCopy;
-            this.irCopy = irCopy;
-            this.callback = callback;
-        }
-        void recycle() {
-            if (rgbCopy != null) rgbCopy.recycle();
-            irCopy.recycle();
+            recyclePending();
+            worker.shutdown();
+            synchronized (session) {
+                session.close();
+                slot.close();
+            }
         }
     }
 }

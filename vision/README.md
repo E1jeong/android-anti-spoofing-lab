@@ -1,39 +1,33 @@
 # Vision SDK Contract
 
-Product hosts use `com.unionbiometrics.vision.AntiSpoofingEngine`,
-`AntiSpoofingResult`, and `AntiSpoofingCallback`. Load and warm one zero-based manifest
-slot on a background thread:
+Product hosts use `AntiSpoofingEngine`, `AntiSpoofingResult`, and
+`AntiSpoofingCallback`. Load one zero-based manifest slot on a background thread:
 
 ```java
-AntiSpoofingEngine engine = AntiSpoofingEngine.create(applicationContext);
-// To choose another slot: create(applicationContext, Options.defaults().withSlotIndex(index)).
-AntiSpoofingEngine.Frame frame = AntiSpoofingEngine.Frame.ir(irBitmap, irFaceBox);
-AntiSpoofingResult result = engine.process(frame);
+AntiSpoofingEngine engine = AntiSpoofingEngine.create(applicationContext, 0, 10, 3);
+engine.infer(null, null, irBitmap, irFaceBox, result -> {
+    // Handle the completed decision or error on the Android main looper.
+});
+// Call engine.reset() before another session and engine.close() at host teardown.
 ```
 
-Use `Frame.dual(rgbBitmap, rgbFaceBox, irBitmap, irFaceBox, rgbTimestampNs,
-irTimestampNs)` for a two-input slot. Pass unexpanded face boxes. The host pairs
-RGB and IR frames and controls IR illumination across every terminal, reset,
-failure, and close path. Check `requiresRgb()` for the selected slot.
+For a two-input slot, pass `rgbBitmap` and `rgbFaceBox` in the first two
+arguments. The host pairs RGB and IR frames, passes unexpanded face boxes, and
+controls IR illumination. `infer` copies expanded crops before returning; the
+host can then release its bitmaps. Only the latest waiting frame is kept.
+Superseded, pending, or reset frames receive no callback. A completed session
+receives one `LIVE` or `SPOOF` callback; an inference failure sends `ERROR`.
+Call `create`, `process`, `infer`, `reset`, and `close` off the main thread;
+`infer` invokes its callback on the main looper.
 
-The default session discards ten incoming frames, then averages three probability
-vectors before returning `LIVE` or `SPOOF`. Earlier calls return `PENDING`;
-inference failures return `ERROR`. `inferenceMs()` is null when no inference ran.
-The result also exposes `probabilities()`, `topIndex()`, `score()`, `attack()`,
-`displayLabel()`, `settleRemaining()`, and `acceptedSamples()`. Call `reset()`
-after authentication or cancellation and `close()` at host teardown.
-
-`process()` borrows frame bitmaps for its synchronous call; keep them alive until
-it returns. For asynchronous inference, create the engine with
-`Options.defaults().live(callbackExecutor)` and call `submit(frame, callback)`.
-`submit()` copies the expanded crops before returning, so the host can release
-its bitmaps afterward. Only the newest waiting frame is kept; a superseded or
-reset frame gets no callback. A null executor sends callbacks to the Android main looper.
-Run loading and synchronous inference off the main thread.
+The session discards the configured number of incoming frames, then averages
+the configured number of probability vectors. Results contain `LIVE`, `SPOOF`,
+or `ERROR` status and the corresponding probabilities,
+score, attack, counts, and error. Call `reset()` after authentication or
+cancellation and `close()` at host teardown.
 
 A manifest slot that fails NNAPI setup or warmup is rejected without CPU
-fallback. Model label, backend, and crop margin are available from `label()`,
-`backend()`, and `cropMarginRatio()`. Packages under
-`com.unionbiometrics.vision.internal` are unsupported implementation details;
-the in-repository Lab app uses `internal.DemoInferenceEngine` for raw
-multi-slot evaluation.
+fallback. The in-repository Lab app uses `AntiSpoofingEngine.process(...)`
+for return-valued raw frame evaluation and reads slot metadata from the engine.
+It accesses the Vision module only through `AntiSpoofingEngine` and
+`AntiSpoofingResult`; the `internal` package is not a host API.

@@ -53,12 +53,8 @@ import com.virditech.ac7000.device.LightingExperimentLogger;
 import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
-import com.unionbiometrics.vision.internal.DemoInferenceEngine;
-import com.unionbiometrics.vision.internal.FaceCrop;
-import com.unionbiometrics.vision.internal.FrameInput;
-import com.unionbiometrics.vision.internal.ClassLabels;
-import com.unionbiometrics.vision.internal.ProbabilityResult;
-import com.unionbiometrics.vision.internal.FrameResult;
+import com.unionbiometrics.vision.AntiSpoofingEngine;
+import com.unionbiometrics.vision.AntiSpoofingResult;
 import com.virditech.ac7000.model.AuthFrameAccumulator;
 import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.performance.LatencyWindow;
@@ -98,7 +94,7 @@ public final class MainActivity extends Activity {
     private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
     private static final long IR_LED_OFF_DELAY_MS = 1_000L;
     private static final long CAMERA_CLOSE_WARNING_MS = 1_500L;
-    private static final String[] VISION_LABELS = ClassLabels.values();
+    private static final String[] VISION_LABELS = AntiSpoofingResult.classLabels();
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -134,7 +130,7 @@ public final class MainActivity extends Activity {
     private final Object engineLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
     private final AtomicInteger pendingEngineLoads = new AtomicInteger(2);
-    private final ArrayList<DemoInferenceEngine.LabEngine> antiSpoofingEngines = new ArrayList<>();
+    private final ArrayList<AntiSpoofingEngine> antiSpoofingEngines = new ArrayList<>();
     private int activeEngineIndex;
     private volatile boolean enginesShutDown;
     // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
@@ -150,7 +146,7 @@ public final class MainActivity extends Activity {
     private volatile FaceDetector faceDetector;
     private volatile MediaPipeFaceDetector mediaPipeFaceDetector;
     private volatile FaceDetectionEngine activeFaceDetector;
-    private volatile DemoInferenceEngine.LabEngine antiSpoofingEngine;
+    private volatile AntiSpoofingEngine antiSpoofingEngine;
     private volatile Calibration calibration;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private final CaptureSession collectionSession = new CaptureSession();
@@ -667,9 +663,16 @@ public final class MainActivity extends Activity {
     }
 
     private void loadAntiSpoofingEngines() {
-        DemoInferenceEngine.LoadResult result = null;
+        List<AntiSpoofingEngine> loaded = new ArrayList<>();
         try {
-            result = DemoInferenceEngine.loadAll(getApplicationContext());
+            int slotCount = AntiSpoofingEngine.slotCount(getApplicationContext());
+            for (int slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+                try {
+                    loaded.add(AntiSpoofingEngine.create(getApplicationContext(), slotIndex, 10, 3));
+                } catch (Exception e) {
+                    reportEngineError("MODEL " + (slotIndex + 1) + " FAILED: " + e.getMessage());
+                }
+            }
         } catch (Exception e) {
             reportEngineError("MODEL LOAD FAILED: " + e.getMessage());
         }
@@ -700,13 +703,9 @@ public final class MainActivity extends Activity {
         } catch (Exception e) {
             android.util.Log.w(TAG, "FaceRecognitionManager load failed: " + e.getMessage());
         }
-        List<DemoInferenceEngine.LabEngine> loaded = result != null ? result.engines : new ArrayList<>();
-        if (result != null) {
-            for (String error : result.errors) reportEngineError(error);
-        }
         synchronized (engineLock) {
             if (enginesShutDown) {
-                for (DemoInferenceEngine.LabEngine slot : loaded) {
+                for (AntiSpoofingEngine slot : loaded) {
                     try { slot.close(); } catch (Exception ignored) {}
                 }
                 return;
@@ -718,8 +717,8 @@ public final class MainActivity extends Activity {
         }
         runOnUiThread(() -> {
             screen.modelSwitchButton.setEnabled(antiSpoofingEngines.size() > 1);
-            DemoInferenceEngine.LabEngine activeInfo = antiSpoofingEngine;
-            if (activeInfo != null) screen.modelSwitchButton.setText(activeInfo.label());
+            AntiSpoofingEngine activeInfo = antiSpoofingEngine;
+            if (activeInfo != null) screen.modelSwitchButton.setText(activeInfo.label);
             if (antiSpoofingEngine != null && cameras != null) cameras.setIrFramesEnabled(true);
         });
         if (antiSpoofingEngine == null) reportEngineError("No model slots loaded");
@@ -751,10 +750,10 @@ public final class MainActivity extends Activity {
         synchronized (engineErrors) {
             errors = engineErrors.toString();
         }
-        DemoInferenceEngine.LabEngine activeEngine = antiSpoofingEngine;
-        DemoInferenceEngine.LabEngine activeInfo = activeEngine;
+        AntiSpoofingEngine activeEngine = antiSpoofingEngine;
+        AntiSpoofingEngine activeInfo = activeEngine;
         String message = errors.isEmpty()
-                ? (activeInfo != null ? "Backend " + activeInfo.backend() : "Loading model...")
+                ? (activeInfo != null ? "Backend " + activeInfo.backend : "Loading model...")
                 : errors;
         normalStatusMessage = message;
         runOnUiThread(() -> screen.status.setText(message));
@@ -1057,17 +1056,17 @@ public final class MainActivity extends Activity {
 
         Rect rgbCrop = null;
         Rect irCrop = null;
-        DemoInferenceEngine.LabEngine activeEngine;
-        DemoInferenceEngine.LabEngine activeEngineInfo;
+        AntiSpoofingEngine activeEngine;
+        AntiSpoofingEngine activeEngineInfo;
         synchronized (engineLock) {
             activeEngine = antiSpoofingEngine;
             activeEngineInfo = activeEngine;
         }
         if (activeEngine != null) {
-            float margin = activeEngineInfo.cropMarginRatio();
-            rgbCrop = FaceCrop.expand(
+            float margin = activeEngineInfo.cropMarginRatio;
+            rgbCrop = AntiSpoofingEngine.expandFace(
                     detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-            irCrop = FaceCrop.expand(irDetected, margin, irWidth, irHeight);
+            irCrop = AntiSpoofingEngine.expandFace(irDetected, margin, irWidth, irHeight);
         }
 
         Bitmap previewFace = null;
@@ -1164,10 +1163,10 @@ public final class MainActivity extends Activity {
                 final int currentCount = savePermit.sampleIndex;
                 final String subjectDirName = savePermit.className + "_" + savePermit.subjectId;
                 float margin = activeEngineInfo != null
-                        ? activeEngineInfo.cropMarginRatio() : 0.10f;
-                Rect rgbR = FaceCrop.expand(detected, margin,
+                        ? activeEngineInfo.cropMarginRatio : 0.10f;
+                Rect rgbR = AntiSpoofingEngine.expandFace(detected, margin,
                         frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-                Rect irR = FaceCrop.expand(irDetected, margin,
+                Rect irR = AntiSpoofingEngine.expandFace(irDetected, margin,
                         frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
                 final int minQualityLevel = shouldCheckCollectionQuality(savePermit.className)
                         ? saveCandidate.minQualityLevel : -1;
@@ -1269,7 +1268,7 @@ public final class MainActivity extends Activity {
         }
         inferenceBlockedByMotion = false;
         submitInference(new InferenceTask(frame.detachPair(), detected, irDetected, rgbCrop, irCrop, currentLandmarks,
-                frame.generation, activeEngine, activeEngineInfo.cropMarginRatio(),
+                frame.generation, activeEngine, activeEngineInfo.cropMarginRatio,
                 frame.receivedNs, inferenceMotionGeneration.get()));
     }
 
@@ -1346,10 +1345,12 @@ public final class MainActivity extends Activity {
                 || !isPipelineCurrent(task.generation) || task.engine == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
-        FrameResult result = DemoInferenceEngine.infer(task.engine, new FrameInput(
+        AntiSpoofingResult result = task.engine.process(
                 task.pair.rgb.bitmap, task.rgbFace,
-                task.pair.ir.bitmap, task.irFace));
-        if (!result.successful()) throw new IllegalStateException(result.errorMessage());
+                task.pair.ir.bitmap, task.irFace);
+        if (result.status() == AntiSpoofingResult.Status.ERROR) {
+            throw new IllegalStateException(result.errorMessage());
+        }
         long endToEndMs = (SystemClock.elapsedRealtimeNanos() - task.receivedNs) / 1_000_000L;
         if (isExclusiveEvaluationMode() || authVerdictShowing || testMenuShowing
                 || !isPipelineCurrent(task.generation)
@@ -1363,14 +1364,14 @@ public final class MainActivity extends Activity {
             if (isExclusiveEvaluationMode() || authVerdictShowing || !isPipelineCurrent(task.generation)
                     || task.motionGeneration != inferenceMotionGeneration.get()) return;
             if (authMode) {
-                ProbabilityResult primary = result.result();
-                if (primary != null && primary.probabilities().length > 0) {
+                float[] probabilities = result.probabilities();
+                if (probabilities != null && probabilities.length > 0) {
                     AuthFrameAccumulator.Verdict verdict = authFrames.add(
-                            primary.probabilities(), task.receivedNs,
+                            probabilities, task.receivedNs,
                             SystemClock.elapsedRealtimeNanos());
                     if (verdict != null) {
                         String topSpoofLabel = verdict.topSpoofIndex < VISION_LABELS.length
-                                ? ClassLabels.displayLabel(verdict.topSpoofIndex)
+                                ? AntiSpoofingResult.classDisplayLabel(verdict.topSpoofIndex)
                                 : "UNKNOWN";
                         showAuthVerdict(verdict.live, verdict.averageLiveScore,
                                 topSpoofLabel, verdict.elapsedMs);
@@ -1378,7 +1379,7 @@ public final class MainActivity extends Activity {
                 }
                 return;
             }
-            screen.overlay.showResult(result.result());
+            screen.overlay.showResult(result);
             screen.resultsLabel.setText(formatClassificationResults(result));
             if (screen != null) screen.showCleanModeResult(result);
             
@@ -1968,9 +1969,9 @@ public final class MainActivity extends Activity {
         showTransientStatus("Attack Live capture stopped: " + attackCaptureCount + " saved");
     }
 
-    private void maybeSaveAttackLiveCapture(InferenceTask task, FrameResult result) {
-        ProbabilityResult primary = result.result();
-        if (primary == null || !AttackLiveCaptureGate.shouldSave(primary.probabilities())) {
+    private void maybeSaveAttackLiveCapture(InferenceTask task, AntiSpoofingResult result) {
+        float[] probabilities = result.probabilities();
+        if (probabilities == null || !AttackLiveCaptureGate.shouldSave(probabilities)) {
             return;
         }
         FramePair pair;
@@ -2112,18 +2113,19 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private CharSequence formatClassificationResults(FrameResult result) {
+    private CharSequence formatClassificationResults(AntiSpoofingResult result) {
         StringBuilder sb = new StringBuilder();
-        appendClassificationResult(sb, null, result.result());
+        appendClassificationResult(sb, null, result);
         return sb.toString();
     }
 
-    private void appendClassificationResult(StringBuilder sb, String title, ProbabilityResult result) {
+    private void appendClassificationResult(StringBuilder sb, String title, AntiSpoofingResult result) {
         if (title != null) sb.append(title).append("\n");
         for (int i = 0; i < VISION_LABELS.length; i++) {
             if (i > 0) sb.append("\n");
             float probability = result != null ? result.probability(i) * 100f : 0f;
-            sb.append(String.format(Locale.US, "%s %.1f%%", ClassLabels.displayLabel(i), probability));
+            sb.append(String.format(Locale.US, "%s %.1f%%",
+                    AntiSpoofingResult.classDisplayLabel(i), probability));
         }
     }
 
@@ -2131,7 +2133,8 @@ public final class MainActivity extends Activity {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < VISION_LABELS.length; i++) {
             if (i > 0) sb.append("\n");
-            sb.append(String.format(Locale.US, "%s 0.0%%", ClassLabels.displayLabel(i)));
+            sb.append(String.format(Locale.US, "%s 0.0%%",
+                    AntiSpoofingResult.classDisplayLabel(i)));
         }
         screen.resultsLabel.setText(sb.toString());
     }
@@ -2141,10 +2144,10 @@ public final class MainActivity extends Activity {
             if (antiSpoofingEngines.isEmpty()) return;
             activeEngineIndex = (activeEngineIndex + 1) % antiSpoofingEngines.size();
             antiSpoofingEngine = antiSpoofingEngines.get(activeEngineIndex);
-            DemoInferenceEngine.LabEngine activeInfo = antiSpoofingEngine;
+            AntiSpoofingEngine activeInfo = antiSpoofingEngine;
 
-            final String btnText = activeInfo.label();
-            final String message = "Backend " + activeInfo.backend();
+            final String btnText = activeInfo.label;
+            final String message = "Backend " + activeInfo.backend;
             normalStatusMessage = message;
 
             runOnUiThread(() -> {
@@ -2398,14 +2401,14 @@ public final class MainActivity extends Activity {
         final Rect irCrop;
         final PointF[] landmarks;
         final int generation;
-        final DemoInferenceEngine.LabEngine engine;
+        final AntiSpoofingEngine engine;
         final float cropMarginRatio;
         final long receivedNs;
         final long enqueuedNs;
         final long motionGeneration;
 
         InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, PointF[] landmarks,
-                      int generation, DemoInferenceEngine.LabEngine engine, float cropMarginRatio,
+                      int generation, AntiSpoofingEngine engine, float cropMarginRatio,
                       long receivedNs, long motionGeneration) {
             this.pair = pair;
             this.rgbFace = rgbFace;
@@ -2537,7 +2540,7 @@ public final class MainActivity extends Activity {
 
     private void closeAntiSpoofingEngines() {
         synchronized (engineLock) {
-            for (DemoInferenceEngine.LabEngine engine : antiSpoofingEngines) {
+            for (AntiSpoofingEngine engine : antiSpoofingEngines) {
                 try { engine.close(); } catch (Exception ignored) {}
             }
             antiSpoofingEngine = null;

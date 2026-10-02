@@ -22,9 +22,7 @@ import android.widget.TextView;
 import com.virditech.ac7000.camera.PreviewTransform;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.unionbiometrics.vision.internal.ClassLabels;
-import com.unionbiometrics.vision.internal.ProbabilityResult;
-import com.unionbiometrics.vision.internal.FrameResult;
+import com.unionbiometrics.vision.AntiSpoofingResult;
 
 import java.util.Locale;
 
@@ -584,13 +582,8 @@ public final class MainScreenView {
         if (show) root.bringChildToFront(cleanModeSnapshotButton);
     }
 
-    public void showCleanModeResult(FrameResult slotResult) {
-        if (slotResult == null) {
-            clearCleanModeResult();
-            return;
-        }
-        ProbabilityResult result = slotResult.result();
-        if (result == null) {
+    public void showCleanModeResult(AntiSpoofingResult result) {
+        if (result == null || result.probabilities() == null) {
             clearCleanModeResult();
             return;
         }
@@ -618,9 +611,9 @@ public final class MainScreenView {
         if (showClean) root.bringChildToFront(cleanModeResultView);
     }
 
-    private static String formatResult(ProbabilityResult result) {
+    private static String formatResult(AntiSpoofingResult result) {
         return String.format(Locale.US, "%s %.1f%%",
-                ClassLabels.displayLabel(result.topIndex()),
+                AntiSpoofingResult.classDisplayLabel(result.topIndex()),
                 result.probability(result.topIndex()) * 100f);
     }
 
