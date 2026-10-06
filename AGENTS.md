@@ -33,7 +33,7 @@
 - Use JDK 21 for these commands on the company PC; the default Studio JBR 25 fails Gradle unit-test report setup. The wiki's `technical/build-deployment-requirements` records the verified local JDK selection.
 - Compile check: `./gradlew.bat :vision:compileDebugJavaWithJavac` then `./gradlew.bat :app:compileDebugJavaWithJavac`
 - JVM Unit Tests: `./gradlew.bat :vision:testDebugUnitTest` then `./gradlew.bat :app:testDebugUnitTest`
-- For affected target behavior, use the version-bound checklists in `docs/model-contract.md`, `docs/device-runtime.md`, `docs/capture-contract.md`, `docs/performance-guide.md`, and `docs/webrtc-test.md`.
+- For affected target behavior, use the execution checklists in the owning project wiki pages for model deployment, camera/capture, performance/recognition, and WebRTC.
 - Target Device Logcat Filters (when device connected via adb):
   - `adb logcat -s AntiSpoofingClassifier:I MainActivity:I`
   - `adb logcat -s MainActivity:E CameraStream:E *:S`
