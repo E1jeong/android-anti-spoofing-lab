@@ -139,7 +139,7 @@ public final class MainActivity extends Activity {
     private volatile boolean enginesWarmedUp;
     private volatile boolean qualityWarmedUp;
     private volatile boolean bundledQualityWarmupAttempted;
-    private boolean highQualityOnly;
+    private String liveQualityMode = CaptureStorage.QUALITY_MEDIUM;
     private DualCameraController cameras;
     private DualCameraController stoppingCameras;
     private boolean cameraStopInProgress;
@@ -237,8 +237,8 @@ public final class MainActivity extends Activity {
 
             @Override public void onStopAttackLiveCapture() { stopAttackLiveCapture(); }
 
-            @Override public void onHighQualityOnlyChanged(boolean checked) {
-                highQualityOnly = checked;
+            @Override public void onLiveQualityModeChanged(String qualityMode) {
+                liveQualityMode = qualityMode;
             }
 
             @Override public void onStartCollection(String className) {
@@ -901,7 +901,8 @@ public final class MainActivity extends Activity {
         FaceDetectionEngine activeDetector = activeFaceDetector;
         if (activeDetector == null || calibration == null) return;
         if (enginesWarmedUp && !qualityWarmedUp && !bundledQualityWarmupAttempted
-                && activeDetector == faceDetector && faceDetector.isQualityAvailable()) {
+                && activeDetector == faceDetector && faceDetector.isQualityAvailable()
+                && (!collectionSession.isActive() || shouldCheckCollectionQuality())) {
             bundledQualityWarmupAttempted = true;
             warmupFaceQualityFromBundledImage(frame.generation);
             return;
@@ -911,10 +912,11 @@ public final class MainActivity extends Activity {
                 && collectionSession.isActive() && !collectionSession.isPaused()
                 && frame.ir != null && !collectionSession.isIoBusy()
                 && activeDetector == faceDetector
-                && shouldCheckCollectionQuality(collectionSession.getClassName())
+                && shouldCheckCollectionQuality()
                 && getCollectionCountdownSeconds(SystemClock.elapsedRealtime()) <= 0;
         boolean prepareQualityWarmup = enginesWarmedUp && !captureCalibration && !qualityWarmedUp
-                && activeDetector == faceDetector && faceDetector.isQualityAvailable();
+                && activeDetector == faceDetector && faceDetector.isQualityAvailable()
+                && (!collectionSession.isActive() || shouldCheckCollectionQuality());
         long qualityWarmupStartNs = prepareQualityWarmup
                 ? SystemClock.elapsedRealtimeNanos() : 0L;
         long start = SystemClock.elapsedRealtimeNanos();
@@ -1140,7 +1142,7 @@ public final class MainActivity extends Activity {
             long nowMs = SystemClock.elapsedRealtime();
             if (getCollectionCountdownSeconds(nowMs) > 0) return;
             FaceDetector.FaceQualityCheckResult sampleQuality = null;
-            if (shouldCheckCollectionQuality(className)) {
+            if (shouldCheckCollectionQuality()) {
                 if (!prepareCollectionQuality) return;
                 FaceDetector.FaceQualityCheckResult quality =
                         faceDetector.checkFaceQuality(frame.rgb.bitmap,
@@ -1168,7 +1170,7 @@ public final class MainActivity extends Activity {
                         frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
                 Rect irR = AntiSpoofingEngine.expandFace(irDetected, margin,
                         frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
-                final int minQualityLevel = shouldCheckCollectionQuality(savePermit.className)
+                final int minQualityLevel = shouldCheckCollectionQuality()
                         ? saveCandidate.minQualityLevel : -1;
                 final int actualQualityLevel = sampleQuality != null ? sampleQuality.actualLevel : -1;
                 final float qualityScore = sampleQuality != null ? sampleQuality.score : 0f;
@@ -1778,15 +1780,12 @@ public final class MainActivity extends Activity {
     }
 
     private boolean shouldCheckCollectionQuality() {
-        return shouldCheckCollectionQuality(collectionSession.getClassName());
+        return CaptureSchedule.shouldCheckQuality(collectionSession.getClassName(),
+                collectionSession.getQualityMode());
     }
 
-    private boolean shouldCheckCollectionQuality(String className) {
-        return CaptureSchedule.shouldCheckQuality(className);
-    }
-
-    private void updateHighQualityOnlyButton() {
-        if (screen != null) screen.setHighQualityOnly(highQualityOnly);
+    private void updateLiveQualityModeButton() {
+        if (screen != null) screen.setLiveQualityMode(liveQualityMode);
     }
 
     private CaptureStep currentCollectionStep() {
@@ -1804,8 +1803,8 @@ public final class MainActivity extends Activity {
         setCollectionChromeVisible(true);
         screen.startCollectionButton.setEnabled(true);
         screen.switchButton.setEnabled(true);
-        screen.highQualityOnlyContainer.setEnabled(true);
-        screen.highQualityOnlyButton.setEnabled(true);
+        screen.liveQualityModeContainer.setEnabled(true);
+        screen.liveQualityModeButton.setEnabled(true);
         screen.startCollectionButton.setText("START CAPTURE");
         screen.collectionProgress.setVisibility(View.GONE);
         screen.pauseCollectionButton.setVisibility(View.GONE);
@@ -1820,8 +1819,8 @@ public final class MainActivity extends Activity {
         setCollectionChromeVisible(true);
         screen.startCollectionButton.setEnabled(false);
         screen.switchButton.setEnabled(true);
-        screen.highQualityOnlyContainer.setEnabled(true);
-        screen.highQualityOnlyButton.setEnabled(true);
+        screen.liveQualityModeContainer.setEnabled(true);
+        screen.liveQualityModeButton.setEnabled(true);
         screen.startCollectionButton.setText("START CAPTURE");
         screen.collectionProgress.setVisibility(View.GONE);
         screen.pauseCollectionButton.setVisibility(View.GONE);
@@ -1858,7 +1857,7 @@ public final class MainActivity extends Activity {
 
     private int getNextSubjectNumber(String className) {
         return CaptureStorage.getNextSubjectNumber(resolveRawRoot(), className,
-                captureQualityMode(className, highQualityOnly));
+                captureQualityMode(className));
     }
 
     private boolean prepareRawRoot(File rawRoot) {
@@ -1879,7 +1878,8 @@ public final class MainActivity extends Activity {
             screen.startCollectionButton.setText("START CAPTURE");
             return;
         }
-        if ("live".equals(className) && (qualityDetector == null || !qualityDetector.isQualityAvailable())) {
+        if ("live".equals(className) && !CaptureStorage.QUALITY_OFF.equals(liveQualityMode)
+                && (qualityDetector == null || !qualityDetector.isQualityAvailable())) {
             String message = qualityDetector == null ? "Face detector unavailable" : qualityDetector.qualityError();
             showTransientStatus(message.isEmpty() ? "Face quality unavailable" : message);
             screen.startCollectionButton.setText("START CAPTURE");
@@ -1902,8 +1902,8 @@ public final class MainActivity extends Activity {
         android.util.Log.i(TAG, "Collection raw root: " + collectionRawRoot.getAbsolutePath());
         screen.startCollectionButton.setEnabled(false);
         screen.switchButton.setEnabled(false);
-        screen.highQualityOnlyContainer.setEnabled(false);
-        screen.highQualityOnlyButton.setEnabled(false);
+        screen.liveQualityModeContainer.setEnabled(false);
+        screen.liveQualityModeButton.setEnabled(false);
         screen.startCollectionButton.setText("COLLECTING...");
         screen.collectionProgress.setVisibility(View.VISIBLE);
         screen.pauseCollectionButton.setVisibility(View.VISIBLE);
@@ -1911,9 +1911,11 @@ public final class MainActivity extends Activity {
         screen.cancelCollectionButton.setVisibility(View.VISIBLE);
 
         long nowMs = SystemClock.elapsedRealtime();
-        collectionSession.start(className, captureQualityMode(className, highQualityOnly), subjectNum,
+        collectionSession.start(className, captureQualityMode(className), subjectNum,
                 collectionRawRoot,
-                highQualityOnly ? FaceQualityLevel.HIGH : COLLECTION_MEDIUM_QUALITY_LEVEL,
+                CaptureStorage.QUALITY_OFF.equals(liveQualityMode) ? -1
+                        : CaptureStorage.QUALITY_HIGH.equals(liveQualityMode)
+                                ? FaceQualityLevel.HIGH : COLLECTION_MEDIUM_QUALITY_LEVEL,
                 nowMs);
         lastCollectionQuality = null;
         screen.overlay.setCollecting(true);
@@ -2030,9 +2032,9 @@ public final class MainActivity extends Activity {
                 + subjectDirName + " files=" + deletedFiles);
     }
 
-    private String captureQualityMode(String className, boolean highQuality) {
-        if (!shouldCheckCollectionQuality(className)) return null;
-        return highQuality ? CaptureStorage.QUALITY_HIGH : CaptureStorage.QUALITY_MEDIUM;
+    private String captureQualityMode(String className) {
+        if (!CaptureSchedule.shouldCheckQuality(className)) return null;
+        return liveQualityMode;
     }
 
     private void updateTrackingFps() {

@@ -15,6 +15,7 @@ public final class CaptureStorage {
     private static final String TAG = "CaptureStorage";
     public static final String QUALITY_HIGH = "high";
     public static final String QUALITY_MEDIUM = "medium";
+    public static final String QUALITY_OFF = "off";
 
     private CaptureStorage() {}
 

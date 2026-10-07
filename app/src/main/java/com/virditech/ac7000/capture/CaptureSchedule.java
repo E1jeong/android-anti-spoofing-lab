@@ -31,6 +31,17 @@ public final class CaptureSchedule {
         return "live".equals(className);
     }
 
+    public static boolean shouldCheckQuality(String className, String qualityMode) {
+        return shouldCheckQuality(className) && !CaptureStorage.QUALITY_OFF.equals(qualityMode);
+    }
+
+    public static String nextQualityMode(String qualityMode) {
+        if (CaptureStorage.QUALITY_MEDIUM.equals(qualityMode)) return CaptureStorage.QUALITY_HIGH;
+        if (CaptureStorage.QUALITY_HIGH.equals(qualityMode)) return CaptureStorage.QUALITY_OFF;
+        if (CaptureStorage.QUALITY_OFF.equals(qualityMode)) return CaptureStorage.QUALITY_MEDIUM;
+        throw new IllegalArgumentException("Unknown quality mode: " + qualityMode);
+    }
+
     static int calculateTargetCount(CaptureStep[] steps) {
         int total = 0;
         for (CaptureStep step : steps) {

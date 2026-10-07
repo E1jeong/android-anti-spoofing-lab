@@ -46,7 +46,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 4. **`capture`**:
    - Writes directly to `/sdcard/Pictures/raw/<class>/<class>_<subject>/<index>/`.
-   - `live` applies FaceMe HIGH (`> 0.9`) or MEDIUM (`> 0.6`) quality gate; non-live and curved classes bypass quality checks.
+   - `live` uses HIGH, MEDIUM, or OFF quality mode. HIGH and MEDIUM apply the FaceMe quality gate; OFF and non-live classes bypass it.
    - ATTACK mode captures false-live misclassifications (`LIVE >= 0.80`) to `/sdcard/Pictures/raw/attack_live/`.
    - `BmpWriter` streams 24-bit uncompressed BGR rows using reusable 16-row stripe buffers without full-frame allocations.
 

@@ -39,4 +39,21 @@ public final class CaptureScheduleTest {
         assertFalse(CaptureSchedule.shouldCheckQuality("curved_mask"));
         assertFalse(CaptureSchedule.shouldCheckQuality("curved_pmask"));
     }
+
+    @Test public void liveQualityModesCycleAndOffSkipsQualityCheck() {
+        assertEquals(CaptureStorage.QUALITY_HIGH,
+                CaptureSchedule.nextQualityMode(CaptureStorage.QUALITY_MEDIUM));
+        assertEquals(CaptureStorage.QUALITY_OFF,
+                CaptureSchedule.nextQualityMode(CaptureStorage.QUALITY_HIGH));
+        assertEquals(CaptureStorage.QUALITY_MEDIUM,
+                CaptureSchedule.nextQualityMode(CaptureStorage.QUALITY_OFF));
+        assertTrue(CaptureSchedule.shouldCheckQuality("live", CaptureStorage.QUALITY_MEDIUM));
+        assertTrue(CaptureSchedule.shouldCheckQuality("live", CaptureStorage.QUALITY_HIGH));
+        assertFalse(CaptureSchedule.shouldCheckQuality("live", CaptureStorage.QUALITY_OFF));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unknownQualityModeDoesNotSilentlyChangeSelection() {
+        CaptureSchedule.nextQualityMode("unknown");
+    }
 }

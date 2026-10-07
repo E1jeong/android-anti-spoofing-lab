@@ -121,6 +121,7 @@ public final class CaptureSession {
     public synchronized int getCount() { return count; }
     public synchronized int getStepCount() { return stepCount; }
     public synchronized String getClassName() { return className; }
+    public synchronized String getQualityMode() { return qualityMode; }
     public synchronized CaptureStep currentStep() { return CaptureSchedule.currentStep(stepIndex); }
 
     public synchronized int countdownSeconds(long nowMs) {

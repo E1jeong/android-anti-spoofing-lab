@@ -20,6 +20,8 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import com.virditech.ac7000.camera.PreviewTransform;
+import com.virditech.ac7000.capture.CaptureSchedule;
+import com.virditech.ac7000.capture.CaptureStorage;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.unionbiometrics.vision.AntiSpoofingResult;
@@ -52,8 +54,8 @@ public final class MainScreenView {
     public final ImageButton pauseCollectionButton;
     public final ImageButton cancelCollectionButton;
     public final ImageButton stopAttackLiveCaptureButton;
-    public final FrameLayout highQualityOnlyContainer;
-    public final Button highQualityOnlyButton;
+    public final FrameLayout liveQualityModeContainer;
+    public final Button liveQualityModeButton;
     public final TextView collectionProgress;
     public final LinearLayout controlsLayout;
     public final Button calibrationConfirm;
@@ -65,7 +67,7 @@ public final class MainScreenView {
 
     private final Activity activity;
     private Bitmap currentPreviewFace;
-    private boolean highQualityOnly;
+    private String liveQualityMode = CaptureStorage.QUALITY_MEDIUM;
     private boolean recognitionEnrollmentMode;
     private boolean collectionActive;
     private boolean uiVisibilityLocked;
@@ -105,8 +107,8 @@ public final class MainScreenView {
         stopAttackLiveCaptureButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
                 Color.parseColor("#B71C1C"));
         expandableLayout = new LinearLayout(activity);
-        highQualityOnlyContainer = new FrameLayout(activity);
-        highQualityOnlyButton = new Button(activity);
+        liveQualityModeContainer = new FrameLayout(activity);
+        liveQualityModeButton = new Button(activity);
         startCollectionButton = new Button(activity);
         switchButton = new Button(activity);
         modelSwitchButton = new Button(activity);
@@ -253,16 +255,16 @@ public final class MainScreenView {
     }
 
     private void buildCollectionMenu(Listener listener, int buttonWidth) {
-        highQualityOnlyButton.setGravity(Gravity.CENTER);
-        updateHighQualityOnlyButton();
-        highQualityOnlyButton.setOnClickListener(v -> {
-            highQualityOnly = !highQualityOnly;
-            updateHighQualityOnlyButton();
-            listener.onHighQualityOnlyChanged(highQualityOnly);
+        liveQualityModeButton.setGravity(Gravity.CENTER);
+        updateLiveQualityModeButton();
+        liveQualityModeButton.setOnClickListener(v -> {
+            liveQualityMode = CaptureSchedule.nextQualityMode(liveQualityMode);
+            updateLiveQualityModeButton();
+            listener.onLiveQualityModeChanged(liveQualityMode);
         });
-        highQualityOnlyContainer.setOnClickListener(v -> highQualityOnlyButton.performClick());
-        highQualityOnlyContainer.addView(highQualityOnlyButton, match());
-        expandableLayout.addView(highQualityOnlyContainer, menuLayoutParams(buttonWidth));
+        liveQualityModeContainer.setOnClickListener(v -> liveQualityModeButton.performClick());
+        liveQualityModeContainer.addView(liveQualityModeButton, match());
+        expandableLayout.addView(liveQualityModeContainer, menuLayoutParams(buttonWidth));
 
         Button attackLiveCaptureButton = new Button(activity);
         attackLiveCaptureButton.setText("ATTACK");
@@ -630,9 +632,9 @@ public final class MainScreenView {
         performance.setText(text);
     }
 
-    public void setHighQualityOnly(boolean highQualityOnly) {
-        this.highQualityOnly = highQualityOnly;
-        updateHighQualityOnlyButton();
+    public void setLiveQualityMode(String qualityMode) {
+        liveQualityMode = qualityMode;
+        updateLiveQualityModeButton();
     }
 
     public void setIrVisible(boolean showIr) {
@@ -753,8 +755,8 @@ public final class MainScreenView {
     public void setCollectionActiveChrome(boolean collecting) {
         startCollectionButton.setEnabled(!collecting);
         switchButton.setEnabled(!collecting);
-        highQualityOnlyContainer.setEnabled(!collecting);
-        highQualityOnlyButton.setEnabled(!collecting);
+        liveQualityModeContainer.setEnabled(!collecting);
+        liveQualityModeButton.setEnabled(!collecting);
         startCollectionButton.setText(collecting ? "COLLECTING..." : "START CAPTURE");
         collectionProgress.setVisibility(collecting ? View.VISIBLE : View.GONE);
         pauseCollectionButton.setVisibility(collecting ? View.VISIBLE : View.GONE);
@@ -810,16 +812,14 @@ public final class MainScreenView {
         return button;
     }
 
-    private void updateHighQualityOnlyButton() {
-        if (highQualityOnlyButton == null) return;
-        highQualityOnlyButton.setText("HIGH QUALITY");
-        highQualityOnlyButton.setTextColor(Color.WHITE);
-        highQualityOnlyButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        highQualityOnlyButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+    private void updateLiveQualityModeButton() {
+        if (liveQualityModeButton == null) return;
+        liveQualityModeButton.setText("LIVE QUALITY: " + liveQualityMode.toUpperCase(Locale.US));
+        liveQualityModeButton.setTextColor(Color.WHITE);
+        liveQualityModeButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        liveQualityModeButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 Color.parseColor("#C49A00")));
-        highQualityOnlyButton.setCompoundDrawablesWithIntrinsicBounds(highQualityOnly
-                ? android.R.drawable.checkbox_on_background
-                : android.R.drawable.checkbox_off_background, 0, 0, 0);
+        liveQualityModeButton.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0);
     }
 
     private static FrameLayout.LayoutParams match() {
@@ -843,7 +843,7 @@ public final class MainScreenView {
         void onCancelCollection();
         void onStartAttackLiveCapture();
         void onStopAttackLiveCapture();
-        void onHighQualityOnlyChanged(boolean highQualityOnly);
+        void onLiveQualityModeChanged(String qualityMode);
         void onStartCollection(String className);
         void onSwitchPreview();
         void onToggleModel();
