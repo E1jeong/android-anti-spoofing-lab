@@ -12,7 +12,6 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 - Orchestration and loading: `MainActivity.java`, `IntroActivity.java`.
 - Anti-spoofing SDK (other module): `vision/` — `AntiSpoofingEngine` for both raw Lab frames and callback sessions. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
-- Debug-only fixed-image SDK contract probe: `app/src/debug/java/com/virditech/ac7000/SdkProbeActivity.java`; target device execution remains manual.
 - Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `face/FaceDetector.java`, `calibration/Calibration.java`.
 - Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
 - Recognition: `recognition/FaceRecognitionManager.java`, `recognition/FixedInputRecognitionRunner.java`.
