@@ -11,17 +11,23 @@ import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.TextureView;
 import android.view.View;
+import android.app.AlertDialog;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.virditech.ac7000.camera.PreviewTransform;
-import com.virditech.ac7000.capture.CaptureSchedule;
-import com.virditech.ac7000.capture.CaptureStorage;
+import com.virditech.ac7000.capture.CaptureConfig;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.unionbiometrics.vision.AntiSpoofingResult;
@@ -51,23 +57,20 @@ public final class MainScreenView {
     public final Button switchButton;
     public final Button modelSwitchButton;
     public final Button startCollectionButton;
+    public final Button attackLiveCaptureButton;
     public final ImageButton pauseCollectionButton;
     public final ImageButton cancelCollectionButton;
     public final ImageButton stopAttackLiveCaptureButton;
-    public final FrameLayout liveQualityModeContainer;
-    public final Button liveQualityModeButton;
     public final TextView collectionProgress;
     public final LinearLayout controlsLayout;
     public final Button calibrationConfirm;
     public final Button calibrationCancel;
     public final View calibrationHotspot;
     public final View settingsHotspot;
-    public final LinearLayout expandableLayout;
     public final TextView authResultView;
 
     private final Activity activity;
     private Bitmap currentPreviewFace;
-    private String liveQualityMode = CaptureStorage.QUALITY_MEDIUM;
     private boolean recognitionEnrollmentMode;
     private boolean collectionActive;
     private boolean uiVisibilityLocked;
@@ -78,6 +81,7 @@ public final class MainScreenView {
     private boolean foregroundEntryTestEnabled;
     private long lastLightingUiUpdateMs;
     private DualLightingDetector.Condition lastLightingCondition;
+    private AlertDialog captureConfigDialog;
 
     public MainScreenView(Activity activity, Listener listener) {
         this.activity = activity;
@@ -106,9 +110,7 @@ public final class MainScreenView {
                 Color.parseColor("#C49A00"));
         stopAttackLiveCaptureButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
                 Color.parseColor("#B71C1C"));
-        expandableLayout = new LinearLayout(activity);
-        liveQualityModeContainer = new FrameLayout(activity);
-        liveQualityModeButton = new Button(activity);
+        attackLiveCaptureButton = new Button(activity);
         startCollectionButton = new Button(activity);
         switchButton = new Button(activity);
         modelSwitchButton = new Button(activity);
@@ -238,80 +240,19 @@ public final class MainScreenView {
         controlsLayout.setOrientation(LinearLayout.VERTICAL);
         controlsLayout.setGravity(Gravity.END | Gravity.BOTTOM);
 
-        expandableLayout.setOrientation(LinearLayout.VERTICAL);
-        expandableLayout.setGravity(Gravity.END);
-        expandableLayout.setVisibility(View.GONE);
-        buildCollectionMenu(listener, buttonWidth);
-        controlsLayout.addView(expandableLayout);
-
         configureControlButton(startCollectionButton, "START CAPTURE", buttonWidth,
-                v -> toggleCollectionClassMenu());
+                v -> showCaptureConfigDialog(listener));
+        configureControlButton(attackLiveCaptureButton, "ATTACK", buttonWidth,
+                v -> listener.onStartAttackLiveCapture());
+        attackLiveCaptureButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#B71C1C")));
+        attackLiveCaptureButton.setTextColor(Color.WHITE);
         configureControlButton(switchButton, "SHOW IR", buttonWidth,
                 v -> listener.onSwitchPreview());
         configureControlButton(modelSwitchButton, "MODEL 1", buttonWidth,
                 v -> listener.onToggleModel());
 
         uiContainer.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
-    }
-
-    private void buildCollectionMenu(Listener listener, int buttonWidth) {
-        liveQualityModeButton.setGravity(Gravity.CENTER);
-        updateLiveQualityModeButton();
-        liveQualityModeButton.setOnClickListener(v -> {
-            liveQualityMode = CaptureSchedule.nextQualityMode(liveQualityMode);
-            updateLiveQualityModeButton();
-            listener.onLiveQualityModeChanged(liveQualityMode);
-        });
-        liveQualityModeContainer.setOnClickListener(v -> liveQualityModeButton.performClick());
-        liveQualityModeContainer.addView(liveQualityModeButton, match());
-        expandableLayout.addView(liveQualityModeContainer, menuLayoutParams(buttonWidth));
-
-        Button attackLiveCaptureButton = new Button(activity);
-        attackLiveCaptureButton.setText("ATTACK");
-        attackLiveCaptureButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                Color.parseColor("#B71C1C")));
-        attackLiveCaptureButton.setTextColor(Color.WHITE);
-        attackLiveCaptureButton.setOnClickListener(v -> {
-            listener.onStartAttackLiveCapture();
-            expandableLayout.setVisibility(View.GONE);
-        });
-        expandableLayout.addView(attackLiveCaptureButton, menuLayoutParams(buttonWidth));
-
-        String[][] classes = {
-                {"live", "live", "#607D8B"},
-                {"display", "display", "#607D8B"},
-                {"picture", "picture", "#607D8B"},
-                {"print", "print", "#607D8B"},
-                {"mask", "mask", "#607D8B"},
-                {"pmask", "pmask", "#607D8B"},
-                {"C PICTURE", "curved_picture", "#607D8B"},
-                {"C PRINT", "curved_print", "#607D8B"},
-                {"C MASK", "curved_mask", "#607D8B"},
-                {"C PMASK", "curved_pmask", "#607D8B"},
-                {"DENTAL WHITE", "dental_white", "#607D8B"},
-                {"DENTAL BLACK", "dental_black", "#607D8B"}
-        };
-        for (String[] classOption : classes) {
-            String buttonText = classOption[0];
-            String className = classOption[1];
-            Button button = new Button(activity);
-            button.setText(buttonText);
-            button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    Color.parseColor(classOption[2])));
-            button.setTextColor(Color.WHITE);
-            button.setOnClickListener(v -> {
-                listener.onStartCollection(className);
-                expandableLayout.setVisibility(View.GONE);
-            });
-            expandableLayout.addView(button, menuLayoutParams(buttonWidth));
-        }
-    }
-
-    private LinearLayout.LayoutParams menuLayoutParams(int buttonWidth) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.bottomMargin = dp(2);
-        return params;
     }
 
     private void configureControlButton(
@@ -632,11 +573,6 @@ public final class MainScreenView {
         performance.setText(text);
     }
 
-    public void setLiveQualityMode(String qualityMode) {
-        liveQualityMode = qualityMode;
-        updateLiveQualityModeButton();
-    }
-
     public void setIrVisible(boolean showIr) {
         rgbView.setAlpha(showIr ? 0f : 1f);
         irView.setAlpha(showIr ? 1f : 0f);
@@ -754,9 +690,8 @@ public final class MainScreenView {
 
     public void setCollectionActiveChrome(boolean collecting) {
         startCollectionButton.setEnabled(!collecting);
+        attackLiveCaptureButton.setEnabled(!collecting);
         switchButton.setEnabled(!collecting);
-        liveQualityModeContainer.setEnabled(!collecting);
-        liveQualityModeButton.setEnabled(!collecting);
         startCollectionButton.setText(collecting ? "COLLECTING..." : "START CAPTURE");
         collectionProgress.setVisibility(collecting ? View.VISIBLE : View.GONE);
         pauseCollectionButton.setVisibility(collecting ? View.VISIBLE : View.GONE);
@@ -784,14 +719,189 @@ public final class MainScreenView {
         currentPreviewFace = null;
     }
 
-    private void toggleCollectionClassMenu() {
-        if (expandableLayout.getVisibility() == View.GONE) {
-            expandableLayout.setVisibility(View.VISIBLE);
-            startCollectionButton.setText("CANCEL");
-        } else {
-            expandableLayout.setVisibility(View.GONE);
-            startCollectionButton.setText("START CAPTURE");
+    public static final String[][] CLASS_OPTIONS = {
+            {"live", "live"},
+            {"display", "display"},
+            {"picture", "picture"},
+            {"print", "print"},
+            {"mask", "mask"},
+            {"pmask", "pmask"},
+            {"C PICTURE", "curved_picture"},
+            {"C PRINT", "curved_print"},
+            {"C MASK", "curved_mask"},
+            {"C PMASK", "curved_pmask"},
+            {"DENTAL WHITE", "dental_white"},
+            {"DENTAL BLACK", "dental_black"}
+    };
+
+    public void showCaptureConfigDialog(Listener listener) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setTitle("Capture Configuration");
+
+        ScrollView scrollView = new ScrollView(activity);
+        LinearLayout layout = new LinearLayout(activity);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(20), dp(16), dp(20), dp(16));
+
+        // 1. Class Selection (Spinner)
+        TextView classLabel = new TextView(activity);
+        classLabel.setText("Class");
+        classLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        classLabel.setTextSize(15f);
+        layout.addView(classLabel);
+
+        Spinner classSpinner = new Spinner(activity);
+        String[] displayNames = new String[CLASS_OPTIONS.length];
+        for (int i = 0; i < CLASS_OPTIONS.length; i++) {
+            displayNames[i] = CLASS_OPTIONS[i][0];
         }
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(activity,
+                android.R.layout.simple_spinner_item, displayNames);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        classSpinner.setAdapter(adapter);
+        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        spinnerParams.topMargin = dp(4);
+        spinnerParams.bottomMargin = dp(14);
+        layout.addView(classSpinner, spinnerParams);
+
+        // 2. Environment Selection (RadioGroup)
+        TextView envLabel = new TextView(activity);
+        envLabel.setText("Environment");
+        envLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        envLabel.setTextSize(15f);
+        layout.addView(envLabel);
+
+        RadioGroup envRadioGroup = new RadioGroup(activity);
+        envRadioGroup.setOrientation(RadioGroup.HORIZONTAL);
+        RadioButton indoorRadio = new RadioButton(activity);
+        indoorRadio.setText("INDOOR");
+        RadioButton outdoorRadio = new RadioButton(activity);
+        outdoorRadio.setText("OUTDOOR");
+        envRadioGroup.addView(indoorRadio);
+        envRadioGroup.addView(outdoorRadio);
+        indoorRadio.setChecked(true);
+        LinearLayout.LayoutParams envParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        envParams.topMargin = dp(4);
+        envParams.bottomMargin = dp(14);
+        layout.addView(envRadioGroup, envParams);
+
+        // 3. Quality Selection (Container & RadioGroup for live)
+        LinearLayout qualityContainer = new LinearLayout(activity);
+        qualityContainer.setOrientation(LinearLayout.VERTICAL);
+
+        TextView qualityLabel = new TextView(activity);
+        qualityLabel.setText("Live Quality");
+        qualityLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        qualityLabel.setTextSize(15f);
+        qualityContainer.addView(qualityLabel);
+
+        RadioGroup qualityRadioGroup = new RadioGroup(activity);
+        qualityRadioGroup.setOrientation(RadioGroup.HORIZONTAL);
+        RadioButton mediumRadio = new RadioButton(activity);
+        mediumRadio.setText("MEDIUM");
+        RadioButton highRadio = new RadioButton(activity);
+        highRadio.setText("HIGH");
+        RadioButton offRadio = new RadioButton(activity);
+        offRadio.setText("OFF");
+
+        qualityRadioGroup.addView(mediumRadio);
+        qualityRadioGroup.addView(highRadio);
+        qualityRadioGroup.addView(offRadio);
+        mediumRadio.setChecked(true);
+        LinearLayout.LayoutParams qualityParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        qualityParams.topMargin = dp(4);
+        qualityContainer.addView(qualityRadioGroup, qualityParams);
+        layout.addView(qualityContainer);
+
+        scrollView.addView(layout);
+        builder.setView(scrollView);
+
+        // Dynamic State synchronization
+        Runnable updateState = () -> {
+            int selectedIdx = classSpinner.getSelectedItemPosition();
+            if (selectedIdx < 0 || selectedIdx >= CLASS_OPTIONS.length) return;
+            String className = CLASS_OPTIONS[selectedIdx][1];
+            boolean isLive = "live".equals(className);
+            boolean isOutdoor = outdoorRadio.isChecked();
+
+            if (isLive) {
+                qualityContainer.setVisibility(View.VISIBLE);
+                if (isOutdoor) {
+                    offRadio.setEnabled(true);
+                    offRadio.setChecked(true);
+                    highRadio.setEnabled(false);
+                    mediumRadio.setEnabled(false);
+                } else {
+                    offRadio.setEnabled(false);
+                    highRadio.setEnabled(true);
+                    mediumRadio.setEnabled(true);
+                    if (offRadio.isChecked()) {
+                        mediumRadio.setChecked(true);
+                    }
+                }
+            } else {
+                qualityContainer.setVisibility(View.GONE);
+            }
+        };
+
+        classSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                updateState.run();
+            }
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
+
+        envRadioGroup.setOnCheckedChangeListener((group, checkedId) -> updateState.run());
+
+        updateState.run();
+
+        builder.setPositiveButton("START", (dialog, which) -> {
+            int selectedIdx = classSpinner.getSelectedItemPosition();
+            if (selectedIdx < 0 || selectedIdx >= CLASS_OPTIONS.length) return;
+            String className = CLASS_OPTIONS[selectedIdx][1];
+            String env = outdoorRadio.isChecked() ? CaptureConfig.ENV_OUTDOOR : CaptureConfig.ENV_INDOOR;
+            String quality = null;
+            if ("live".equals(className)) {
+                if (outdoorRadio.isChecked()) {
+                    quality = CaptureConfig.QUALITY_OFF;
+                } else if (highRadio.isChecked()) {
+                    quality = CaptureConfig.QUALITY_HIGH;
+                } else {
+                    quality = CaptureConfig.QUALITY_MEDIUM;
+                }
+            }
+            CaptureConfig config;
+            try {
+                config = CaptureConfig.create(className, env, quality);
+            } catch (RuntimeException e) {
+                android.util.Log.e("MainScreenView", "Invalid capture config", e);
+                return;
+            }
+            listener.onStartCollection(config);
+        });
+
+        builder.setNegativeButton("CANCEL", (dialog, which) -> dialog.dismiss());
+
+        dismissCaptureConfigDialog();
+        captureConfigDialog = builder.create();
+        captureConfigDialog.setOnDismissListener(d -> {
+            if (captureConfigDialog == d) {
+                captureConfigDialog = null;
+            }
+        });
+        captureConfigDialog.show();
+    }
+
+    public void dismissCaptureConfigDialog() {
+        if (captureConfigDialog != null && captureConfigDialog.isShowing()) {
+            captureConfigDialog.dismiss();
+        }
+        captureConfigDialog = null;
     }
 
     private TextView label(float size) {
@@ -810,16 +920,6 @@ public final class MainScreenView {
         button.setScaleType(ImageView.ScaleType.CENTER);
         button.setPadding(dp(21), dp(21), dp(21), dp(21));
         return button;
-    }
-
-    private void updateLiveQualityModeButton() {
-        if (liveQualityModeButton == null) return;
-        liveQualityModeButton.setText("LIVE QUALITY: " + liveQualityMode.toUpperCase(Locale.US));
-        liveQualityModeButton.setTextColor(Color.WHITE);
-        liveQualityModeButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        liveQualityModeButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                Color.parseColor("#C49A00")));
-        liveQualityModeButton.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0);
     }
 
     private static FrameLayout.LayoutParams match() {
@@ -843,8 +943,7 @@ public final class MainScreenView {
         void onCancelCollection();
         void onStartAttackLiveCapture();
         void onStopAttackLiveCapture();
-        void onLiveQualityModeChanged(String qualityMode);
-        void onStartCollection(String className);
+        void onStartCollection(CaptureConfig config);
         void onSwitchPreview();
         void onToggleModel();
         void onToggleIrAutoExposure();

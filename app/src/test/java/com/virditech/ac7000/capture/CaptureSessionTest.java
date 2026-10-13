@@ -16,9 +16,42 @@ public final class CaptureSessionTest {
 
     @Test public void rejectsInvalidStartArguments() {
         CaptureSession session = new CaptureSession();
-        assertInvalid(() -> session.start("", null, 1, ROOT, 1, 0L));
-        assertInvalid(() -> session.start("live", null, 0, ROOT, 1, 0L));
-        assertInvalid(() -> session.start("live", null, 1, null, 1, 0L));
+        assertInvalid(() -> session.start((CaptureConfig) null, 1, ROOT, 0L));
+        CaptureConfig validConfig = CaptureConfig.create("live", "indoor", "high");
+        assertInvalid(() -> session.start(validConfig, 0, ROOT, 0L));
+        assertInvalid(() -> session.start(validConfig, -1, ROOT, 0L));
+        assertInvalid(() -> session.start(validConfig, 1, null, 0L));
+    }
+
+    @Test public void startWithCaptureConfigPreservesConfigurationAndImmutability() {
+        CaptureSession session = new CaptureSession();
+        CaptureConfig config = CaptureConfig.create("dental_white", "outdoor", null);
+        session.start(config, 5, ROOT, 1_000L);
+
+        assertEquals("dental_white", session.getClassName());
+        assertEquals("outdoor", session.getEnvironment());
+        assertNull(session.getQualityMode());
+        assertEquals(config, session.getConfig());
+
+        CaptureSession.SaveCandidate candidate = session.snapshotForSave();
+        assertNotNull(candidate);
+        assertEquals(config, candidate.config);
+        assertEquals("dental_white", candidate.className);
+        assertEquals("outdoor", candidate.environment);
+
+        CaptureSession.SavePermit permit = session.beginSave(candidate);
+        assertNotNull(permit);
+        assertEquals(config, permit.config);
+        assertEquals("dental_white", permit.className);
+        assertEquals("outdoor", permit.environment);
+        assertEquals(1, permit.sampleIndex);
+
+        CaptureSession.CancelledSession cancelled = session.cancel();
+        assertNotNull(cancelled);
+        assertEquals(config, cancelled.config);
+        assertEquals("dental_white", cancelled.className);
+        assertEquals("outdoor", cancelled.environment);
+        assertEquals("dental_white_5", cancelled.subjectDirName);
     }
 
     @Test public void startAndPausePreserveCountdown() {
@@ -68,7 +101,7 @@ public final class CaptureSessionTest {
         assertNotNull(cancelled);
         assertEquals("live_7", cancelled.subjectDirName);
 
-        session.start("mask", null, 8, ROOT, -1, 10_000L);
+        session.start(CaptureConfig.create("mask", "indoor", null), 8, ROOT, 10_000L);
         CaptureSession.SaveCommit lateCommit = session.commitSave(stale, 11_000L);
         session.releaseSave(stale);
         assertFalse(lateCommit.committed);
@@ -81,7 +114,7 @@ public final class CaptureSessionTest {
         CaptureSession.SaveCandidate stale = session.snapshotForSave();
 
         session.cancel();
-        session.start("print", "all", 8, ROOT, 0, 100L);
+        session.start(CaptureConfig.create("print", "outdoor", null), 8, ROOT, 100L);
 
         assertNull(session.beginSave(stale));
         assertEquals(0, session.getCount());
@@ -90,7 +123,7 @@ public final class CaptureSessionTest {
 
     private static CaptureSession startedSession() {
         CaptureSession session = new CaptureSession();
-        session.start("live", CaptureStorage.QUALITY_MEDIUM, 7, ROOT, 1, 1_000L);
+        session.start(CaptureConfig.create("live", "indoor", CaptureStorage.QUALITY_MEDIUM), 7, ROOT, 1_000L);
         return session;
     }
 

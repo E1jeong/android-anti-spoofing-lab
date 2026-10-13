@@ -13,22 +13,25 @@ public final class CaptureSession {
     private int stepCount;
     private long countdownEndMs;
     private long pausedCountdownMs;
+    private CaptureConfig config;
     private int minQualityLevel;
     private String qualityMode;
+    private String environment = CaptureConfig.ENV_INDOOR;
     private File rawRoot;
     private int subjectId;
     private String className = "live";
 
-    public synchronized void start(String className, String qualityMode, int subjectId,
-                                   File rawRoot, int minQualityLevel, long nowMs) {
-        if (className == null || className.isEmpty()) throw new IllegalArgumentException("className is required");
+    public synchronized void start(CaptureConfig config, int subjectId, File rawRoot, long nowMs) {
+        if (config == null) throw new IllegalArgumentException("config is required");
         if (subjectId <= 0) throw new IllegalArgumentException("subjectId must be positive");
         if (rawRoot == null) throw new IllegalArgumentException("rawRoot is required");
-        this.className = className;
-        this.qualityMode = qualityMode;
+        this.config = config;
+        this.className = config.className;
+        this.environment = config.environment;
+        this.qualityMode = config.qualityMode;
+        this.minQualityLevel = config.minQualityLevel;
         this.subjectId = subjectId;
         this.rawRoot = rawRoot;
-        this.minQualityLevel = minQualityLevel;
         count = 0;
         sessionId++;
         stepIndex = 0;
@@ -40,13 +43,14 @@ public final class CaptureSession {
         active = true;
     }
 
+
     public synchronized void finish() {
         stop();
     }
 
     public synchronized CancelledSession cancel() {
         if (!active) return null;
-        CancelledSession cancelled = new CancelledSession(className, qualityMode,
+        CancelledSession cancelled = new CancelledSession(config, className, environment, qualityMode,
                 className + "_" + subjectId);
         stop();
         return cancelled;
@@ -75,7 +79,7 @@ public final class CaptureSession {
 
     public synchronized SaveCandidate snapshotForSave() {
         if (!active || paused || ioBusy || count >= CaptureSchedule.TARGET_COUNT) return null;
-        return new SaveCandidate(sessionId, className, qualityMode, subjectId, rawRoot,
+        return new SaveCandidate(sessionId, config, className, environment, qualityMode, subjectId, rawRoot,
                 minQualityLevel);
     }
 
@@ -84,7 +88,7 @@ public final class CaptureSession {
             return null;
         }
         ioBusy = true;
-        return new SavePermit(sessionId, className, qualityMode, subjectId, count + 1);
+        return new SavePermit(sessionId, config, className, environment, qualityMode, subjectId, count + 1);
     }
 
     public synchronized SaveCommit commitSave(SavePermit permit, long nowMs) {
@@ -120,7 +124,9 @@ public final class CaptureSession {
     public synchronized boolean isIoBusy() { return ioBusy; }
     public synchronized int getCount() { return count; }
     public synchronized int getStepCount() { return stepCount; }
+    public synchronized CaptureConfig getConfig() { return config; }
     public synchronized String getClassName() { return className; }
+    public synchronized String getEnvironment() { return environment; }
     public synchronized String getQualityMode() { return qualityMode; }
     public synchronized CaptureStep currentStep() { return CaptureSchedule.currentStep(stepIndex); }
 
@@ -131,16 +137,20 @@ public final class CaptureSession {
 
     public static final class SaveCandidate {
         private final int sessionId;
+        public final CaptureConfig config;
         public final String className;
+        public final String environment;
         public final String qualityMode;
         public final int subjectId;
         public final File rawRoot;
         public final int minQualityLevel;
 
-        private SaveCandidate(int sessionId, String className, String qualityMode,
-                              int subjectId, File rawRoot, int minQualityLevel) {
+        private SaveCandidate(int sessionId, CaptureConfig config, String className, String environment,
+                              String qualityMode, int subjectId, File rawRoot, int minQualityLevel) {
             this.sessionId = sessionId;
+            this.config = config;
             this.className = className;
+            this.environment = environment;
             this.qualityMode = qualityMode;
             this.subjectId = subjectId;
             this.rawRoot = rawRoot;
@@ -150,15 +160,19 @@ public final class CaptureSession {
 
     public static final class SavePermit {
         public final int sessionId;
+        public final CaptureConfig config;
         public final String className;
+        public final String environment;
         public final String qualityMode;
         public final int subjectId;
         public final int sampleIndex;
 
-        private SavePermit(int sessionId, String className, String qualityMode,
-                           int subjectId, int sampleIndex) {
+        private SavePermit(int sessionId, CaptureConfig config, String className, String environment,
+                           String qualityMode, int subjectId, int sampleIndex) {
             this.sessionId = sessionId;
+            this.config = config;
             this.className = className;
+            this.environment = environment;
             this.qualityMode = qualityMode;
             this.subjectId = subjectId;
             this.sampleIndex = sampleIndex;
@@ -179,12 +193,17 @@ public final class CaptureSession {
     }
 
     public static final class CancelledSession {
+        public final CaptureConfig config;
         public final String className;
+        public final String environment;
         public final String qualityMode;
         public final String subjectDirName;
 
-        private CancelledSession(String className, String qualityMode, String subjectDirName) {
+        private CancelledSession(CaptureConfig config, String className, String environment,
+                                 String qualityMode, String subjectDirName) {
+            this.config = config;
             this.className = className;
+            this.environment = environment;
             this.qualityMode = qualityMode;
             this.subjectDirName = subjectDirName;
         }

@@ -18,11 +18,12 @@ public final class CaptureProgressText {
         this.totalCountEnd = totalCountEnd;
     }
 
-    public static CaptureProgressText format(String className, CaptureStep step,
+    public static CaptureProgressText format(CaptureConfig config, CaptureStep step,
                                              int stepCount, int totalCount, int targetCount,
                                              String qualityLine) {
+        String header = config != null ? config.toSummaryLabel() : "UNKNOWN";
         StringBuilder sb = new StringBuilder();
-        sb.append(className.toUpperCase(Locale.US))
+        sb.append(header)
                 .append(" / Sector ")
                 .append(step.sector)
                 .append(" ")

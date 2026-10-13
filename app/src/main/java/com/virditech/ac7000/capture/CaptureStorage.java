@@ -23,12 +23,13 @@ public final class CaptureStorage {
         return new File("/sdcard/Pictures/raw");
     }
 
+    /** Used by attack_live without quality or environment parameters. */
     public static int getNextSubjectNumber(File rawRoot, String className) {
-        return getNextSubjectNumber(rawRoot, className, null);
+        return getNextSubjectNumber(rawRoot, className, null, null);
     }
 
-    public static int getNextSubjectNumber(File rawRoot, String className, String qualityMode) {
-        File baseDir = collectionBaseDir(rawRoot, className, qualityMode);
+    public static int getNextSubjectNumber(File rawRoot, String className, String environment, String qualityMode) {
+        File baseDir = collectionBaseDir(rawRoot, className, environment, qualityMode);
         if (!baseDir.exists()) {
             return 1;
         }
@@ -55,6 +56,11 @@ public final class CaptureStorage {
         return maxNum + 1;
     }
 
+    public static int getNextSubjectNumber(File rawRoot, CaptureConfig config) {
+        if (config == null) throw new IllegalArgumentException("config must not be null");
+        return getNextSubjectNumber(rawRoot, config.className, config.environment, config.qualityMode);
+    }
+
     public static boolean prepareRawRoot(File rawRoot) {
         try {
             if (!rawRoot.isDirectory() && !rawRoot.mkdirs()) {
@@ -78,13 +84,9 @@ public final class CaptureStorage {
         }
     }
 
-    public static boolean deleteSubject(File rawRoot, String className, String subjectDirName) {
-        return deleteSubject(rawRoot, className, null, subjectDirName);
-    }
-
-    public static boolean deleteSubject(File rawRoot, String className, String qualityMode,
-                                        String subjectDirName) {
-        File classDir = collectionBaseDir(rawRoot, className, qualityMode);
+    public static boolean deleteSubject(File rawRoot, String className, String environment,
+                                        String qualityMode, String subjectDirName) {
+        File classDir = collectionBaseDir(rawRoot, className, environment, qualityMode);
         File subjectDir = new File(classDir, subjectDirName);
         try {
             String classPath = classDir.getCanonicalPath();
@@ -98,6 +100,11 @@ public final class CaptureStorage {
             Log.e(TAG, "Unable to delete canceled collection folder", e);
             return false;
         }
+    }
+
+    public static boolean deleteSubject(File rawRoot, CaptureConfig config, String subjectDirName) {
+        if (config == null) throw new IllegalArgumentException("config must not be null");
+        return deleteSubject(rawRoot, config.className, config.environment, config.qualityMode, subjectDirName);
     }
 
     public static SaveResult saveBitmapAsBmp(Bitmap bitmap, File file) {
@@ -149,24 +156,46 @@ public final class CaptureStorage {
 
     public static String buildSampleMetadataJson(int rgbWidth, int rgbHeight, Rect rgbFaceRect, Rect rgbCropRect,
                                                  int irWidth, int irHeight, Rect irMappedFaceRect, Rect irCropRect,
-                                                 float cropMarginRatio, String qualityMode, int minQualityLevel,
+                                                 float cropMarginRatio, String className, String environment,
+                                                 String qualityMode, int minQualityLevel,
                                                  int actualQualityLevel, float qualityScore) {
         return SampleMetadata.build(
                 rgbWidth, rgbHeight, RectValue.from(rgbFaceRect), RectValue.from(rgbCropRect),
                 irWidth, irHeight, RectValue.from(irMappedFaceRect), RectValue.from(irCropRect),
-                cropMarginRatio, qualityMode, minQualityLevel, actualQualityLevel, qualityScore);
+                cropMarginRatio, className, environment, qualityMode, minQualityLevel, actualQualityLevel, qualityScore);
     }
 
-    public static File sampleDir(File rawRoot, String className, String qualityMode,
+    public static File sampleDir(File rawRoot, String className, String environment, String qualityMode,
                                  String subjectDirName, int sampleIndex) {
-        return new File(new File(collectionBaseDir(rawRoot, className, qualityMode), subjectDirName),
+        return new File(new File(collectionBaseDir(rawRoot, className, environment, qualityMode), subjectDirName),
                 String.valueOf(sampleIndex));
     }
 
-    private static File collectionBaseDir(File rawRoot, String className, String qualityMode) {
+    /** Used by attack_live without environment parameter. */
+    public static File sampleDir(File rawRoot, String className, String qualityMode,
+                                 String subjectDirName, int sampleIndex) {
+        return sampleDir(rawRoot, className, null, qualityMode, subjectDirName, sampleIndex);
+    }
+
+    public static File sampleDir(File rawRoot, CaptureConfig config, String subjectDirName, int sampleIndex) {
+        if (config == null) throw new IllegalArgumentException("config must not be null");
+        return sampleDir(rawRoot, config.className, config.environment, config.qualityMode, subjectDirName, sampleIndex);
+    }
+
+    public static File collectionBaseDir(File rawRoot, String className, String environment, String qualityMode) {
         File classDir = new File(rawRoot, className);
-        if (qualityMode == null || qualityMode.isEmpty()) return classDir;
-        return new File(classDir, qualityMode);
+        if ("live".equals(className)) {
+            if (qualityMode == null || qualityMode.isEmpty()) return classDir;
+            return new File(classDir, qualityMode);
+        } else {
+            if (environment == null || environment.isEmpty()) return classDir;
+            return new File(classDir, environment);
+        }
+    }
+
+    public static File collectionBaseDir(File rawRoot, CaptureConfig config) {
+        if (config == null) throw new IllegalArgumentException("config must not be null");
+        return collectionBaseDir(rawRoot, config.className, config.environment, config.qualityMode);
     }
 
     private static boolean deleteRecursively(File file) {

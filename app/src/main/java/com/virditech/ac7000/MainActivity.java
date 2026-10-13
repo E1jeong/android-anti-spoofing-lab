@@ -28,13 +28,13 @@ import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 
 import java.io.File;
-import com.cyberlink.faceme.FaceQualityLevel;
 import com.virditech.ac7000.calibration.Calibration;
 import com.virditech.ac7000.camera.DualCameraController;
 import com.virditech.ac7000.camera.FrameData;
 import com.virditech.ac7000.camera.FramePair;
 import com.virditech.ac7000.camera.FrameSynchronizer;
 import com.virditech.ac7000.capture.AttackLiveCaptureGate;
+import com.virditech.ac7000.capture.CaptureConfig;
 import com.virditech.ac7000.capture.CaptureProgressText;
 import com.virditech.ac7000.capture.CaptureSchedule;
 import com.virditech.ac7000.capture.CaptureSession;
@@ -89,7 +89,6 @@ public final class MainActivity extends Activity {
     private static final int FACE_MANAGEMENT_REQUEST = 11;
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
     private static final int COLLECTION_TARGET_COUNT = CaptureSchedule.TARGET_COUNT;
-    private static final int COLLECTION_MEDIUM_QUALITY_LEVEL = 1;
     private static final int LATENCY_WINDOW_SIZE = 120;
     private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
     private static final long IR_LED_OFF_DELAY_MS = 1_000L;
@@ -139,7 +138,6 @@ public final class MainActivity extends Activity {
     private volatile boolean enginesWarmedUp;
     private volatile boolean qualityWarmedUp;
     private volatile boolean bundledQualityWarmupAttempted;
-    private String liveQualityMode = CaptureStorage.QUALITY_MEDIUM;
     private DualCameraController cameras;
     private DualCameraController stoppingCameras;
     private boolean cameraStopInProgress;
@@ -237,13 +235,9 @@ public final class MainActivity extends Activity {
 
             @Override public void onStopAttackLiveCapture() { stopAttackLiveCapture(); }
 
-            @Override public void onLiveQualityModeChanged(String qualityMode) {
-                liveQualityMode = qualityMode;
-            }
-
-            @Override public void onStartCollection(String className) {
-                int nextNum = getNextSubjectNumber(className);
-                startDataCollection(className, nextNum);
+            @Override public void onStartCollection(CaptureConfig config) {
+                int nextNum = getNextSubjectNumber(config);
+                startDataCollection(config, nextNum);
             }
 
             @Override public void onSwitchPreview() { setIrVisible(!showIr); }
@@ -1177,11 +1171,11 @@ public final class MainActivity extends Activity {
                 final String metadataJson = CaptureStorage.buildSampleMetadataJson(
                         frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(), detected, rgbR,
                         frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight(), irDetected, irR, margin,
-                        savePermit.qualityMode, minQualityLevel, actualQualityLevel, qualityScore);
+                        savePermit.className, savePermit.environment, savePermit.qualityMode,
+                        minQualityLevel, actualQualityLevel, qualityScore);
 
                 final File root = saveCandidate.rawRoot;
-                final File sampleDir = CaptureStorage.sampleDir(root, savePermit.className,
-                        savePermit.qualityMode,
+                final File sampleDir = CaptureStorage.sampleDir(root, savePermit.config,
                         subjectDirName, currentCount);
                 final String displayDir = sampleDir.getAbsolutePath();
 
@@ -1756,7 +1750,7 @@ public final class MainActivity extends Activity {
 
     private SpannableString formatCollectionProgress(CaptureStep step) {
         String qualityLine = shouldCheckCollectionQuality() ? formatCollectionQualityLine() : null;
-        CaptureProgressText progress = CaptureProgressText.format(collectionSession.getClassName(), step,
+        CaptureProgressText progress = CaptureProgressText.format(collectionSession.getConfig(), step,
                 collectionSession.getStepCount(), collectionSession.getCount(),
                 COLLECTION_TARGET_COUNT, qualityLine);
         SpannableString text = new SpannableString(progress.text);
@@ -1784,10 +1778,6 @@ public final class MainActivity extends Activity {
                 collectionSession.getQualityMode());
     }
 
-    private void updateLiveQualityModeButton() {
-        if (screen != null) screen.setLiveQualityMode(liveQualityMode);
-    }
-
     private CaptureStep currentCollectionStep() {
         return collectionSession.currentStep();
     }
@@ -1802,9 +1792,8 @@ public final class MainActivity extends Activity {
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
         screen.startCollectionButton.setEnabled(true);
+        screen.attackLiveCaptureButton.setEnabled(true);
         screen.switchButton.setEnabled(true);
-        screen.liveQualityModeContainer.setEnabled(true);
-        screen.liveQualityModeButton.setEnabled(true);
         screen.startCollectionButton.setText("START CAPTURE");
         screen.collectionProgress.setVisibility(View.GONE);
         screen.pauseCollectionButton.setVisibility(View.GONE);
@@ -1818,21 +1807,20 @@ public final class MainActivity extends Activity {
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
         screen.startCollectionButton.setEnabled(false);
+        screen.attackLiveCaptureButton.setEnabled(false);
         screen.switchButton.setEnabled(true);
-        screen.liveQualityModeContainer.setEnabled(true);
-        screen.liveQualityModeButton.setEnabled(true);
         screen.startCollectionButton.setText("START CAPTURE");
         screen.collectionProgress.setVisibility(View.GONE);
         screen.pauseCollectionButton.setVisibility(View.GONE);
         screen.cancelCollectionButton.setVisibility(View.GONE);
         showTransientStatus("Capture canceled");
         ioExecutor.execute(() -> {
-            deleteCollectionSubject(cancelled.className, cancelled.qualityMode,
-                    cancelled.subjectDirName);
+            deleteCollectionSubject(cancelled.config, cancelled.subjectDirName);
             runOnUiThread(() -> {
                 if (!collectionSession.isActive()) {
                     FaceDetectionEngine detector = activeFaceDetector;
                     screen.startCollectionButton.setEnabled(detector != null);
+                    screen.attackLiveCaptureButton.setEnabled(detector != null);
                 }
             });
         });
@@ -1855,16 +1843,15 @@ public final class MainActivity extends Activity {
         return CaptureStorage.resolveRawRoot();
     }
 
-    private int getNextSubjectNumber(String className) {
-        return CaptureStorage.getNextSubjectNumber(resolveRawRoot(), className,
-                captureQualityMode(className));
+    private int getNextSubjectNumber(CaptureConfig config) {
+        return CaptureStorage.getNextSubjectNumber(resolveRawRoot(), config);
     }
 
     private boolean prepareRawRoot(File rawRoot) {
         return CaptureStorage.prepareRawRoot(rawRoot);
     }
 
-    private void startDataCollection(String className, int subjectNum) {
+    private void startDataCollection(CaptureConfig config, int subjectNum) {
         if (collectionSession.isActive() || isAttackLiveCapturing) return;
         FaceDetectionEngine activeDetector = activeFaceDetector;
         FaceDetector qualityDetector = faceDetector;
@@ -1873,17 +1860,18 @@ public final class MainActivity extends Activity {
             screen.startCollectionButton.setText("START CAPTURE");
             return;
         }
-        if ("live".equals(className) && activeDetector != qualityDetector) {
-            showTransientStatus("Live quality capture requires FaceMe");
-            screen.startCollectionButton.setText("START CAPTURE");
-            return;
-        }
-        if ("live".equals(className) && !CaptureStorage.QUALITY_OFF.equals(liveQualityMode)
-                && (qualityDetector == null || !qualityDetector.isQualityAvailable())) {
-            String message = qualityDetector == null ? "Face detector unavailable" : qualityDetector.qualityError();
-            showTransientStatus(message.isEmpty() ? "Face quality unavailable" : message);
-            screen.startCollectionButton.setText("START CAPTURE");
-            return;
+        if (config.isQualityCheckRequired()) {
+            if (activeDetector != qualityDetector) {
+                showTransientStatus("Live quality capture requires FaceMe");
+                screen.startCollectionButton.setText("START CAPTURE");
+                return;
+            }
+            if (qualityDetector == null || !qualityDetector.isQualityAvailable()) {
+                String message = qualityDetector == null ? "Face detector unavailable" : qualityDetector.qualityError();
+                showTransientStatus(message.isEmpty() ? "Face quality unavailable" : message);
+                screen.startCollectionButton.setText("START CAPTURE");
+                return;
+            }
         }
         if (!Environment.isExternalStorageManager()) {
             Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
@@ -1901,9 +1889,8 @@ public final class MainActivity extends Activity {
         }
         android.util.Log.i(TAG, "Collection raw root: " + collectionRawRoot.getAbsolutePath());
         screen.startCollectionButton.setEnabled(false);
+        screen.attackLiveCaptureButton.setEnabled(false);
         screen.switchButton.setEnabled(false);
-        screen.liveQualityModeContainer.setEnabled(false);
-        screen.liveQualityModeButton.setEnabled(false);
         screen.startCollectionButton.setText("COLLECTING...");
         screen.collectionProgress.setVisibility(View.VISIBLE);
         screen.pauseCollectionButton.setVisibility(View.VISIBLE);
@@ -1911,12 +1898,7 @@ public final class MainActivity extends Activity {
         screen.cancelCollectionButton.setVisibility(View.VISIBLE);
 
         long nowMs = SystemClock.elapsedRealtime();
-        collectionSession.start(className, captureQualityMode(className), subjectNum,
-                collectionRawRoot,
-                CaptureStorage.QUALITY_OFF.equals(liveQualityMode) ? -1
-                        : CaptureStorage.QUALITY_HIGH.equals(liveQualityMode)
-                                ? FaceQualityLevel.HIGH : COLLECTION_MEDIUM_QUALITY_LEVEL,
-                nowMs);
+        collectionSession.start(config, subjectNum, collectionRawRoot, nowMs);
         lastCollectionQuality = null;
         screen.overlay.setCollecting(true);
         screen.setCollectionPaused(false);
@@ -1952,6 +1934,7 @@ public final class MainActivity extends Activity {
         isAttackLiveCapturing = true;
         screen.startCollectionButton.setEnabled(false);
         screen.startCollectionButton.setText("START CAPTURE");
+        screen.attackLiveCaptureButton.setEnabled(false);
         screen.stopAttackLiveCaptureButton.setVisibility(View.VISIBLE);
         showTransientStatus("Attack Live capture started");
         android.util.Log.i(TAG, "Attack Live capture started: "
@@ -1967,6 +1950,7 @@ public final class MainActivity extends Activity {
         screen.stopAttackLiveCaptureButton.setVisibility(View.GONE);
         FaceDetectionEngine detector = activeFaceDetector;
         screen.startCollectionButton.setEnabled(detector != null);
+        screen.attackLiveCaptureButton.setEnabled(detector != null);
         screen.startCollectionButton.setText("START CAPTURE");
         showTransientStatus("Attack Live capture stopped: " + attackCaptureCount + " saved");
     }
@@ -1992,7 +1976,7 @@ public final class MainActivity extends Activity {
         final String metadataJson = CaptureStorage.buildSampleMetadataJson(
                 pair.rgb.bitmap.getWidth(), pair.rgb.bitmap.getHeight(), task.rgbFace, task.rgbCrop,
                 pair.ir.bitmap.getWidth(), pair.ir.bitmap.getHeight(), task.irFace, task.irCrop,
-                task.cropMarginRatio, "attack_live", -1, -1, 0f);
+                task.cropMarginRatio, "attack_live", null, null, -1, -1, 0f);
         OwnedFrameTask saveTask = new OwnedFrameTask(pair, () -> {
             boolean saved = false;
             try {
@@ -2024,17 +2008,11 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void deleteCollectionSubject(String className, String qualityMode, String subjectDirName) {
-        boolean deletedFiles = CaptureStorage.deleteSubject(resolveRawRoot(), className,
-                qualityMode, subjectDirName);
+    private void deleteCollectionSubject(CaptureConfig config, String subjectDirName) {
+        boolean deletedFiles = CaptureStorage.deleteSubject(resolveRawRoot(), config, subjectDirName);
         android.util.Log.i(TAG, "Deleted canceled collection subject "
-                + className + "/" + (qualityMode == null ? "" : qualityMode + "/")
+                + (config != null ? config.toSummaryLabel() + "/" : "")
                 + subjectDirName + " files=" + deletedFiles);
-    }
-
-    private String captureQualityMode(String className) {
-        if (!CaptureSchedule.shouldCheckQuality(className)) return null;
-        return liveQualityMode;
     }
 
     private void updateTrackingFps() {
@@ -2070,9 +2048,10 @@ public final class MainActivity extends Activity {
         if (enginesWarmedUp && qualityWarmedUp && screen.loadingSpinner.getVisibility() == View.VISIBLE) {
             screen.loadingSpinner.setVisibility(View.GONE);
             screen.irLoadingSpinner.setVisibility(View.GONE);
-            if (!collectionSession.isActive()) {
+            if (!collectionSession.isActive() && !isAttackLiveCapturing) {
                 FaceDetectionEngine detector = activeFaceDetector;
                 screen.startCollectionButton.setEnabled(detector != null);
+                screen.attackLiveCaptureButton.setEnabled(detector != null);
                 screen.switchButton.setEnabled(true);
             }
         }
@@ -2340,6 +2319,9 @@ public final class MainActivity extends Activity {
             captureTone = null;
         }
         clearPreviewFace();
+        if (screen != null) {
+            screen.dismissCaptureConfigDialog();
+        }
         appWatchdog.close();
         super.onDestroy();
     }

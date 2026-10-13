@@ -5,16 +5,19 @@ import org.json.JSONObject;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public final class SampleMetadataTest {
     @Test public void buildsExpectedMetadataJson() throws Exception {
         String json = SampleMetadata.build(
                 768, 432, new RectValue(1, 2, 3, 4), new RectValue(5, 6, 7, 8),
                 768, 432, new RectValue(9, 10, 11, 12), new RectValue(13, 14, 15, 16),
-                0.1f, "high", 2, 2, 0.95f);
+                0.1f, "live", "indoor", "high", 2, 2, 0.95f);
 
         JSONObject root = new JSONObject(json);
         assertEquals(1, root.getInt("schemaVersion"));
+        assertEquals("live", root.getString("className"));
+        assertEquals("indoor", root.getString("environment"));
         assertEquals(0.1, root.getDouble("cropMarginRatio"), 0.0001);
         assertEquals("high", root.getString("qualityMode"));
         assertEquals(2, root.getInt("minQualityLevel"));
@@ -32,6 +35,22 @@ public final class SampleMetadataTest {
         assertEquals(432, ir.getInt("height"));
         assertArrayEquals(new int[]{9, 10, 11, 12}, ir.getJSONArray("mappedFaceRect"));
         assertArrayEquals(new int[]{13, 14, 15, 16}, ir.getJSONArray("cropRect"));
+    }
+
+    @Test public void nonLiveMetadataIncludesClassNameAndEnvironmentWithNullQuality() throws Exception {
+        String json = SampleMetadata.build(
+                768, 432, new RectValue(1, 2, 3, 4), new RectValue(5, 6, 7, 8),
+                768, 432, new RectValue(9, 10, 11, 12), new RectValue(13, 14, 15, 16),
+                0.1f, "mask", "outdoor", null, -1, -1, 0.0f);
+
+        JSONObject root = new JSONObject(json);
+        assertEquals(1, root.getInt("schemaVersion"));
+        assertEquals("mask", root.getString("className"));
+        assertEquals("outdoor", root.getString("environment"));
+        assertTrue(root.isNull("qualityMode"));
+        assertEquals(-1, root.getInt("minQualityLevel"));
+        assertEquals(-1, root.getInt("actualQualityLevel"));
+        assertEquals(0.0, root.getDouble("qualityScore"), 0.0001);
     }
 
     private static void assertArrayEquals(int[] expected, JSONArray actual) throws Exception {

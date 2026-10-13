@@ -9,11 +9,14 @@ public final class SampleMetadata {
 
     public static String build(int rgbWidth, int rgbHeight, RectValue rgbFaceRect, RectValue rgbCropRect,
                                int irWidth, int irHeight, RectValue irMappedFaceRect, RectValue irCropRect,
-                               float cropMarginRatio, String qualityMode, int minQualityLevel,
+                               float cropMarginRatio, String className, String environment,
+                               String qualityMode, int minQualityLevel,
                                int actualQualityLevel, float qualityScore) {
         try {
             JSONObject root = new JSONObject();
             root.put("schemaVersion", 1);
+            if (className != null) root.put("className", className);
+            if (environment != null) root.put("environment", environment);
             root.put("rgb", frameMetadata(rgbWidth, rgbHeight, "faceRect", rgbFaceRect, rgbCropRect));
             root.put("ir", frameMetadata(irWidth, irHeight, "mappedFaceRect", irMappedFaceRect, irCropRect));
             root.put("cropMarginRatio", cropMarginRatio);
