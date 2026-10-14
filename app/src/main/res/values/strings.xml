@@ -33,4 +33,8 @@
     <string name="lighting_snapshot">📸 SNAPSHOT</string>
     <string name="preview_no_face">NO FACE</string>
     <string name="ir_crop_description">IR face crop preview</string>
+    <string name="webrtc_title">WEBRTC</string>
+    <string name="webrtc_mute">MUTE</string>
+    <string name="webrtc_server_connect">SERVER CONNECT</string>
+    <string name="webrtc_close">CLOSE</string>
 </resources>

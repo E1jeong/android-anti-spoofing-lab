@@ -4,17 +4,17 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.virditech.ac7000.api.call.SignalingClient;
+import com.virditech.ac7000.databinding.ActivityWebRtcCallBinding;
+import com.virditech.ac7000.databinding.ViewWebRtcRemoteBinding;
 
 import org.webrtc.IceCandidate;
 import org.webrtc.SurfaceViewRenderer;
@@ -49,90 +49,42 @@ public final class WebRtcCallActivity extends Activity implements SignalingClien
         callId = getIntent().getStringExtra(EXTRA_CALL_ID);
         previewOnly = remotePeerId == null || callId == null;
 
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
-
-        SurfaceViewRenderer remoteRenderer = new SurfaceViewRenderer(this);
+        ActivityWebRtcCallBinding binding =
+                ActivityWebRtcCallBinding.inflate(getLayoutInflater());
+        FrameLayout root = binding.getRoot();
+        SurfaceViewRenderer remoteRenderer =
+                ViewWebRtcRemoteBinding.inflate(getLayoutInflater()).getRoot();
         if (!previewOnly) {
-            root.addView(remoteRenderer, new FrameLayout.LayoutParams(
+            root.addView(remoteRenderer, 0, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
             ));
         }
 
-        SurfaceViewRenderer localRenderer = new SurfaceViewRenderer(this);
-        FrameLayout.LayoutParams localParams;
-        if (previewOnly) {
-            localParams = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-            );
-        } else {
-            localParams = new FrameLayout.LayoutParams(dp(135), dp(240));
+        SurfaceViewRenderer localRenderer = binding.localRenderer;
+        if (!previewOnly) {
+            FrameLayout.LayoutParams localParams = new FrameLayout.LayoutParams(dp(135), dp(240));
             localParams.gravity = Gravity.TOP | Gravity.END;
             localParams.setMargins(dp(16), dp(16), dp(16), dp(16));
+            localRenderer.setLayoutParams(localParams);
         }
-        root.addView(localRenderer, localParams);
 
-        LinearLayout controls = new LinearLayout(this);
-        controls.setOrientation(LinearLayout.VERTICAL);
-        controls.setGravity(Gravity.CENTER);
-        controls.setPadding(dp(32), dp(32), dp(32), dp(32));
-        controls.setBackgroundColor(0x66000000);
-
-        TextView title = new TextView(this);
-        title.setText("WEBRTC");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(32f);
-        title.setGravity(Gravity.CENTER);
-        controls.addView(title, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        status = new TextView(this);
+        // Retain the original fractional SP sizes after XML inflation.
+        binding.title.setTextSize(32f);
+        status = binding.status;
+        status.setTextSize(20f);
         status.setText(previewOnly
                 ? "Preparing camera preview"
                 : "Preparing video call\nRemote peer: " + remotePeerId);
-        status.setTextColor(Color.LTGRAY);
-        status.setTextSize(20f);
-        status.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        statusParams.setMargins(0, dp(24), 0, dp(24));
-        controls.addView(status, statusParams);
-
         if (!previewOnly) {
-            muteButton = new Button(this);
-            muteButton.setText("MUTE");
+            muteButton = binding.muteButton;
             muteButton.setOnClickListener(v -> toggleMicrophoneMuted());
-            controls.addView(muteButton, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT));
+            binding.controls.removeView(binding.serverConnectButton);
+        } else {
+            binding.controls.removeView(binding.muteButton);
+            binding.serverConnectButton.setOnClickListener(v -> connectToSignalingServer());
         }
-
-        if (previewOnly) {
-            Button serverConnectButton = new Button(this);
-            serverConnectButton.setText("SERVER CONNECT");
-            serverConnectButton.setOnClickListener(v -> connectToSignalingServer());
-            controls.addView(serverConnectButton, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT));
-        }
-
-        Button closeButton = new Button(this);
-        closeButton.setText("CLOSE");
-        closeButton.setOnClickListener(v -> endCallAndFinish());
-        controls.addView(closeButton, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        FrameLayout.LayoutParams controlsParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-        );
-        controlsParams.gravity = Gravity.BOTTOM;
-        root.addView(controls, controlsParams);
+        binding.closeButton.setOnClickListener(v -> endCallAndFinish());
         setContentView(root);
 
         if (!previewOnly) {
