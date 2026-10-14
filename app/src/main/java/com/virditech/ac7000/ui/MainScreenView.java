@@ -3,12 +3,9 @@ package com.virditech.ac7000.ui;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
-import android.view.Gravity;
 import android.view.TextureView;
 import android.view.View;
 import android.app.AlertDialog;
@@ -22,11 +19,12 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
-import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.virditech.ac7000.camera.PreviewTransform;
+import com.virditech.ac7000.databinding.DialogCaptureConfigBinding;
+import com.virditech.ac7000.databinding.ViewMainScreenBinding;
 import com.virditech.ac7000.capture.CaptureConfig;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
@@ -85,48 +83,64 @@ public final class MainScreenView {
 
     public MainScreenView(Activity activity, Listener listener) {
         this.activity = activity;
-        root = new FrameLayout(activity);
-        uiContainer = new FrameLayout(activity);
-        rgbView = new TextureView(activity);
-        irView = new TextureView(activity);
-        overlay = new OverlayView(activity);
-        cleanModeResultView = new TextView(activity);
-        cleanModeLightingView = new TextView(activity);
-        cleanModeForegroundEntryView = new TextView(activity);
-        cleanModeSnapshotButton = new Button(activity);
-        loadingSpinner = new ProgressBar(activity);
-        performance = label(22f);
-        resultsLabel = label(32f);
-        status = label(22f);
-        irCropContainer = new FrameLayout(activity);
-        faceCropView = new ImageView(activity);
-        noFaceLabel = label(20f);
-        irAeModeLabel = label(18f);
-        irLoadingSpinner = new ProgressBar(activity);
-        controlsLayout = new LinearLayout(activity);
-        collectionProgress = label(32f);
-        pauseCollectionButton = iconButton(android.R.drawable.ic_media_pause, Color.parseColor("#37474F"));
-        cancelCollectionButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
-                Color.parseColor("#C49A00"));
-        stopAttackLiveCaptureButton = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
-                Color.parseColor("#B71C1C"));
-        attackLiveCaptureButton = new Button(activity);
-        startCollectionButton = new Button(activity);
-        switchButton = new Button(activity);
-        modelSwitchButton = new Button(activity);
-        calibrationInstruction = label(24f);
-        calibrationConfirm = new Button(activity);
-        calibrationCancel = new Button(activity);
-        calibrationHotspot = new View(activity);
-        settingsHotspot = new View(activity);
-        authResultView = new TextView(activity);
+        ViewMainScreenBinding binding =
+                ViewMainScreenBinding.inflate(activity.getLayoutInflater());
+        root = binding.root;
+        uiContainer = binding.uiContainer;
+        rgbView = binding.rgbView;
+        irView = binding.irView;
+        overlay = binding.overlay;
+        cleanModeResultView = binding.cleanModeResultView;
+        cleanModeLightingView = binding.cleanModeLightingView;
+        cleanModeForegroundEntryView = binding.cleanModeForegroundEntryView;
+        cleanModeSnapshotButton = binding.cleanModeSnapshotButton;
+        loadingSpinner = binding.loadingSpinner;
+        irLoadingSpinner = binding.irLoadingSpinner;
+        performance = binding.performance;
+        status = binding.status;
+        irCropContainer = binding.irCropContainer;
+        faceCropView = binding.faceCropView;
+        noFaceLabel = binding.noFaceLabel;
+        irAeModeLabel = binding.irAeModeLabel;
+        resultsLabel = binding.resultsLabel;
+        calibrationInstruction = binding.calibrationInstruction;
+        switchButton = binding.switchButton;
+        modelSwitchButton = binding.modelSwitchButton;
+        startCollectionButton = binding.startCollectionButton;
+        attackLiveCaptureButton = binding.attackLiveCaptureButton;
+        pauseCollectionButton = binding.pauseCollectionButton;
+        cancelCollectionButton = binding.cancelCollectionButton;
+        stopAttackLiveCaptureButton = binding.stopAttackLiveCaptureButton;
+        collectionProgress = binding.collectionProgress;
+        controlsLayout = binding.controlsLayout;
+        calibrationConfirm = binding.calibrationConfirm;
+        calibrationCancel = binding.calibrationCancel;
+        calibrationHotspot = binding.calibrationHotspot;
+        settingsHotspot = binding.settingsHotspot;
+        authResultView = binding.authResultView;
+
+        // Keep the original color filters, including after runtime icon swaps.
+        pauseCollectionButton.setColorFilter(Color.WHITE);
+        cancelCollectionButton.setColorFilter(Color.WHITE);
+        stopAttackLiveCaptureButton.setColorFilter(Color.WHITE);
+
+        // XML text dimensions round to pixels; retain the original fractional SP sizes.
+        performance.setTextSize(22f);
+        resultsLabel.setTextSize(32f);
+        status.setTextSize(22f);
+        noFaceLabel.setTextSize(20f);
+        irAeModeLabel.setTextSize(18f);
+        collectionProgress.setTextSize(32f);
+        calibrationInstruction.setTextSize(24f);
+        cleanModeResultView.setTextSize(38f);
+        cleanModeLightingView.setTextSize(17f);
+        cleanModeForegroundEntryView.setTextSize(17f);
+        cleanModeSnapshotButton.setTextSize(15f);
+        authResultView.setTextSize(40f);
 
         int buttonWidth = activity.getResources().getDisplayMetrics().widthPixels / 3;
-        buildPreview();
-        buildCleanModeResultView();
         buildCleanModeLightingView(listener);
-        buildCleanModeForegroundEntryView();
-        buildDiagnostics(buttonWidth);
+        buildDiagnostics(binding.diagnosticsLayout, buttonWidth);
         buildIrCrop(listener, buttonWidth);
         buildCaptureIndicators(listener);
         buildControls(listener, buttonWidth);
@@ -137,254 +151,70 @@ public final class MainScreenView {
         root.bringChildToFront(overlay);
     }
 
-    private void buildPreview() {
-        root.setBackgroundColor(Color.BLACK);
-        irView.setAlpha(0f);
-        root.addView(rgbView, match());
-        root.addView(irView, match());
-        root.addView(overlay, match());
-        root.addView(uiContainer, match());
-    }
-
-    private void buildDiagnostics(int buttonWidth) {
-        LinearLayout diagnosticsLayout = new LinearLayout(activity);
-        diagnosticsLayout.setOrientation(LinearLayout.VERTICAL);
-        diagnosticsLayout.setGravity(Gravity.START | Gravity.BOTTOM);
-        FrameLayout.LayoutParams diagnosticsParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM | Gravity.START);
-        diagnosticsParams.setMargins(dp(16), dp(16), buttonWidth + dp(32), dp(16));
-
-        diagnosticsLayout.addView(performance, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        resultsLabel.setTextColor(Color.WHITE);
-        resultsLabel.setShadowLayer(5f, 1f, 1f, Color.BLACK);
-        FrameLayout.LayoutParams resultsParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.START);
-        resultsParams.setMargins(dp(16), dp(16), buttonWidth + dp(16), dp(16));
-        uiContainer.addView(resultsLabel, resultsParams);
-
-        loadingSpinner.setIndeterminate(true);
-        uiContainer.addView(loadingSpinner, wrap(Gravity.CENTER, 0, 0));
-
-        status.setText("Initializing...");
-        diagnosticsLayout.addView(status, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        uiContainer.addView(diagnosticsLayout, diagnosticsParams);
+    private void buildDiagnostics(LinearLayout diagnosticsLayout, int buttonWidth) {
+        FrameLayout.LayoutParams diagnosticsParams =
+                (FrameLayout.LayoutParams) diagnosticsLayout.getLayoutParams();
+        diagnosticsParams.rightMargin = buttonWidth + dp(32);
+        FrameLayout.LayoutParams resultsParams =
+                (FrameLayout.LayoutParams) resultsLabel.getLayoutParams();
+        resultsParams.rightMargin = buttonWidth + dp(16);
     }
 
     private void buildIrCrop(Listener listener, int buttonWidth) {
-        FrameLayout.LayoutParams irCropParams = wrap(Gravity.TOP | Gravity.END, 0, 0);
-        irCropParams.width = buttonWidth;
-        irCropParams.height = buttonWidth;
-        root.addView(irCropContainer, irCropParams);
-
-        faceCropView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        faceCropView.setBackgroundColor(Color.parseColor("#44000000"));
-        irCropContainer.addView(faceCropView, match());
-
-        noFaceLabel.setText("NO FACE");
-        noFaceLabel.setVisibility(View.GONE);
-        irCropContainer.addView(noFaceLabel, wrap(Gravity.CENTER, 0, 0));
-
-        irLoadingSpinner.setIndeterminate(true);
-        irCropContainer.addView(irLoadingSpinner, wrap(Gravity.CENTER, 0, 0));
-
-        irAeModeLabel.setTextColor(Color.WHITE);
-        irAeModeLabel.setGravity(Gravity.CENTER);
-        irAeModeLabel.setPadding(0, dp(4), 0, dp(4));
-        irAeModeLabel.setVisibility(View.GONE);
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) irCropContainer.getLayoutParams();
+        params.width = buttonWidth;
+        params.height = buttonWidth;
         irAeModeLabel.setOnClickListener(v -> listener.onToggleIrAutoExposure());
-        GradientDrawable irAeBorder = new GradientDrawable();
-        irAeBorder.setColor(Color.TRANSPARENT);
-        irAeBorder.setStroke(dp(1), Color.WHITE);
-        irAeBorder.setCornerRadius(dp(4));
-        irAeModeLabel.setBackground(irAeBorder);
-        FrameLayout.LayoutParams irAeParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM);
-        irAeParams.setMargins(dp(4), 0, dp(4), dp(4));
-        irCropContainer.addView(irAeModeLabel, irAeParams);
     }
 
     private void buildCaptureIndicators(Listener listener) {
-        collectionProgress.setText("");
-        collectionProgress.setGravity(Gravity.CENTER);
-        collectionProgress.setVisibility(View.GONE);
-        FrameLayout.LayoutParams collectionProgressParams =
-                wrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 16, 16);
-        uiContainer.addView(collectionProgress, collectionProgressParams);
-
-        configureCaptureButton(pauseCollectionButton, "Pause capture",
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL, listener::onPauseCollection);
-        configureCaptureButton(cancelCollectionButton, "Cancel capture",
-                Gravity.TOP | Gravity.END, listener::onCancelCollection);
-        configureCaptureButton(stopAttackLiveCaptureButton, "Stop attack Live capture",
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL, listener::onStopAttackLiveCapture);
-    }
-
-    private void configureCaptureButton(
-            ImageButton button, String description, int gravity, Runnable action) {
-        button.setContentDescription(description);
-        button.setVisibility(View.GONE);
-        button.setOnClickListener(v -> action.run());
-        FrameLayout.LayoutParams params = wrap(gravity, 16, 16);
-        params.width = dp(84);
-        params.height = dp(84);
-        uiContainer.addView(button, params);
+        pauseCollectionButton.setOnClickListener(v -> listener.onPauseCollection());
+        cancelCollectionButton.setOnClickListener(v -> listener.onCancelCollection());
+        stopAttackLiveCaptureButton.setOnClickListener(v -> listener.onStopAttackLiveCapture());
     }
 
     private void buildControls(Listener listener, int buttonWidth) {
-        controlsLayout.setOrientation(LinearLayout.VERTICAL);
-        controlsLayout.setGravity(Gravity.END | Gravity.BOTTOM);
-
-        configureControlButton(startCollectionButton, "START CAPTURE", buttonWidth,
+        configureControlButton(startCollectionButton, buttonWidth,
                 v -> showCaptureConfigDialog(listener));
-        configureControlButton(attackLiveCaptureButton, "ATTACK", buttonWidth,
+        configureControlButton(attackLiveCaptureButton, buttonWidth,
                 v -> listener.onStartAttackLiveCapture());
-        attackLiveCaptureButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                Color.parseColor("#B71C1C")));
-        attackLiveCaptureButton.setTextColor(Color.WHITE);
-        configureControlButton(switchButton, "SHOW IR", buttonWidth,
-                v -> listener.onSwitchPreview());
-        configureControlButton(modelSwitchButton, "MODEL 1", buttonWidth,
-                v -> listener.onToggleModel());
-
-        uiContainer.addView(controlsLayout, wrap(Gravity.BOTTOM | Gravity.END, 16, 16));
+        configureControlButton(switchButton, buttonWidth, v -> listener.onSwitchPreview());
+        configureControlButton(modelSwitchButton, buttonWidth, v -> listener.onToggleModel());
     }
 
     private void configureControlButton(
-            Button button, String text, int buttonWidth, View.OnClickListener listener) {
-        button.setText(text);
-        button.setEnabled(false);
+            Button button, int buttonWidth, View.OnClickListener listener) {
         button.setOnClickListener(listener);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                buttonWidth, LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) button.getLayoutParams();
+        params.width = buttonWidth;
         params.bottomMargin = dp(-2);
-        controlsLayout.addView(button, params);
     }
 
     private void buildCalibrationControls(Listener listener, int buttonWidth) {
-        calibrationInstruction.setText("Fit one face inside the guide, then press CONFIRM");
-        calibrationInstruction.setGravity(Gravity.CENTER);
-        calibrationInstruction.setVisibility(View.GONE);
-        uiContainer.addView(calibrationInstruction, wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 16, 24));
-
-        calibrationConfirm.setText("CONFIRM");
-        calibrationConfirm.setVisibility(View.GONE);
         calibrationConfirm.setOnClickListener(v -> {
             if (recognitionEnrollmentMode) listener.onRecognitionEnrollmentStart();
             else listener.onCalibrationConfirm();
         });
-        FrameLayout.LayoutParams confirmParams = wrap(Gravity.BOTTOM | Gravity.END, 16, 16);
+        FrameLayout.LayoutParams confirmParams =
+                (FrameLayout.LayoutParams) calibrationConfirm.getLayoutParams();
         confirmParams.width = buttonWidth;
-        uiContainer.addView(calibrationConfirm, confirmParams);
-
-        calibrationCancel.setText("CANCEL");
-        calibrationCancel.setVisibility(View.GONE);
         calibrationCancel.setOnClickListener(v -> listener.onCalibrationCancel());
-        FrameLayout.LayoutParams cancelParams = wrap(Gravity.BOTTOM | Gravity.START, 16, 16);
+        FrameLayout.LayoutParams cancelParams =
+                (FrameLayout.LayoutParams) calibrationCancel.getLayoutParams();
         cancelParams.width = buttonWidth;
-        uiContainer.addView(calibrationCancel, cancelParams);
-
         calibrationHotspot.setOnClickListener(v -> listener.onCalibrationTap());
-        uiContainer.addView(calibrationHotspot, new FrameLayout.LayoutParams(
-                dp(180), dp(180), Gravity.TOP | Gravity.START));
     }
 
     private void buildSettingsHotspot(Listener listener) {
         settingsHotspot.setOnClickListener(v -> listener.onSettingsTap());
-        uiContainer.addView(settingsHotspot, new FrameLayout.LayoutParams(
-                dp(180), dp(180), Gravity.BOTTOM | Gravity.START));
     }
 
     private void buildAuthResultView() {
-        authResultView.setTextSize(40f);
-        authResultView.setTextColor(Color.WHITE);
-        authResultView.setTypeface(Typeface.DEFAULT_BOLD);
-        authResultView.setGravity(Gravity.START | Gravity.TOP);
-        authResultView.setShadowLayer(8f, 2f, 2f, Color.BLACK);
         authResultView.setLineSpacing(dp(6), 1.15f);
-        authResultView.setVisibility(View.GONE);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.START);
-        params.setMargins(dp(20), dp(24), dp(20), dp(20));
-        uiContainer.addView(authResultView, params);
-    }
-
-    private void buildCleanModeResultView() {
-        cleanModeResultView.setTextSize(38f);
-        cleanModeResultView.setTypeface(Typeface.DEFAULT_BOLD);
-        cleanModeResultView.setGravity(Gravity.CENTER);
-        cleanModeResultView.setShadowLayer(8f, 2f, 2f, Color.BLACK);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#B0000000"));
-        bg.setCornerRadius(dp(16));
-        cleanModeResultView.setBackground(bg);
-        cleanModeResultView.setPadding(dp(24), dp(10), dp(24), dp(10));
-        cleanModeResultView.setVisibility(View.GONE);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        params.setMargins(dp(16), dp(28), dp(16), 0);
-        root.addView(cleanModeResultView, params);
     }
 
     private void buildCleanModeLightingView(Listener listener) {
-        cleanModeLightingView.setTextSize(17f);
-        cleanModeLightingView.setTypeface(Typeface.DEFAULT_BOLD);
-        cleanModeLightingView.setShadowLayer(6f, 1f, 1f, Color.BLACK);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#C8000000"));
-        bg.setCornerRadius(dp(12));
-        bg.setStroke(dp(1), Color.parseColor("#44FFFFFF"));
-        cleanModeLightingView.setBackground(bg);
-        cleanModeLightingView.setPadding(dp(16), dp(10), dp(16), dp(10));
-        cleanModeLightingView.setVisibility(View.GONE);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM | Gravity.START);
-        params.setMargins(dp(16), 0, dp(16), dp(20));
-        root.addView(cleanModeLightingView, params);
-
-        cleanModeSnapshotButton.setText("📸 SNAPSHOT");
-        cleanModeSnapshotButton.setTextColor(Color.WHITE);
-        cleanModeSnapshotButton.setTextSize(15f);
-        cleanModeSnapshotButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        GradientDrawable btnBg = new GradientDrawable();
-        btnBg.setColor(Color.parseColor("#E6E65100")); // Deep Orange translucent
-        btnBg.setCornerRadius(dp(12));
-        btnBg.setStroke(dp(1), Color.WHITE);
-        cleanModeSnapshotButton.setBackground(btnBg);
-        cleanModeSnapshotButton.setPadding(dp(16), dp(10), dp(16), dp(10));
-        cleanModeSnapshotButton.setVisibility(View.GONE);
         cleanModeSnapshotButton.setOnClickListener(v -> listener.onLightingSnapshotRequested());
-        FrameLayout.LayoutParams btnParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM | Gravity.END);
-        btnParams.setMargins(dp(16), 0, dp(16), dp(20));
-        root.addView(cleanModeSnapshotButton, btnParams);
-    }
-
-    private void buildCleanModeForegroundEntryView() {
-        cleanModeForegroundEntryView.setTextSize(17f);
-        cleanModeForegroundEntryView.setTypeface(Typeface.DEFAULT_BOLD);
-        cleanModeForegroundEntryView.setShadowLayer(6f, 1f, 1f, Color.BLACK);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#C8000000"));
-        bg.setCornerRadius(dp(12));
-        bg.setStroke(dp(1), Color.parseColor("#44FFFFFF"));
-        cleanModeForegroundEntryView.setBackground(bg);
-        cleanModeForegroundEntryView.setPadding(dp(16), dp(10), dp(16), dp(10));
-        cleanModeForegroundEntryView.setVisibility(View.GONE);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM | Gravity.START);
-        params.setMargins(dp(16), 0, dp(16), dp(130));
-        root.addView(cleanModeForegroundEntryView, params);
     }
 
     private void buildTapListener() {
@@ -738,19 +568,20 @@ public final class MainScreenView {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("Capture Configuration");
 
-        ScrollView scrollView = new ScrollView(activity);
-        LinearLayout layout = new LinearLayout(activity);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(20), dp(16), dp(20), dp(16));
+        DialogCaptureConfigBinding binding =
+                DialogCaptureConfigBinding.inflate(activity.getLayoutInflater());
+        // Retain the original fractional SP sizes after XML inflation.
+        binding.classLabel.setTextSize(15f);
+        binding.environmentLabel.setTextSize(15f);
+        binding.qualityLabel.setTextSize(15f);
+        Spinner classSpinner = binding.classSpinner;
+        RadioGroup envRadioGroup = binding.environmentGroup;
+        RadioButton outdoorRadio = binding.outdoor;
+        LinearLayout qualityContainer = binding.qualityContainer;
+        RadioButton mediumRadio = binding.medium;
+        RadioButton highRadio = binding.high;
+        RadioButton offRadio = binding.off;
 
-        // 1. Class Selection (Spinner)
-        TextView classLabel = new TextView(activity);
-        classLabel.setText("Class");
-        classLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        classLabel.setTextSize(15f);
-        layout.addView(classLabel);
-
-        Spinner classSpinner = new Spinner(activity);
         String[] displayNames = new String[CLASS_OPTIONS.length];
         for (int i = 0; i < CLASS_OPTIONS.length; i++) {
             displayNames[i] = CLASS_OPTIONS[i][0];
@@ -759,65 +590,7 @@ public final class MainScreenView {
                 android.R.layout.simple_spinner_item, displayNames);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         classSpinner.setAdapter(adapter);
-        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        spinnerParams.topMargin = dp(4);
-        spinnerParams.bottomMargin = dp(14);
-        layout.addView(classSpinner, spinnerParams);
-
-        // 2. Environment Selection (RadioGroup)
-        TextView envLabel = new TextView(activity);
-        envLabel.setText("Environment");
-        envLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        envLabel.setTextSize(15f);
-        layout.addView(envLabel);
-
-        RadioGroup envRadioGroup = new RadioGroup(activity);
-        envRadioGroup.setOrientation(RadioGroup.HORIZONTAL);
-        RadioButton indoorRadio = new RadioButton(activity);
-        indoorRadio.setText("INDOOR");
-        RadioButton outdoorRadio = new RadioButton(activity);
-        outdoorRadio.setText("OUTDOOR");
-        envRadioGroup.addView(indoorRadio);
-        envRadioGroup.addView(outdoorRadio);
-        indoorRadio.setChecked(true);
-        LinearLayout.LayoutParams envParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        envParams.topMargin = dp(4);
-        envParams.bottomMargin = dp(14);
-        layout.addView(envRadioGroup, envParams);
-
-        // 3. Quality Selection (Container & RadioGroup for live)
-        LinearLayout qualityContainer = new LinearLayout(activity);
-        qualityContainer.setOrientation(LinearLayout.VERTICAL);
-
-        TextView qualityLabel = new TextView(activity);
-        qualityLabel.setText("Live Quality");
-        qualityLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        qualityLabel.setTextSize(15f);
-        qualityContainer.addView(qualityLabel);
-
-        RadioGroup qualityRadioGroup = new RadioGroup(activity);
-        qualityRadioGroup.setOrientation(RadioGroup.HORIZONTAL);
-        RadioButton mediumRadio = new RadioButton(activity);
-        mediumRadio.setText("MEDIUM");
-        RadioButton highRadio = new RadioButton(activity);
-        highRadio.setText("HIGH");
-        RadioButton offRadio = new RadioButton(activity);
-        offRadio.setText("OFF");
-
-        qualityRadioGroup.addView(mediumRadio);
-        qualityRadioGroup.addView(highRadio);
-        qualityRadioGroup.addView(offRadio);
-        mediumRadio.setChecked(true);
-        LinearLayout.LayoutParams qualityParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        qualityParams.topMargin = dp(4);
-        qualityContainer.addView(qualityRadioGroup, qualityParams);
-        layout.addView(qualityContainer);
-
-        scrollView.addView(layout);
-        builder.setView(scrollView);
+        builder.setView(binding.getRoot());
 
         // Dynamic State synchronization
         Runnable updateState = () -> {
@@ -902,36 +675,6 @@ public final class MainScreenView {
             captureConfigDialog.dismiss();
         }
         captureConfigDialog = null;
-    }
-
-    private TextView label(float size) {
-        TextView view = new TextView(activity);
-        view.setTextColor(Color.WHITE);
-        view.setTextSize(size);
-        view.setShadowLayer(5f, 1f, 1f, Color.BLACK);
-        return view;
-    }
-
-    private ImageButton iconButton(int imageResource, int backgroundColor) {
-        ImageButton button = new ImageButton(activity);
-        button.setImageResource(imageResource);
-        button.setColorFilter(Color.WHITE);
-        button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(backgroundColor));
-        button.setScaleType(ImageView.ScaleType.CENTER);
-        button.setPadding(dp(21), dp(21), dp(21), dp(21));
-        return button;
-    }
-
-    private static FrameLayout.LayoutParams match() {
-        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT);
-    }
-
-    private static FrameLayout.LayoutParams wrap(int gravity, int horizontalMargin, int verticalMargin) {
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, gravity);
-        params.setMargins(horizontalMargin, verticalMargin, horizontalMargin, verticalMargin);
-        return params;
     }
 
     private int dp(int value) {

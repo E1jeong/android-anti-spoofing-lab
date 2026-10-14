@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Preserve the existing three-dot wording during layout migration. -->
+    <string name="fixed_input_running" tools:ignore="TypographyEllipsis">RUNNING...</string>
+    <string name="fixed_input_close">CLOSE</string>
+    <string name="face_management_title">FACE MANAGEMENT</string>
+    <string name="face_templates_loading" tools:ignore="TypographyEllipsis">Loading templates...</string>
+    <string name="face_enroll_current">ENROLL CURRENT FACE</string>
+    <string name="face_fixed_input_test">FIXED-INPUT RECOG TEST</string>
+    <string name="face_clear_current_model">CLEAR CURRENT MODEL TEMPLATES</string>
+    <string name="face_enrollment_name">Name</string>
+    <string name="face_template_delete">DELETE</string>
+    <string name="face_templates_empty">등록된 얼굴 데이터가 없습니다.</string>
+    <string name="capture_class">Class</string>
+    <string name="capture_environment">Environment</string>
+    <string name="capture_live_quality">Live Quality</string>
+    <string name="capture_indoor">INDOOR</string>
+    <string name="capture_outdoor">OUTDOOR</string>
+    <string name="capture_medium">MEDIUM</string>
+    <string name="capture_high">HIGH</string>
+    <string name="capture_off">OFF</string>
+    <string name="main_initializing" tools:ignore="TypographyEllipsis">Initializing...</string>
+    <string name="capture_pause_description">Pause capture</string>
+    <string name="capture_cancel_description">Cancel capture</string>
+    <string name="attack_stop_description">Stop attack Live capture</string>
+    <string name="capture_start">START CAPTURE</string>
+    <string name="attack_start">ATTACK</string>
+    <string name="preview_show_ir">SHOW IR</string>
+    <string name="model_initial">MODEL 1</string>
+    <string name="calibration_instruction">Fit one face inside the guide, then press CONFIRM</string>
+    <string name="calibration_confirm">CONFIRM</string>
+    <string name="calibration_cancel" tools:ignore="ButtonCase">CANCEL</string>
+    <string name="lighting_snapshot">📸 SNAPSHOT</string>
+    <string name="preview_no_face">NO FACE</string>
+    <string name="ir_crop_description">IR face crop preview</string>
+</resources>

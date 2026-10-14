@@ -3,16 +3,17 @@ package com.virditech.ac7000.recognition;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.graphics.Color;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
+
+import com.virditech.ac7000.databinding.ActivityFaceRecognitionBinding;
+import com.virditech.ac7000.databinding.DialogEnrollmentNameBinding;
+import com.virditech.ac7000.databinding.ItemFaceTemplateBinding;
+import com.virditech.ac7000.databinding.ViewEmptyFaceTemplatesBinding;
 
 import java.text.DateFormat;
 import java.util.Date;
@@ -67,27 +68,23 @@ public final class FaceRecognitionActivity extends Activity {
     }
 
     private View createContentView() {
-        int pad = dp(20);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-        root.setBackgroundColor(Color.rgb(20, 20, 20));
+        ActivityFaceRecognitionBinding binding =
+                ActivityFaceRecognitionBinding.inflate(getLayoutInflater());
+        // XML text dimensions round to pixels; retain the original fractional SP sizes.
+        binding.title.setTextSize(24f);
+        TextView model = binding.model;
+        model.setTextSize(15f);
+        model.setText("Model: " + modelLabel(selectedModelAssetPath));
 
-        TextView title = text("FACE MANAGEMENT", 24f);
-        root.addView(title);
-        TextView model = text("Model: " + modelLabel(selectedModelAssetPath), 15f);
-        root.addView(model);
-
-        Button recognitionMode = new Button(this);
+        Button recognitionMode = binding.recognitionMode;
         updateRecognitionModeText(recognitionMode);
         recognitionMode.setOnClickListener(view -> {
             selectedRecognitionEnabled = !selectedRecognitionEnabled;
             updateRecognitionModeText(recognitionMode);
         });
         actionControls.add(recognitionMode);
-        root.addView(recognitionMode, fullWidthParams());
 
-        Button modelSwitch = new Button(this);
+        Button modelSwitch = binding.modelSwitch;
         updateModelText(modelSwitch);
         modelSwitch.setEnabled(availableModels != null && availableModels.size() > 1);
         modelSwitch.setOnClickListener(view -> {
@@ -102,60 +99,36 @@ public final class FaceRecognitionActivity extends Activity {
             loadSelectedModelTemplates();
         });
         actionControls.add(modelSwitch);
-        root.addView(modelSwitch, fullWidthParams());
 
-        summary = text("Loading templates...", 16f);
-        LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        summaryParams.topMargin = dp(16);
-        root.addView(summary, summaryParams);
+        summary = binding.summary;
+        summary.setTextSize(16f);
 
-        Button enroll = new Button(this);
-        enroll.setText("ENROLL CURRENT FACE");
+        Button enroll = binding.enroll;
         enroll.setOnClickListener(view -> requestEnrollment());
         actionControls.add(enroll);
-        root.addView(enroll, fullWidthParams());
 
-        Button fixedInput = new Button(this);
-        fixedInput.setText("FIXED-INPUT RECOG TEST");
+        Button fixedInput = binding.fixedInput;
         fixedInput.setOnClickListener(view -> {
             Intent intent = new Intent(this, FixedInputRecognitionActivity.class);
             intent.putExtra(FixedInputRecognitionActivity.EXTRA_MODEL_ASSET_PATH, selectedModelAssetPath);
             startActivity(intent);
         });
         actionControls.add(fixedInput);
-        root.addView(fixedInput, fullWidthParams());
 
-        Button clear = new Button(this);
-        clear.setText("CLEAR CURRENT MODEL TEMPLATES");
-        clear.setTextColor(Color.WHITE);
-        clear.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                Color.rgb(183, 28, 28)));
+        Button clear = binding.clear;
         clear.setOnClickListener(view -> confirmClear());
         actionControls.add(clear);
-        root.addView(clear, fullWidthParams());
 
-        ScrollView scroll = new ScrollView(this);
-        templateList = new LinearLayout(this);
-        templateList.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(templateList);
-        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
-        listParams.topMargin = dp(12);
-        root.addView(scroll, listParams);
+        templateList = binding.templateList;
 
-        Button close = new Button(this);
-        close.setText("CLOSE");
+        Button close = binding.close;
         close.setOnClickListener(view -> finishWithSettings());
         actionControls.add(close);
-        root.addView(close, fullWidthParams());
-        return root;
+        return binding.getRoot();
     }
 
     private void requestEnrollment() {
-        EditText input = new EditText(this);
-        input.setHint("Name");
-        input.setSingleLine();
+        EditText input = DialogEnrollmentNameBinding.inflate(getLayoutInflater()).getRoot();
         new AlertDialog.Builder(this)
                 .setTitle("Enroll current face")
                 .setMessage("The camera screen will reopen and collect 5 frames.")
@@ -272,26 +245,26 @@ public final class FaceRecognitionActivity extends Activity {
         templateList.removeAllViews();
         templateActionControls.clear();
         if (templates.isEmpty()) {
-            templateList.addView(text("등록된 얼굴 데이터가 없습니다.", 16f));
+            TextView empty = ViewEmptyFaceTemplatesBinding.inflate(
+                    getLayoutInflater(), templateList, false).getRoot();
+            empty.setTextSize(16f);
+            templateList.addView(empty);
             return;
         }
         for (FaceTemplate template : templates) addTemplateRow(template);
     }
 
     private void addTemplateRow(FaceTemplate template) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(8), 0, dp(8));
-        TextView label = text(template.getName() + "\n" + template.getSampleCount() + " frames · "
+        ItemFaceTemplateBinding binding =
+                ItemFaceTemplateBinding.inflate(getLayoutInflater(), templateList, false);
+        binding.label.setTextSize(16f);
+        binding.label.setText(template.getName() + "\n" + template.getSampleCount() + " frames · "
                 + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                .format(new Date(template.getEnrolledAtMs())), 16f);
-        row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Button delete = new Button(this);
-        delete.setText("DELETE");
+                .format(new Date(template.getEnrolledAtMs())));
+        Button delete = binding.delete;
         delete.setOnClickListener(view -> confirmDelete(template));
         templateActionControls.add(delete);
-        row.addView(delete);
-        templateList.addView(row);
+        templateList.addView(binding.getRoot());
     }
 
     private void confirmDelete(FaceTemplate template) {
@@ -346,25 +319,6 @@ public final class FaceRecognitionActivity extends Activity {
     private void setActionControlsEnabled(boolean enabled) {
         for (View control : actionControls) control.setEnabled(enabled);
         for (View control : templateActionControls) control.setEnabled(enabled);
-    }
-
-    private TextView text(String value, float size) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextSize(size);
-        view.setTextColor(Color.WHITE);
-        return view;
-    }
-
-    private LinearLayout.LayoutParams fullWidthParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(8);
-        return params;
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     @Override

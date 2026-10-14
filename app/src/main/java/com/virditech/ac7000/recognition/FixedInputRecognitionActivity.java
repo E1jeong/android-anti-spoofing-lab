@@ -2,14 +2,14 @@ package com.virditech.ac7000.recognition;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.graphics.Color;
 import android.os.Bundle;
-import android.view.Gravity;
-import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import com.virditech.ac7000.R;
+import com.virditech.ac7000.databinding.ActivityFixedInputRecognitionBinding;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -47,27 +47,14 @@ public final class FixedInputRecognitionActivity extends Activity {
     }
 
     private LinearLayout createContentView() {
-        int padding = Math.round(24f * getResources().getDisplayMetrics().density);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setGravity(Gravity.CENTER_HORIZONTAL);
-        layout.setPadding(padding, padding, padding, padding);
-        layout.setBackgroundColor(Color.rgb(20, 20, 20));
-
-        status = new TextView(this);
-        status.setTextColor(Color.WHITE);
+        ActivityFixedInputRecognitionBinding binding =
+                ActivityFixedInputRecognitionBinding.inflate(getLayoutInflater());
+        status = binding.status;
+        // XML text dimensions round to pixels; retain the original fractional SP size.
         status.setTextSize(18f);
-        status.setGravity(Gravity.START);
-        layout.addView(status, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        closeButton = new Button(this);
-        closeButton.setText("RUNNING...");
-        closeButton.setEnabled(false);
+        closeButton = binding.closeButton;
         closeButton.setOnClickListener(view -> finish());
-        layout.addView(closeButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return layout;
+        return binding.getRoot();
     }
 
     private void showResult(FixedInputRecognitionRunner.Result result) {
@@ -77,7 +64,7 @@ public final class FixedInputRecognitionActivity extends Activity {
                 + result.message + "\n\nResult: " + output
                 + "\n\nNNAPI active: " + result.nnapiActive);
         runFinished = true;
-        closeButton.setText("CLOSE");
+        closeButton.setText(R.string.fixed_input_close);
         closeButton.setEnabled(true);
     }
 

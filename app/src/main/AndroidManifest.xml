@@ -19,6 +19,7 @@
         android:label="Anti-Spoofing Viewer"
         android:largeHeap="true"
         android:requestLegacyExternalStorage="true"
+        android:supportsRtl="false"
         android:screenOrientation="portrait"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">

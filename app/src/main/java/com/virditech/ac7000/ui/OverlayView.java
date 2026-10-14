@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.util.AttributeSet;
 import android.view.View;
 
 import com.virditech.ac7000.camera.PreviewTransform;
@@ -39,7 +40,15 @@ public final class OverlayView extends View {
     private int collectionCountdownSeconds;
 
     public OverlayView(Context context) {
-        super(context);
+        this(context, null);
+    }
+
+    public OverlayView(Context context, AttributeSet attrs) {
+        this(context, attrs, 0);
+    }
+
+    public OverlayView(Context context, AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
         boxPaint.setStyle(Paint.Style.STROKE);
         boxPaint.setStrokeWidth(5f);
         textPaint.setColor(Color.WHITE);
