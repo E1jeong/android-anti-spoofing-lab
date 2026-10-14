@@ -8,22 +8,15 @@ import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.view.TextureView;
 import android.view.View;
-import android.app.AlertDialog;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.RadioButton;
-import android.widget.RadioGroup;
-import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.virditech.ac7000.camera.PreviewTransform;
-import com.virditech.ac7000.databinding.DialogCaptureConfigBinding;
 import com.virditech.ac7000.databinding.ViewMainScreenBinding;
 import com.virditech.ac7000.capture.CaptureConfig;
 import com.virditech.ac7000.device.DualLightingDetector;
@@ -79,10 +72,11 @@ public final class MainScreenView {
     private boolean foregroundEntryTestEnabled;
     private long lastLightingUiUpdateMs;
     private DualLightingDetector.Condition lastLightingCondition;
-    private AlertDialog captureConfigDialog;
+    private final CaptureConfigDialog captureConfigDialog;
 
     public MainScreenView(Activity activity, Listener listener) {
         this.activity = activity;
+        captureConfigDialog = new CaptureConfigDialog(activity);
         ViewMainScreenBinding binding =
                 ViewMainScreenBinding.inflate(activity.getLayoutInflater());
         root = binding.root;
@@ -565,116 +559,11 @@ public final class MainScreenView {
     };
 
     public void showCaptureConfigDialog(Listener listener) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-        builder.setTitle("Capture Configuration");
-
-        DialogCaptureConfigBinding binding =
-                DialogCaptureConfigBinding.inflate(activity.getLayoutInflater());
-        // Retain the original fractional SP sizes after XML inflation.
-        binding.classLabel.setTextSize(15f);
-        binding.environmentLabel.setTextSize(15f);
-        binding.qualityLabel.setTextSize(15f);
-        Spinner classSpinner = binding.classSpinner;
-        RadioGroup envRadioGroup = binding.environmentGroup;
-        RadioButton outdoorRadio = binding.outdoor;
-        LinearLayout qualityContainer = binding.qualityContainer;
-        RadioButton mediumRadio = binding.medium;
-        RadioButton highRadio = binding.high;
-        RadioButton offRadio = binding.off;
-
-        String[] displayNames = new String[CLASS_OPTIONS.length];
-        for (int i = 0; i < CLASS_OPTIONS.length; i++) {
-            displayNames[i] = CLASS_OPTIONS[i][0];
-        }
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(activity,
-                android.R.layout.simple_spinner_item, displayNames);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        classSpinner.setAdapter(adapter);
-        builder.setView(binding.getRoot());
-
-        // Dynamic State synchronization
-        Runnable updateState = () -> {
-            int selectedIdx = classSpinner.getSelectedItemPosition();
-            if (selectedIdx < 0 || selectedIdx >= CLASS_OPTIONS.length) return;
-            String className = CLASS_OPTIONS[selectedIdx][1];
-            boolean isLive = "live".equals(className);
-            boolean isOutdoor = outdoorRadio.isChecked();
-
-            if (isLive) {
-                qualityContainer.setVisibility(View.VISIBLE);
-                if (isOutdoor) {
-                    offRadio.setEnabled(true);
-                    offRadio.setChecked(true);
-                    highRadio.setEnabled(false);
-                    mediumRadio.setEnabled(false);
-                } else {
-                    offRadio.setEnabled(false);
-                    highRadio.setEnabled(true);
-                    mediumRadio.setEnabled(true);
-                    if (offRadio.isChecked()) {
-                        mediumRadio.setChecked(true);
-                    }
-                }
-            } else {
-                qualityContainer.setVisibility(View.GONE);
-            }
-        };
-
-        classSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                updateState.run();
-            }
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {}
-        });
-
-        envRadioGroup.setOnCheckedChangeListener((group, checkedId) -> updateState.run());
-
-        updateState.run();
-
-        builder.setPositiveButton("START", (dialog, which) -> {
-            int selectedIdx = classSpinner.getSelectedItemPosition();
-            if (selectedIdx < 0 || selectedIdx >= CLASS_OPTIONS.length) return;
-            String className = CLASS_OPTIONS[selectedIdx][1];
-            String env = outdoorRadio.isChecked() ? CaptureConfig.ENV_OUTDOOR : CaptureConfig.ENV_INDOOR;
-            String quality = null;
-            if ("live".equals(className)) {
-                if (outdoorRadio.isChecked()) {
-                    quality = CaptureConfig.QUALITY_OFF;
-                } else if (highRadio.isChecked()) {
-                    quality = CaptureConfig.QUALITY_HIGH;
-                } else {
-                    quality = CaptureConfig.QUALITY_MEDIUM;
-                }
-            }
-            CaptureConfig config;
-            try {
-                config = CaptureConfig.create(className, env, quality);
-            } catch (RuntimeException e) {
-                android.util.Log.e("MainScreenView", "Invalid capture config", e);
-                return;
-            }
-            listener.onStartCollection(config);
-        });
-
-        builder.setNegativeButton("CANCEL", (dialog, which) -> dialog.dismiss());
-
-        dismissCaptureConfigDialog();
-        captureConfigDialog = builder.create();
-        captureConfigDialog.setOnDismissListener(d -> {
-            if (captureConfigDialog == d) {
-                captureConfigDialog = null;
-            }
-        });
-        captureConfigDialog.show();
+        captureConfigDialog.show(listener::onStartCollection);
     }
 
     public void dismissCaptureConfigDialog() {
-        if (captureConfigDialog != null && captureConfigDialog.isShowing()) {
-            captureConfigDialog.dismiss();
-        }
-        captureConfigDialog = null;
+        captureConfigDialog.dismiss();
     }
 
     private int dp(int value) {

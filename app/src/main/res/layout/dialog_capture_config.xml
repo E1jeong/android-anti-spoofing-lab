@@ -1,19 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
 
-    <!-- Preserve the original ScrollView-generated MATCH_PARENT height. -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingLeft="20dp"
+        android:paddingLeft="24dp"
         android:paddingTop="16dp"
-        android:paddingRight="20dp"
-        android:paddingBottom="16dp"
-        tools:ignore="ScrollViewSize">
+        android:paddingRight="24dp"
+        android:paddingBottom="20dp">
 
         <TextView
             android:id="@+id/class_label"
@@ -21,14 +18,22 @@
             android:layout_height="wrap_content"
             android:text="@string/capture_class"
             android:textStyle="bold"
-            android:textSize="15sp" />
+            android:textSize="16sp"
+            android:textColor="#34473E" />
 
-        <Spinner
-            android:id="@+id/class_spinner"
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="14dp" />
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/capture_option_panel">
+
+            <Spinner
+                android:id="@+id/class_spinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="@dimen/capture_touch_height" />
+        </FrameLayout>
 
         <TextView
             android:id="@+id/environment_label"
@@ -36,27 +41,36 @@
             android:layout_height="wrap_content"
             android:text="@string/capture_environment"
             android:textStyle="bold"
-            android:textSize="15sp" />
+            android:textSize="16sp"
+            android:textColor="#34473E" />
 
         <RadioGroup
             android:id="@+id/environment_group"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="14dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="24dp"
             android:orientation="horizontal"
+            android:padding="6dp"
+            android:background="@drawable/capture_option_panel"
             android:checkedButton="@id/indoor">
 
             <RadioButton
                 android:id="@+id/indoor"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="@dimen/capture_touch_height"
+                android:textSize="16sp"
                 android:text="@string/capture_indoor" />
 
             <RadioButton
                 android:id="@+id/outdoor"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="@dimen/capture_touch_height"
+                android:textSize="16sp"
                 android:text="@string/capture_outdoor" />
         </RadioGroup>
 
@@ -72,31 +86,43 @@
                 android:layout_height="wrap_content"
                 android:text="@string/capture_live_quality"
                 android:textStyle="bold"
-                android:textSize="15sp" />
+                android:textSize="16sp"
+                android:textColor="#34473E" />
 
             <RadioGroup
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="8dp"
                 android:orientation="horizontal"
+                android:padding="6dp"
+                android:background="@drawable/capture_option_panel"
                 android:checkedButton="@id/medium">
 
                 <RadioButton
                     android:id="@+id/medium"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minHeight="@dimen/capture_touch_height"
+                    android:textSize="16sp"
                     android:text="@string/capture_medium" />
 
                 <RadioButton
                     android:id="@+id/high"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minHeight="@dimen/capture_touch_height"
+                    android:textSize="16sp"
                     android:text="@string/capture_high" />
 
                 <RadioButton
                     android:id="@+id/off"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minHeight="@dimen/capture_touch_height"
+                    android:textSize="16sp"
                     android:text="@string/capture_off" />
             </RadioGroup>
         </LinearLayout>

@@ -15,7 +15,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 - Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `face/FaceDetector.java`, `calibration/Calibration.java`.
 - Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
 - Recognition: `recognition/FaceRecognitionManager.java`, `recognition/FixedInputRecognitionRunner.java`.
-- Calls and device UI: `call/WebRtcCallActivity.java`, `api/call/SignalingClient.java`, `device/HardwareControls.java`, `ui/MainScreenView.java`.
+- Calls and device UI: `call/WebRtcCallActivity.java`, `api/call/SignalingClient.java`, `device/HardwareControls.java`, `ui/MainScreenView.java`, `ui/CaptureConfigDialog.java`.
 
 ## Boundary & Architecture Constraints
 
@@ -60,6 +60,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 7. **`ui`**:
    - `MainScreenView` owns the main screen hierarchy and UI state transitions.
+   - `CaptureConfigDialog` owns capture-dialog construction, input synchronization, and show/dismiss; `MainScreenView` delegates through its public entry points.
    - `OverlayView` renders face boxes, landmark points, and Auth Mode cards.
 
 ## Change Gates
