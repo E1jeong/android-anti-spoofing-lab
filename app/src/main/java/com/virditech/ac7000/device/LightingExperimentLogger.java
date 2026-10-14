@@ -43,19 +43,11 @@ public final class LightingExperimentLogger {
     private LightingExperimentLogger() {}
 
     public static File getPicturesDir() {
-        File dir = new File(Environment.getExternalStorageDirectory(), "Pictures");
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-        return dir;
+        return new File(Environment.getExternalStorageDirectory(), "Pictures");
     }
 
     public static File getSnapshotsDir() {
-        File dir = new File(getPicturesDir(), "lighting_snapshots");
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-        return dir;
+        return new File(getPicturesDir(), "lighting_snapshots");
     }
 
     public static File getCsvFile() {
@@ -112,6 +104,9 @@ public final class LightingExperimentLogger {
             try {
                 final int sampleId = nextSampleId();
                 File snapshotsDir = getSnapshotsDir();
+                if (!snapshotsDir.exists()) {
+                    snapshotsDir.mkdirs();
+                }
                 String rgbFileName = String.format(Locale.US, "exp_%03d_RGB.jpg", sampleId);
                 String irFileName = (irBitmap != null)
                         ? String.format(Locale.US, "exp_%03d_IR.jpg", sampleId)
@@ -137,6 +132,10 @@ public final class LightingExperimentLogger {
 
                 // Append CSV row
                 File csvFile = getCsvFile();
+                File csvParent = csvFile.getParentFile();
+                if (csvParent != null && !csvParent.exists()) {
+                    csvParent.mkdirs();
+                }
                 boolean isNewFile = !csvFile.exists() || csvFile.length() == 0;
 
                 try (PrintWriter writer = new PrintWriter(new OutputStreamWriter(
