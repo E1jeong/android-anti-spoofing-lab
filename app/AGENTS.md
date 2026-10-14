@@ -59,7 +59,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - `UbimDaemonClient` acquires `MANAGE_EXTERNAL_STORAGE` via UBio daemon socket.
 
 7. **`ui`**:
-   - `MainScreenView` constructs pure Java View hierarchy (no XML layouts).
+   - `MainScreenView` owns the main screen hierarchy and UI state transitions.
    - `OverlayView` renders face boxes, landmark points, and Auth Mode cards.
 
 ## Change Gates
@@ -67,7 +67,6 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 - **No Main Thread Blocking**: Model loading, NNAPI compilation, face detection, and BMP I/O must run on dedicated background executors.
 - **Recognition Isolation**: MobileFaceNet alignment may copy an owned 112x112 bitmap before frame recycle, but embedding and 1:N search must run only on the recognition executor.
 - **Teardown Sequencing**: Never close `ImageReader` or preview `Surface` before `CameraDevice.StateCallback.onClosed()` has fired (avoids native `SIGSEGV` in `YuvConverter`).
-- **No XML Inflation**: All UI views are constructed programmatically in Java via `MainScreenView`.
 
 ## Verify
 
