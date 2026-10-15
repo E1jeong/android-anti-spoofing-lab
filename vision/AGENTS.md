@@ -14,13 +14,13 @@ All Java paths below are relative to `vision/src/main/java/com/unionbiometrics/v
 - Public loading and session façade: `AntiSpoofingEngine.java`; public callback and result: `AntiSpoofingCallback.java`, `AntiSpoofingResult.java`.
 - Model loading (`ModelLoader`), inference (`Classifier`), and session implementation (`SessionController`): package-private classes beside the public facade. Shared output labels and input counts live in `VisionConstants`.
 - The Lab uses `AntiSpoofingEngine.process(...)` for return-valued raw-frame evaluation and `AntiSpoofingEngine.slotCount(...)` for slot discovery.
-- Assets: `vision/src/main/assets/ubio-vision/model_manifest.json`, matching `.tflite` and sidecar JSON in the same folder.
+- Assets: `vision/src/main/assets/ubio-vision/model_manifest.json`, matching `.tflite` and sidecar JSON in the same folder. The whole folder is Git-ignored and supplied locally.
 
 ## Boundary & Architecture Constraints
 
 1. Hosts use `AntiSpoofingEngine`, `AntiSpoofingResult`, and `AntiSpoofingCallback`. Other classes in `com.unionbiometrics.vision` are package-private implementation details; the Lab app must not use them.
 2. `create(context, slotIndex, settleFrames, sampleCount)` loads one slot. `process(rgb, rgbFace, ir, irFace)` returns one raw frame for the Lab without advancing the session. `infer(rgb, rgbFace, ir, irFace, callback)` copies expanded crops before returning and delivers one terminal decision or error on the main looper; pass null RGB inputs for an IR-only slot. The SDK never recycles host-owned frames. Hosts pair RGB/IR frames.
-3. The host owns IR illumination. The default session discards ten incoming frames and averages three probability vectors; `reset()`/`close()` clear SDK session state only.
+3. The host owns IR illumination. The session has no defaults: it discards the host-supplied `settleFrames` and averages `sampleCount` probability vectors (the Lab passes 10/3). `reset()`/`close()` clear SDK session state only.
 4. Sidecar `normalization` / `quantization` is the runtime recipe for incoming 0–255 pixels. Resize to the tensor HxW, apply mean/std, then INT8 quantize. Do not treat a quantized `.tflite` as already-preprocessed camera input.
 5. Model file and sidecar are one set in this module under `assets/ubio-vision/`. Do not load a host tflite with this module's sidecar, or the reverse. Do not place `model_manifest.json` at the host assets root; recognition uses a different fallback when that file is absent.
 6. Supported slots use generated `inputs[]` sidecars: IR `single_1_input` (`ir@0`, one channel) and RGB+IR `dual_2_input` (distinct RGB/IR indices 0/1, three/one channels). Build-time asset validation and runtime parsing reject legacy sidecars, RGB-only, paired one-input, five-input, and additional-input forms.
@@ -34,7 +34,7 @@ All Java paths below are relative to `vision/src/main/java/com/unionbiometrics/v
 
 - Hosts must pass an `Application` context so merged assets resolve.
 - `tensorflow-lite` stays `implementation`, not `api`.
-- Lab Auth Mode's separate five-frame threshold accumulator and motion gating stay in the app module; they are not the SDK's default three-frame product session.
+- Lab Auth Mode's separate five-frame threshold accumulator and motion gating stay in the app module; they are not the SDK's `settleFrames`/`sampleCount` callback session.
 
 ## Verify
 

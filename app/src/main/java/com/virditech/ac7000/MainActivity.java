@@ -967,7 +967,6 @@ public final class MainActivity extends Activity {
                     screen.showCleanModeForegroundEntry(foregroundEntryResult, foregroundEntryTestEnabled);
                 }
                 clearPreviewFace();
-                screen.faceCropView.setScaleX(1f);
                 screen.noFaceLabel.setVisibility(View.VISIBLE);
                 if (collectionSession.isActive()) {
                     updateCollectionUi(SystemClock.elapsedRealtime());

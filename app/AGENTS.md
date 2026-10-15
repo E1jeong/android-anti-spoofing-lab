@@ -11,7 +11,7 @@
 All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 - Orchestration and loading: `MainActivity.java`, `IntroActivity.java`.
-- Anti-spoofing SDK (other module): `vision/` — `AntiSpoofingEngine` for both raw Lab frames and callback sessions. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
+- Anti-spoofing SDK (other module): `vision/` — `AntiSpoofingEngine`; this Lab uses raw `process(...)` frames, while product hosts use callback `infer(...)` sessions. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
 - Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `camera/FrameSynchronizer.java`, `face/FaceDetector.java`, `face/MediaPipeFaceDetector.java`, `face/FaceDetectionEngine.java`, `calibration/Calibration.java`.
 - Evaluator models and gate: `model/FaceMotionGate.java`, `model/AuthFrameAccumulator.java`.
 - Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
@@ -22,7 +22,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 1. **`camera` & `calibration`**:
    - `CameraStream` owns Camera2 session lifecycle. Teardown must always be serialized on the camera handler thread.
-   - `FrameSynchronizer` matches RGB and IR frames within 150 ms (`MAX_PAIR_DELTA_NS`) and produces `FramePair`.
+   - `FrameSynchronizer` retains the latest IR frame and matches it to an RGB timestamp within the delta that `MainActivity` injects (`MAX_PAIR_DELTA_NS`, 150 ms); `MainActivity` builds the `FramePair`.
    - `Calibration.rgbToIr()` maps RGB face bounding boxes to IR coordinates via the 64-byte `CalibConfig.dat` (stored at `/sdcard/devlocal/CalibConfig.dat` or internal fallback). Preserve the NPro-compatible contract: `horizontal = RGB-IR`, subtract scaled offsets when mapping, write current values as big-endian, and treat unversioned legacy Viewer files as requiring recalibration rather than silent sign conversion.
    - `PreviewTransform` is the single source for RGB/IR raw-`TextureView`, analysis-overlay, and crop-preview display mirroring. Do not hardcode `setScaleX` or overlay mirror flags elsewhere; display transforms must not alter calibration, saved-frame, model-crop, or SDK-input coordinates.
 
@@ -57,12 +57,12 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 6. **`device`**:
    - `IrCameraExposureController` applies PI6008K IR ISP register sequences for Full AE vs Center AE profile switching.
-   - `UbimDaemonClient` communicates with the UBio daemon socket to acquire `MANAGE_EXTERNAL_STORAGE` and refresh `AppWatchdog` heartbeats (`appalive set 60 <pid> reboot`).
+   - `UbimDaemonClient` only sends commands over the `ubimd` daemon socket. `MainActivity` uses it to grant `MANAGE_EXTERNAL_STORAGE`; `AppWatchdog` refreshes `appalive set 60 <pid> reboot` every 5 s and clears it on close.
 
 7. **`ui`**:
    - `MainScreenView` owns the main screen hierarchy and UI state transitions.
    - `CaptureConfigDialog` owns capture-dialog construction, input synchronization, and show/dismiss; `MainScreenView` delegates through its public entry points.
-   - `OverlayView` renders face boxes, landmark points, and Auth Mode cards.
+   - `OverlayView` renders the face box (white while collecting, cyan in Auth Mode, otherwise colored by result), the top-class and recognition labels outside collection/Auth Mode, the capture sector grid and countdown, and calibration/observation guides.
 
 ## Change Gates
 
