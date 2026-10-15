@@ -1,8 +1,11 @@
 package com.virditech.ac7000.ui;
 
 import android.app.Activity;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.StateListDrawable;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
@@ -168,6 +171,19 @@ public final class MainScreenView {
     }
 
     private void buildControls(Listener listener, int buttonWidth) {
+        int[][] buttonStates = {{-android.R.attr.state_enabled}, {}};
+        ColorStateList captureText = startCollectionButton.getTextColors();
+        Drawable disabledBackground = startCollectionButton.getBackground().getConstantState()
+                .newDrawable(activity.getResources(), activity.getTheme()).mutate();
+        Drawable enabledBackground = attackLiveCaptureButton.getBackground().mutate();
+        enabledBackground.setTint(Color.rgb(183, 28, 28));
+        StateListDrawable attackBackground = new StateListDrawable();
+        attackBackground.addState(buttonStates[0], disabledBackground);
+        attackBackground.addState(buttonStates[1], enabledBackground);
+        attackLiveCaptureButton.setBackground(attackBackground);
+        attackLiveCaptureButton.setTextColor(new ColorStateList(buttonStates, new int[]{
+                captureText.getColorForState(buttonStates[0], captureText.getDefaultColor()),
+                Color.WHITE}));
         configureControlButton(startCollectionButton, buttonWidth,
                 v -> showCaptureConfigDialog(listener));
         configureControlButton(attackLiveCaptureButton, buttonWidth,
