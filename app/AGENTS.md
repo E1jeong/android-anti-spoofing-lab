@@ -12,16 +12,17 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 - Orchestration and loading: `MainActivity.java`, `IntroActivity.java`.
 - Anti-spoofing SDK (other module): `vision/` — `AntiSpoofingEngine` for both raw Lab frames and callback sessions. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
-- Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `face/FaceDetector.java`, `calibration/Calibration.java`.
+- Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `camera/FrameSynchronizer.java`, `face/FaceDetector.java`, `face/MediaPipeFaceDetector.java`, `face/FaceDetectionEngine.java`, `calibration/Calibration.java`.
+- Evaluator models and gate: `model/FaceMotionGate.java`, `model/AuthFrameAccumulator.java`.
 - Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
 - Recognition: `recognition/FaceRecognitionManager.java`, `recognition/FixedInputRecognitionRunner.java`.
-- Calls and device UI: `call/WebRtcCallActivity.java`, `api/call/SignalingClient.java`, `device/HardwareControls.java`, `ui/MainScreenView.java`, `ui/CaptureConfigDialog.java`.
+- Calls and device UI: `call/WebRtcCallActivity.java`, `api/call/SignalingClient.java`, `api/call/CallSignaling.java`, `device/HardwareControls.java`, `ui/MainScreenView.java`, `ui/CaptureConfigDialog.java`.
 
 ## Boundary & Architecture Constraints
 
 1. **`camera` & `calibration`**:
    - `CameraStream` owns Camera2 session lifecycle. Teardown must always be serialized on the camera handler thread.
-   - `FramePair` matches RGB and IR frames within 150 ms (`MAX_PAIR_DELTA_NS`).
+   - `FrameSynchronizer` matches RGB and IR frames within 150 ms (`MAX_PAIR_DELTA_NS`) and produces `FramePair`.
    - `Calibration.rgbToIr()` maps RGB face bounding boxes to IR coordinates via the 64-byte `CalibConfig.dat` (stored at `/sdcard/devlocal/CalibConfig.dat` or internal fallback). Preserve the NPro-compatible contract: `horizontal = RGB-IR`, subtract scaled offsets when mapping, write current values as big-endian, and treat unversioned legacy Viewer files as requiring recalibration rather than silent sign conversion.
    - `PreviewTransform` is the single source for RGB/IR raw-`TextureView`, analysis-overlay, and crop-preview display mirroring. Do not hardcode `setScaleX` or overlay mirror flags elsewhere; display transforms must not alter calibration, saved-frame, model-crop, or SDK-input coordinates.
 
@@ -44,7 +45,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - Treat the 0.70 identity threshold and the observed self 91% versus other 19–20% result as preliminary experiment evidence, not proof of model acceptance or a production authentication boundary.
 
 4. **`capture`**:
-   - Writes directly to `/sdcard/Pictures/raw/<class>/<class>_<subject>/<index>/`.
+   - Writes directly to `/sdcard/Pictures/raw/live/<qualityMode>/live_<subject>/<index>/` (live) or `/sdcard/Pictures/raw/<class>/<environment>/<class>_<subject>/<index>/` (non-live).
    - `live` uses HIGH, MEDIUM, or OFF quality mode. HIGH and MEDIUM apply the FaceMe quality gate; OFF and non-live classes bypass it.
    - ATTACK mode captures false-live misclassifications (`LIVE >= 0.80`) to `/sdcard/Pictures/raw/attack_live/`.
    - `BmpWriter` streams 24-bit uncompressed BGR rows using reusable 16-row stripe buffers without full-frame allocations.
@@ -56,7 +57,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 6. **`device`**:
    - `IrCameraExposureController` applies PI6008K IR ISP register sequences for Full AE vs Center AE profile switching.
-   - `UbimDaemonClient` acquires `MANAGE_EXTERNAL_STORAGE` via UBio daemon socket.
+   - `UbimDaemonClient` communicates with the UBio daemon socket to acquire `MANAGE_EXTERNAL_STORAGE` and refresh `AppWatchdog` heartbeats (`appalive set 60 <pid> reboot`).
 
 7. **`ui`**:
    - `MainScreenView` owns the main screen hierarchy and UI state transitions.
