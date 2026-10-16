@@ -3,7 +3,8 @@
 ## Context
 
 - Governs code navigation, implementation boundaries, and safety for `android-anti-spoofing-lab` (`ubio-anti-spoofing`).
-- The Obsidian wiki at vault-relative `Dev/Project/Company/android-anti-spoofing-lab` is the single source of truth for runtime contracts, hardware coupling, benchmark baselines, and experiment continuity. Resolve the vault through `_meta/routing-tables.md` or `obsidian-wiki-sync`, never a hardcoded file URL.
+- **Project wiki (owner-maintained)**: When the Obsidian wiki at vault-relative `Dev/Project/Company/android-anti-spoofing-lab` is reachable, it is the single source of truth for runtime contracts, hardware coupling, benchmark baselines, and experiment continuity. Resolve the vault through `_meta/routing-tables.md` or `obsidian-wiki-sync`, never a hardcoded file URL.
+- **Without the wiki**: Code and these `AGENTS.md` guides are authoritative. A provided wiki snapshot is read-only background that may be stale and yields to code; record results in commit messages, not in the snapshot. Wiki page names cited in guides (e.g. `technical/build-deployment-requirements`) are relative to the wiki or snapshot root.
 - **Paired Project**: Anti-spoofing model training and INT8 export belong upstream in `access-liveness-model`; this repository deploys, benchmarks, and validates those artifacts on physical hardware. WebRTC signaling server and operator web belong to `ubio-webrtc`.
 - Report to the user in Korean; keep code, identifiers, paths, and commands in English.
 - Read [`app/AGENTS.md`](app/AGENTS.md) for package-level code entry points, threading rules, and test boundaries when changing the app module.
@@ -30,10 +31,10 @@
 
 ## Verify
 
-- Use JDK 21 for these commands on the company PC; the default Studio JBR 25 fails Gradle unit-test report setup. The wiki's `technical/build-deployment-requirements` records the verified local JDK selection.
+- Use JDK 21 for these commands (verified: Zulu 21.0.11 via process-local `JAVA_HOME`, or a Gradle-provisioned JDK 21 under `%USERPROFILE%\.gradle\jdks\`). The default Android Studio JBR 25 fails Gradle unit-test report setup (`Type T not present`).
 - Compile check: `./gradlew.bat :vision:compileDebugJavaWithJavac` then `./gradlew.bat :app:compileDebugJavaWithJavac`
 - JVM Unit Tests: `./gradlew.bat :vision:testDebugUnitTest` then `./gradlew.bat :app:testDebugUnitTest`
-- For affected target behavior, use the execution checklists in the owning project wiki pages for model deployment, camera/capture, performance/recognition, and WebRTC.
+- When the wiki or snapshot is available, use its execution checklists (model deployment, camera/capture, performance/recognition, WebRTC) for affected target behavior.
 - Target Device Logcat Filters (when device connected via adb):
   - `adb logcat -s AntiSpoofingClassifier:I MainActivity:I`
   - `adb logcat -s MainActivity:E CameraStream:E *:S`
