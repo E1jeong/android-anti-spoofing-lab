@@ -6,7 +6,7 @@
 - **Project wiki (owner-maintained)**: When the Obsidian wiki at vault-relative `Dev/Project/Company/android-anti-spoofing-lab` is reachable, it is the single source of truth for runtime contracts, hardware coupling, benchmark baselines, and experiment continuity. Resolve the vault through `_meta/routing-tables.md` or `obsidian-wiki-sync`, never a hardcoded file URL.
 - **Without the wiki**: Code and these `AGENTS.md` guides are authoritative. A provided wiki snapshot is read-only background that may be stale and yields to code; record results in commit messages, not in the snapshot. Wiki page names cited in guides (e.g. `technical/build-deployment-requirements`) are relative to the wiki or snapshot root.
 - **Paired Project**: Anti-spoofing model training and INT8 export belong upstream in `access-liveness-model`; this repository deploys, benchmarks, and validates those artifacts on physical hardware. WebRTC signaling server and operator web belong to `ubio-webrtc`.
-- Report to the user in Korean; keep code, identifiers, paths, and commands in English.
+- In reports, keep code, identifiers, paths, and commands in English.
 - Read [`app/AGENTS.md`](app/AGENTS.md) for package-level code entry points, threading rules, and test boundaries when changing the app module.
 - Read [`vision/AGENTS.md`](vision/AGENTS.md) when changing the anti-spoofing engine library.
 
