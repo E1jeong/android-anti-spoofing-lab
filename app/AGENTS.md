@@ -36,13 +36,13 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - Isolated experimental face-recognition package; the default model is MobileNet Emore INT8, while `w600k_mbf` is a historical experiment.
    - `FaceAligner.align5PointsTo112` performs 2D affine similarity transform from FaceMe 5 landmarks to canonical 112x112 ArcFace coordinates.
    - Model loading and delegate reloads must run asynchronously on `modelInitExecutor` (never block the Android UI Main Thread).
-   - Default to NNAPI with `models/mobilenet_emore_npu_int8.tflite` (0.27 GFLOPs, 100% 31/31 nodes compiled to 1 NPU partition). Legacy PReLU models default to CPU/XNNPACK due to NPU graph fragmentation.
+   - Default to NNAPI with `models/mobilenet_emore_npu_int8.tflite`. Legacy PReLU models default to CPU/XNNPACK due to NPU graph fragmentation.
    - Keep embedding extraction off the anti-spoofing `inferenceExecutor` so recognition timing and failures can be measured independently. Transfer only an owned aligned 112x112 bitmap to the recognition executor.
    - During independent model validation, do not gate recognition or enrollment on an anti-spoofing result. Do not drop or replace requested samples through latest-wins scheduling or a fixed minimum interval; every accepted test request must produce a recorded result, explicit error, or explicit cancellation.
    - Face recognition and anti-spoofing are parallel evaluation tracks with no ordering or dependency. Anti-spoofing artifacts are trained/exported by `access-liveness-model`; the current recognition work acquires and converts a pretrained model rather than training one.
    - Stop the current recognition scope at standalone load/inference, conversion/delegate agreement, alignment inspection, embedding repeatability, score distributions, and latency. Liveness gating, rate limiting, latest-wins scheduling, and authentication-score composition remain separate future integration work; the existing lab-only template DB is not production authentication.
    - `FixedInputRecognitionActivity` / `FixedInputRecognitionRunner` own camera-free CPU/NNAPI comparison on external 112x112 inputs; follow the `technical/mobilefacenet-recognition-experiment` fixed-input checklist when the wiki or snapshot is available, and keep biometric fixtures out of Git and the APK.
-   - Treat the 0.70 identity threshold and the observed self 91% versus other 19–20% result as preliminary experiment evidence, not proof of model acceptance or a production authentication boundary.
+   - Treat identity thresholds and smoke observations as experimental; they do not establish model acceptance or a production authentication boundary. Dated measurements belong in `technical/mobilefacenet-recognition-experiment` when the wiki or snapshot is available.
 
 4. **`capture`**:
    - Writes directly to `/sdcard/Pictures/raw/live/<qualityMode>/live_<subject>/<index>/` (live) or `/sdcard/Pictures/raw/<class>/<environment>/<class>_<subject>/<index>/` (non-live).
