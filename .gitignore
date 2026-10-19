@@ -23,7 +23,7 @@ credentials.*
 *.crt
 
 # Private model artifacts
-*.tflite
+/app/src/main/assets/models/
 /app/src/main/assets/*.json
 /vision/src/main/assets/ubio-vision/
 
