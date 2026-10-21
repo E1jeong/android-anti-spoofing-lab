@@ -1,0 +1,58 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.unionbiometrics.facedetection'
+    compileSdk 34
+    buildToolsVersion '35.0.1'
+
+    defaultConfig {
+        minSdk 30
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    androidResources {
+        noCompress 'tflite'
+    }
+
+    testOptions {
+        unitTests.all {
+            systemProperty 'yunet.manifest', file('src/main/assets/ubio-face-detection/manifest.json').absolutePath
+        }
+    }
+}
+
+dependencies {
+    implementation 'org.tensorflow:tensorflow-lite:2.16.1'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20180130'
+}
+
+def detectorAssetDir = file('src/main/assets/ubio-face-detection')
+tasks.register('verifyFaceDetectionAssets') {
+    doLast {
+        def manifestFile = new File(detectorAssetDir, 'manifest.json')
+        if (!manifestFile.isFile()) {
+            throw new GradleException('Missing ' + manifestFile + '. Supply the YuNet export set locally.')
+        }
+        def manifest = new groovy.json.JsonSlurper().parseText(manifestFile.getText('UTF-8'))
+        ['float', 'int8'].each { kind ->
+            def artifact = manifest.artifacts?.get(kind)
+            if (!(artifact?.file instanceof String) || !(artifact.file ==~ /[A-Za-z0-9_-]+\.tflite/)) {
+                throw new GradleException('Invalid YuNet artifact: ' + kind)
+            }
+            def modelFile = new File(detectorAssetDir, artifact.file)
+            if (!modelFile.isFile()) throw new GradleException('Missing YuNet model: ' + modelFile)
+            def hash = java.security.MessageDigest.getInstance('SHA-256').digest(modelFile.bytes).encodeHex().toString()
+            if (hash != artifact.sha256) throw new GradleException('YuNet model hash mismatch: ' + artifact.file)
+        }
+    }
+}
+afterEvaluate {
+    tasks.named('preBuild').configure { dependsOn 'verifyFaceDetectionAssets' }
+}

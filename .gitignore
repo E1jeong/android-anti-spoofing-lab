@@ -26,6 +26,7 @@ credentials.*
 /app/src/main/assets/models/
 /app/src/main/assets/*.json
 /vision/src/main/assets/ubio-vision/
+/face-detection/src/main/assets/ubio-face-detection/
 
 # Logs and temporary files
 *.log

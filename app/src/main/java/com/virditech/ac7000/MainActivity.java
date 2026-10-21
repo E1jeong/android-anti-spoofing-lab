@@ -48,6 +48,8 @@ import com.virditech.ac7000.concurrent.LatestWinsExecutor;
 import com.virditech.ac7000.face.FaceDetector;
 import com.virditech.ac7000.face.FaceDetectionEngine;
 import com.virditech.ac7000.face.MediaPipeFaceDetector;
+import com.virditech.ac7000.face.YuNetFaceDetectorAdapter;
+import com.unionbiometrics.facedetection.YuNetFaceDetector;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
 import com.virditech.ac7000.device.HardwareControls;
@@ -145,6 +147,8 @@ public final class MainActivity extends Activity {
     private boolean cameraStopInProgress;
     private volatile FaceDetector faceDetector;
     private volatile MediaPipeFaceDetector mediaPipeFaceDetector;
+    private volatile YuNetFaceDetectorAdapter yuNetInt8FaceDetector;
+    private volatile YuNetFaceDetectorAdapter yuNetFloatFaceDetector;
     private volatile FaceDetectionEngine activeFaceDetector;
     private volatile AntiSpoofingEngine antiSpoofingEngine;
     private volatile Calibration calibration;
@@ -572,6 +576,10 @@ public final class MainActivity extends Activity {
 
     private void enterCalibrationMode() {
         if (calibrationMode) return;
+        if (activeFaceDetector instanceof YuNetFaceDetectorAdapter) {
+            showTransientStatus("Select FaceMe or MediaPipe for RGB/IR calibration");
+            return;
+        }
         calibrationMode = true;
         calibrationRequested.set(false);
         suspendEvaluationForExclusiveMode();
@@ -651,11 +659,35 @@ public final class MainActivity extends Activity {
             } catch (Exception e) {
                 String message = e.getMessage();
                 reportEngineError(message == null ? "MediaPipe detector unavailable" : message);
+            }
+            try {
+                loadYuNetFaceDetector(YuNetFaceDetector.Mode.INT8_NNAPI);
+                loadYuNetFaceDetector(YuNetFaceDetector.Mode.FLOAT_CPU);
             } finally {
                 onEngineLoadFinished();
             }
         });
         modelInitExecutor.execute(this::loadAntiSpoofingEngines);
+    }
+
+    private void loadYuNetFaceDetector(YuNetFaceDetector.Mode mode) {
+        try {
+            YuNetFaceDetectorAdapter detector = new YuNetFaceDetectorAdapter(getApplicationContext(), mode);
+            synchronized (engineLock) {
+                if (enginesShutDown) {
+                    detector.close();
+                    return;
+                }
+                if (mode == YuNetFaceDetector.Mode.INT8_NNAPI) yuNetInt8FaceDetector = detector;
+                else yuNetFloatFaceDetector = detector;
+                if (activeFaceDetector == null && mode == YuNetFaceDetector.Mode.INT8_NNAPI) {
+                    activeFaceDetector = detector;
+                }
+            }
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "YuNet " + mode + " unavailable", e);
+            reportEngineError("YuNet " + mode + " unavailable: " + e.getMessage());
+        }
     }
 
     private void loadAntiSpoofingEngines() {
@@ -2066,7 +2098,8 @@ public final class MainActivity extends Activity {
     }
 
     private void revealUiAfterWarmup() {
-        if (enginesWarmedUp && qualityWarmedUp && screen.loadingSpinner.getVisibility() == View.VISIBLE) {
+        if (enginesWarmedUp && (qualityWarmedUp || activeFaceDetector instanceof YuNetFaceDetectorAdapter)
+                && screen.loadingSpinner.getVisibility() == View.VISIBLE) {
             screen.loadingSpinner.setVisibility(View.GONE);
             screen.irLoadingSpinner.setVisibility(View.GONE);
             if (!collectionSession.isActive() && !isAttackLiveCapturing) {
@@ -2162,20 +2195,27 @@ public final class MainActivity extends Activity {
 
     private void toggleFaceDetector() {
         if (collectionSession.isActive() || isAttackLiveCapturing || calibrationMode) return;
-        FaceDetectionEngine next;
+        FaceDetectionEngine next = null;
         synchronized (engineLock) {
-            if (activeFaceDetector == faceDetector && mediaPipeFaceDetector != null) {
-                next = mediaPipeFaceDetector;
-            } else if (faceDetector != null) {
-                next = faceDetector;
-            } else {
-                return;
+            FaceDetectionEngine[] detectors = {faceDetector, mediaPipeFaceDetector,
+                    yuNetInt8FaceDetector, yuNetFloatFaceDetector};
+            int current = -1;
+            for (int i = 0; i < detectors.length; i++) {
+                if (detectors[i] != null && detectors[i] == activeFaceDetector) current = i;
             }
+            for (int offset = 1; offset <= detectors.length; offset++) {
+                FaceDetectionEngine candidate = detectors[(current + offset) % detectors.length];
+                if (candidate != null) {
+                    next = candidate;
+                    break;
+                }
+            }
+            if (next == null) return;
             activeFaceDetector = next;
         }
         showTransientStatus(next == faceDetector
                 ? "FaceMe detector selected"
-                : "MediaPipe detector selected; live quality capture is unavailable");
+                : next.label() + " selected; live quality capture is unavailable");
     }
 
     private final Runnable restoreStatusRunnable = () -> {
@@ -2570,15 +2610,23 @@ public final class MainActivity extends Activity {
     private void closeFaceDetectors() {
         FaceDetector detector;
         MediaPipeFaceDetector mediaPipeDetector;
+        YuNetFaceDetectorAdapter yuNetInt8Detector;
+        YuNetFaceDetectorAdapter yuNetFloatDetector;
         synchronized (engineLock) {
             detector = faceDetector;
             mediaPipeDetector = mediaPipeFaceDetector;
+            yuNetInt8Detector = yuNetInt8FaceDetector;
+            yuNetFloatDetector = yuNetFloatFaceDetector;
             faceDetector = null;
             mediaPipeFaceDetector = null;
+            yuNetInt8FaceDetector = null;
+            yuNetFloatFaceDetector = null;
             activeFaceDetector = null;
         }
         if (detector != null) detector.close();
         if (mediaPipeDetector != null) mediaPipeDetector.close();
+        if (yuNetInt8Detector != null) yuNetInt8Detector.close();
+        if (yuNetFloatDetector != null) yuNetFloatDetector.close();
     }
 
     private void closeFaceDetectorsIfShutDown() {

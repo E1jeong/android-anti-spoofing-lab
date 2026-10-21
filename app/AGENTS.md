@@ -3,7 +3,7 @@
 ## Scope
 
 - Own the Android evaluation host for `ubio-anti-spoofing`.
-- Houses the dual Camera2 capture pipeline, FaceMe/MediaPipe detection wrappers, face-embedding manager, WebRTC call activity, hardware sysfs controllers, and 100-sample dataset capture engine.
+- Houses the dual Camera2 capture pipeline, FaceMe/MediaPipe/YuNet detection wrappers, face-embedding manager, WebRTC call activity, hardware sysfs controllers, and 100-sample dataset capture engine.
 - Anti-spoofing inference lives in `:vision` (`com.unionbiometrics.vision`). This module passes RGB/IR frames and face boxes and displays results.
 
 ## Orient First
@@ -12,7 +12,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 - Orchestration and loading: `MainActivity.java`, `IntroActivity.java`.
 - Anti-spoofing SDK (other module): `vision/` — `AntiSpoofingEngine`; this Lab uses raw `process(...)` frames, while product hosts use callback `infer(...)` sessions. See [`../vision/AGENTS.md`](../vision/AGENTS.md).
-- Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `camera/FrameSynchronizer.java`, `face/FaceDetector.java`, `face/MediaPipeFaceDetector.java`, `face/FaceDetectionEngine.java`, `calibration/Calibration.java`.
+- Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `camera/FrameSynchronizer.java`, `face/FaceDetector.java`, `face/MediaPipeFaceDetector.java`, `face/YuNetFaceDetectorAdapter.java`, `face/FaceDetectionEngine.java`, `calibration/Calibration.java`.
 - Evaluator models and gate: `model/FaceMotionGate.java`, `model/AuthFrameAccumulator.java`.
 - Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
 - Recognition: `recognition/FaceRecognitionManager.java`, `recognition/FixedInputRecognitionRunner.java`.
@@ -25,6 +25,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - `FrameSynchronizer` retains the latest IR frame and matches it to an RGB timestamp within the delta that `MainActivity` injects (`MAX_PAIR_DELTA_NS`, 150 ms); `MainActivity` builds the `FramePair`.
    - `Calibration.rgbToIr()` maps RGB face bounding boxes to IR coordinates via the 64-byte `CalibConfig.dat` (stored at `/sdcard/devlocal/CalibConfig.dat` or internal fallback). Preserve the NPro-compatible contract: `horizontal = RGB-IR`, subtract scaled offsets when mapping, write current values as big-endian, and treat unversioned legacy Viewer files as requiring recalibration rather than silent sign conversion.
    - `PreviewTransform` is the single source for RGB/IR raw-`TextureView`, analysis-overlay, and crop-preview display mirroring. Do not hardcode `setScaleX` or overlay mirror flags elsewhere; display transforms must not alter calibration, saved-frame, model-crop, or SDK-input coordinates.
+   - `YuNetFaceDetectorAdapter` bridges `:face-detection` without landmarks or quality data. YuNet uses existing Calibration for IR mapping; RGB/IR calibration measurement requires FaceMe or MediaPipe. Preserve the FaceMe-only HIGH/MEDIUM capture-quality gate.
 
 2. **anti-spoofing host**:
    - Product hosts load through `AntiSpoofingEngine.create(applicationContext, slotIndex, settleFrames, sampleCount)` on a background thread and pass unexpanded boxes to `infer(rgb, rgbFace, ir, irFace, callback)`. Pass null RGB inputs for IR-only slots. The host owns IR LED ON/OFF across every terminal, reset, failure, and close path. This in-repository Lab app discovers slots with `AntiSpoofingEngine.slotCount(...)`, creates one engine per slot, and uses `process(...)` for raw per-frame evaluation. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.

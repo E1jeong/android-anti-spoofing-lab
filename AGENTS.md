@@ -8,12 +8,14 @@
 - **Paired Project**: Anti-spoofing model training and INT8 export belong upstream in `access-liveness-model`; this repository deploys, benchmarks, and validates those artifacts on physical hardware. WebRTC signaling server and operator web belong to `ubio-webrtc`.
 - Read [`app/AGENTS.md`](app/AGENTS.md) for package-level code entry points, threading rules, and test boundaries when changing the app module.
 - Read [`vision/AGENTS.md`](vision/AGENTS.md) when changing the anti-spoofing engine library.
+- Read [`face-detection/AGENTS.md`](face-detection/AGENTS.md) when changing the standalone RGB detector.
 
 ## Code Map
 
 | Module | Responsibility | First entry point | Module guide |
 | --- | --- | --- | --- |
 | `vision/` | Anti-spoofing SDK: host contract, crop, preprocess, NNAPI inference, `[1,12]` output | `vision/src/main/java/com/unionbiometrics/vision/AntiSpoofingEngine.java` | `vision/AGENTS.md` |
+| `face-detection/` | Standalone RGB face detection: TFLite, decode/NMS, source-coordinate boxes and confidence | `face-detection/src/main/java/com/unionbiometrics/facedetection/YuNetFaceDetector.java` | `face-detection/AGENTS.md` |
 | `app/` | Android evaluation runtime, capture, recognition, and WebRTC terminal PoC | `app/src/main/java/com/virditech/ac7000/MainActivity.java` | `app/AGENTS.md` |
 
 ## Change Gates
