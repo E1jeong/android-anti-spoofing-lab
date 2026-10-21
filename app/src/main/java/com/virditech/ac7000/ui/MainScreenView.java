@@ -123,7 +123,7 @@ public final class MainScreenView {
 
         // XML text dimensions round to pixels; retain the original fractional SP sizes.
         performance.setTextSize(22f);
-        resultsLabel.setTextSize(32f);
+        resultsLabel.setTextSize(20f);
         status.setTextSize(22f);
         noFaceLabel.setTextSize(20f);
         irAeModeLabel.setTextSize(18f);
@@ -395,9 +395,10 @@ public final class MainScreenView {
     }
 
     private static String formatResult(AntiSpoofingResult result) {
+        int topIndex = result.mergedTopIndex();
         return String.format(Locale.US, "%s %.1f%%",
-                AntiSpoofingResult.classDisplayLabel(result.topIndex()),
-                result.probability(result.topIndex()) * 100f);
+                AntiSpoofingResult.classDisplayLabel(topIndex),
+                result.mergedProbability(topIndex) * 100f);
     }
 
     public void showAuthResult(CharSequence text) {

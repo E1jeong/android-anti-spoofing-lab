@@ -3,7 +3,7 @@
 ## Scope
 
 - Own the UBio Vision anti-spoofing SDK (`com.unionbiometrics.vision`).
-- Load TFLite slots from this module's assets, preprocess RGB/IR crops, run NNAPI inference, and return `[1,12]` probabilities.
+- Load TFLite slots from this module's assets, preprocess RGB/IR crops, run NNAPI inference, and return `[1,24]` probabilities.
 - Do not own camera, FaceMe, calibration files, capture, recognition, WebRTC, or UI.
 - Do not depend on FaceMe, private Maven, licenses, or keystores.
 
@@ -24,7 +24,7 @@ All Java paths below are relative to `vision/src/main/java/com/unionbiometrics/v
 4. Sidecar `normalization` / `quantization` is the runtime recipe for incoming 0–255 pixels. Resize to the tensor HxW, apply mean/std, then INT8 quantize. Do not treat a quantized `.tflite` as already-preprocessed camera input.
 5. Model file and sidecar are one set in this module under `assets/ubio-vision/`. Do not load a host tflite with this module's sidecar, or the reverse. Do not place `model_manifest.json` at the host assets root; recognition uses a different fallback when that file is absent.
 6. Supported slots use generated `inputs[]` sidecars: IR `single_1_input` (`ir@0`, one channel) and RGB+IR `dual_2_input` (distinct RGB/IR indices 0/1, three/one channels). Build-time asset validation and runtime parsing reject legacy sidecars, RGB-only, paired one-input, five-input, and additional-input forms.
-7. Output shape and class order must match `VisionConstants.CLASS_LABELS` (currently `[1,12]`). Reject legacy ten-class assets.
+7. Output shape and class order must match `VisionConstants.CLASS_LABELS` (experimental `[1,24]`). Reject twelve- and ten-class assets.
 8. Each `AntiSpoofingEngine` owns one model slot. `AntiSpoofingResult` carries raw frame timing or callback session status, probabilities, score, counts, and error. Do not restore separate RGB/IR result branches.
 9. A manifest slot that fails NNAPI setup or warmup is rejected. No silent CPU fallback.
 10. Never enable NNAPI compilation caching (`setCacheDir`/`setModelToken`).

@@ -206,9 +206,10 @@ public final class OverlayView extends View {
     }
 
     private static String formatResult(AntiSpoofingResult result) {
+        int topIndex = result.mergedTopIndex();
         return String.format(Locale.US, "%s %.1f%%",
-                AntiSpoofingResult.classDisplayLabel(result.topIndex()),
-                result.probability(result.topIndex()) * 100f);
+                AntiSpoofingResult.classDisplayLabel(topIndex),
+                result.mergedProbability(topIndex) * 100f);
     }
 
     private void drawCollectionGuide(Canvas canvas) {

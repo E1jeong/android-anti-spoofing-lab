@@ -38,6 +38,18 @@ public final class AuthFrameAccumulatorTest {
         assertFalse(verdict.live);
     }
 
+    @Test public void sumsIndoorAndOutdoorLiveWithoutTreatingOutdoorLiveAsSpoof() {
+        AuthFrameAccumulator accumulator = new AuthFrameAccumulator(1, 0.85f);
+        float[] probabilities = new float[24];
+        probabilities[0] = 0.40f;
+        probabilities[12] = 0.50f;
+        probabilities[13] = 0.10f;
+        AuthFrameAccumulator.Verdict verdict = accumulator.add(probabilities, 0L, 1L);
+        assertTrue(verdict.live);
+        assertEquals(0.90f, verdict.averageLiveScore, 0.0001f);
+        assertEquals(13, verdict.topSpoofIndex);
+    }
+
     private static void assertInvalid(Runnable action) {
         try {
             action.run();

@@ -8,7 +8,11 @@ import org.junit.Test;
 public class ModelSpecTest {
     private static final String CLASS_ORDER = "\"class_order\":[\"live\",\"print\",\"picture\","
             + "\"mask\",\"display\",\"pmask\",\"curved_print\",\"curved_mask\","
-            + "\"curved_picture\",\"curved_pmask\",\"dental_white\",\"dental_black\"]";
+            + "\"curved_picture\",\"curved_pmask\",\"dental_white\",\"dental_black\","
+            + "\"live_outdoor\",\"print_outdoor\",\"picture_outdoor\",\"mask_outdoor\","
+            + "\"display_outdoor\",\"pmask_outdoor\",\"curved_print_outdoor\",\"curved_mask_outdoor\","
+            + "\"curved_picture_outdoor\",\"curved_pmask_outdoor\","
+            + "\"dental_white_outdoor\",\"dental_black_outdoor\"]";
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsLegacySidecarWithoutGeneratedInputs() throws Exception {
@@ -165,5 +169,11 @@ public class ModelSpecTest {
                 + "\"normalization\":{\"mean\":[0.5],\"std\":[0.5]}"
                 + "}]"
                 + "}");
+    }
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsLegacyTwelveClassSidecar() throws Exception {
+        ModelSpec.parse("{\"inputs\":[{\"index\":0,\"shape\":[1,224,224,1],"
+                + "\"input_kind\":\"ir\"}],"
+                + CLASS_ORDER.substring(0, CLASS_ORDER.indexOf(",\"live_outdoor\"")) + "]}");
     }
 }

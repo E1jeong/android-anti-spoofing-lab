@@ -2134,9 +2134,9 @@ public final class MainActivity extends Activity {
 
     private void appendClassificationResult(StringBuilder sb, String title, AntiSpoofingResult result) {
         if (title != null) sb.append(title).append("\n");
-        for (int i = 0; i < VISION_LABELS.length; i++) {
+        for (int i = 0; i < VISION_LABELS.length / 2; i++) {
             if (i > 0) sb.append("\n");
-            float probability = result != null ? result.probability(i) * 100f : 0f;
+            float probability = result != null ? result.mergedProbability(i) * 100f : 0f;
             sb.append(String.format(Locale.US, "%s %.1f%%",
                     AntiSpoofingResult.classDisplayLabel(i), probability));
         }
@@ -2144,7 +2144,7 @@ public final class MainActivity extends Activity {
 
     private void resetResultsLabelToZero() {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < VISION_LABELS.length; i++) {
+        for (int i = 0; i < VISION_LABELS.length / 2; i++) {
             if (i > 0) sb.append("\n");
             sb.append(String.format(Locale.US, "%s 0.0%%",
                     AntiSpoofingResult.classDisplayLabel(i)));

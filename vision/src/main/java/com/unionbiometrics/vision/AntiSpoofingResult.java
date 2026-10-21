@@ -61,10 +61,21 @@ public final class AntiSpoofingResult {
     public int topIndex() { return topIndex; }
     public float score() { return topIndex < 0 ? 0f : probabilities[topIndex]; }
     public float probability(int index) { return probabilities[index]; }
+    public float mergedProbability(int index) {
+        return probabilities[index] + probabilities[index + VisionConstants.CLASS_COUNT / 2];
+    }
+    public int mergedTopIndex() {
+        int best = 0;
+        for (int i = 1; i < VisionConstants.CLASS_COUNT / 2; i++) {
+            if (mergedProbability(i) > mergedProbability(best)) best = i;
+        }
+        return best;
+    }
     public boolean isAccepted() { return status == Status.LIVE; }
     public static String[] classLabels() { return VisionConstants.CLASS_LABELS.clone(); }
     public static String classDisplayLabel(int index) {
         String label = VisionConstants.CLASS_LABELS[index];
+        label = label.replace("_OUTDOOR", " OUT");
         return label.startsWith("CURVED_")
                 ? "C " + label.substring("CURVED_".length()) : label;
     }
@@ -86,7 +97,18 @@ public final class AntiSpoofingResult {
         return best;
     }
 
+    /** Unmasked LIVE probability across both capture environments (Lab Auth/ATTACK policy). */
+    public static float liveProbability(float[] probabilities) {
+        if (probabilities == null || probabilities.length == 0) return 0f;
+        return probabilities[0] + (probabilities.length == VisionConstants.CLASS_COUNT
+                ? probabilities[12] : 0f);
+    }
+
+    public static boolean isLiveClass(int index) {
+        return index == 0 || index == 12;
+    }
+
     static boolean isAcceptedClass(int index) {
-        return index == 0 || index == 10 || index == 11;
+        return isLiveClass(index) || index == 10 || index == 11 || index == 22 || index == 23;
     }
 }

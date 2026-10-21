@@ -14,7 +14,7 @@
 
 | Module | Responsibility | First entry point | Module guide |
 | --- | --- | --- | --- |
-| `vision/` | Anti-spoofing SDK: host contract, crop, preprocess, NNAPI inference, `[1,12]` output | `vision/src/main/java/com/unionbiometrics/vision/AntiSpoofingEngine.java` | `vision/AGENTS.md` |
+| `vision/` | Anti-spoofing SDK: host contract, crop, preprocess, NNAPI inference, `[1,24]` output | `vision/src/main/java/com/unionbiometrics/vision/AntiSpoofingEngine.java` | `vision/AGENTS.md` |
 | `face-detection/` | Standalone RGB face detection: TFLite, decode/NMS, source-coordinate boxes and confidence | `face-detection/src/main/java/com/unionbiometrics/facedetection/YuNetFaceDetector.java` | `face-detection/AGENTS.md` |
 | `app/` | Android evaluation runtime, capture, recognition, and WebRTC terminal PoC | `app/src/main/java/com/virditech/ac7000/MainActivity.java` | `app/AGENTS.md` |
 
@@ -27,7 +27,7 @@
 - **Camera Teardown Sequencing**: Never close `ImageReader` or preview `Surface` before `CameraDevice.StateCallback.onClosed()` has fired (avoids native `SIGSEGV` in `YuvConverter`).
 - **Capture Atomicity**: A capture sample advances the count only when all 5 files (`RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, `meta.json`) succeed.
 - **Model Input Contract**: Manifest slots support only IR `single_1_input` and RGB+IR `dual_2_input`. Reject RGB-only, paired one-input, five-input, and any additional-input form in both build-time asset validation and runtime loading.
-- **Output Dimension Contract**: Anti-spoofing output must match `VisionConstants.CLASS_LABELS` in shape and order; the current evaluator requires `[1,12]` and rejects legacy ten-class assets.
+- **Output Dimension Contract**: Anti-spoofing output must match `VisionConstants.CLASS_LABELS` in shape and order; the experimental evaluator requires `[1,24]` and rejects twelve- and ten-class assets; use only models from the matching 24-class training branch.
 - **Secrets & Credentials**: Never commit `FACEME_LICENSE_KEY`, private Maven URLs, keystores, or signaling server credentials.
 
 ## Verify

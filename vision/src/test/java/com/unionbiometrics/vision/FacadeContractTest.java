@@ -37,7 +37,7 @@ public final class FacadeContractTest {
 
     @Test
     public void runningKeepsCollectedSample() {
-        float[] probabilities = new float[12];
+        float[] probabilities = new float[VisionConstants.CLASS_COUNT];
         probabilities[0] = 0.8f;
         AntiSpoofingResult result = AntiSpoofingResult.sessionRunning(probabilities, 4L, 0, 1);
 
@@ -49,7 +49,7 @@ public final class FacadeContractTest {
 
     @Test
     public void probabilitiesAreDefensive() {
-        float[] probabilities = new float[12];
+        float[] probabilities = new float[VisionConstants.CLASS_COUNT];
         probabilities[1] = 0.8f;
         AntiSpoofingResult result = AntiSpoofingResult.sessionDecision(probabilities, 4L, 0, 3);
         probabilities[1] = 0f;
@@ -61,7 +61,7 @@ public final class FacadeContractTest {
 
     @Test
     public void acceptedDentalClassKeepsDisplayLabel() {
-        float[] probabilities = new float[12];
+        float[] probabilities = new float[VisionConstants.CLASS_COUNT];
         probabilities[10] = 1f;
         AntiSpoofingResult result = AntiSpoofingResult.sessionDecision(probabilities, 4L, 0, 3);
         assertEquals(AntiSpoofingResult.Status.LIVE, result.status());
@@ -70,7 +70,7 @@ public final class FacadeContractTest {
 
     @Test
     public void rawFrameKeepsProbabilitiesAndTiming() {
-        float[] probabilities = new float[12];
+        float[] probabilities = new float[VisionConstants.CLASS_COUNT];
         probabilities[0] = 0.9f;
         AntiSpoofingResult result = AntiSpoofingResult.frame(probabilities, 2L, 4L);
         probabilities[0] = 0f;

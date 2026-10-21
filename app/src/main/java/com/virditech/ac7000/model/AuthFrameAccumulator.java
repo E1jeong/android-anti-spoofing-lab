@@ -1,5 +1,7 @@
 package com.virditech.ac7000.model;
 
+import com.unionbiometrics.vision.AntiSpoofingResult;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,10 +35,10 @@ public final class AuthFrameAccumulator {
             for (int i = 0; i < classCount && i < frame.length; i++) sums[i] += frame[i];
         }
         int actualFrameCount = probabilities.size();
-        float averageLive = sums[0] / actualFrameCount;
+        float averageLive = AntiSpoofingResult.liveProbability(sums) / actualFrameCount;
         int topSpoofIndex = 1;
         for (int i = 2; i < classCount; i++) {
-            if (sums[i] > sums[topSpoofIndex]) topSpoofIndex = i;
+            if (!AntiSpoofingResult.isLiveClass(i) && sums[i] > sums[topSpoofIndex]) topSpoofIndex = i;
         }
         Verdict verdict = new Verdict(averageLive >= liveThreshold, averageLive,
                 topSpoofIndex, (nowNs - startNs) / 1_000_000L);
