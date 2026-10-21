@@ -124,6 +124,10 @@ public final class FaceDetector implements FaceDetectionEngine {
         return lastDetectedLandmarks;
     }
 
+    @Override public String landmarkExtractorVersion() {
+        return FaceMeSdk.version();
+    }
+
     @Override public Rect detectLargest(Bitmap rgb) {
         return detectLargest(rgb, extractConfig, false);
     }

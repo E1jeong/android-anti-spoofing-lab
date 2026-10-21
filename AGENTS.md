@@ -23,7 +23,7 @@
 - **Anti-Spoofing NNAPI No-Fallback Rule**: Never implement silent CPU fallback for a manifest model slot. An NNAPI error during setup/warmup must reject the slot so NPU defects are immediately detected. Recognition has a separate delegate policy in `app/AGENTS.md`; the older PReLU CPU baseline does not define the current recognition model's default.
 - **VSI NPU Cache Restriction**: Never enable NNAPI compilation caching (`setCacheDir`/`setModelToken`); the board driver will fail compilation.
 - **Camera Teardown Sequencing**: Never close `ImageReader` or preview `Surface` before `CameraDevice.StateCallback.onClosed()` has fired (avoids native `SIGSEGV` in `YuvConverter`).
-- **Capture Atomicity**: A capture sample advances the count only when all 5 files (`RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, `meta.json`) succeed.
+- **Capture Atomicity**: A capture sample advances the count only when all 6 files (`RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, `meta.json`, `landmarks.json`) succeed, including explicit unavailable-landmark records.
 - **Model Input Contract**: Manifest slots support only IR `single_1_input` and RGB+IR `dual_2_input`. Reject RGB-only, paired one-input, five-input, and any additional-input form in both build-time asset validation and runtime loading.
 - **Output Dimension Contract**: Anti-spoofing output must match `VisionConstants.CLASS_LABELS` in shape and order; the current evaluator requires `[1,12]` and rejects legacy ten-class assets.
 - **Secrets & Credentials**: Never commit `FACEME_LICENSE_KEY`, private Maven URLs, keystores, or signaling server credentials.

@@ -15,5 +15,9 @@ public interface FaceDetectionEngine extends AutoCloseable {
         return null;
     }
 
+    default String landmarkExtractorVersion() {
+        return null;
+    }
+
     @Override void close();
 }

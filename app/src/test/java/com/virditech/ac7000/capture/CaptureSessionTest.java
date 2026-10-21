@@ -78,15 +78,20 @@ public final class CaptureSessionTest {
 
     @Test public void successfulSavesAdvanceScheduleAndCompleteAtOneHundred() {
         CaptureSession session = startedSession();
+        int[] stepEnds = {10, 20, 30, 40, 60, 70, 80, 90, 100};
+        int[] nextSectors = {4, 7, 2, 5, 8, 3, 6, 9, 9};
+        int completedSteps = 0;
         for (int index = 1; index <= CaptureSchedule.TARGET_COUNT; index++) {
             CaptureSession.SavePermit permit = beginSave(session);
             assertNotNull(permit);
             CaptureSession.SaveCommit commit = session.commitSave(permit, index * 10L);
             session.releaseSave(permit);
             assertTrue(commit.committed);
-            if (index == 20) {
-                assertTrue(commit.sectorCompleted);
-                assertEquals("LEFT TOP", session.currentStep().name);
+            boolean atStepEnd = index == stepEnds[completedSteps];
+            assertEquals(atStepEnd, commit.sectorCompleted);
+            if (atStepEnd) {
+                assertEquals(nextSectors[completedSteps], session.currentStep().sector);
+                completedSteps++;
             }
             if (index == CaptureSchedule.TARGET_COUNT) assertTrue(commit.collectionCompleted);
         }

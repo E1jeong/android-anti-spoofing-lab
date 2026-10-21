@@ -4,6 +4,8 @@ import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -92,7 +94,8 @@ public final class CaptureStorageTest {
         File sampleDir = new File(blocker, "1");
         try {
             CaptureStorage.SaveResult result = CaptureStorage.saveCompleteSample(
-                    null, null, null, null, "{}", sampleDir);
+                    null, null, null, null, "{}", new LandmarkMetadata(100, 120,
+                            new RectValue(10, 10, 90, 110), null, "FACEME", "7.8.2", 1L, "live"), sampleDir);
             assertFalse(result.saved);
             assertTrue(result.errorMessage.contains("unable to create"));
             assertFalse(new File(sampleDir, "RGB.bmp").exists());
@@ -100,9 +103,59 @@ public final class CaptureStorageTest {
             assertFalse(new File(sampleDir, "IR.bmp").exists());
             assertFalse(new File(sampleDir, "cropIR.bmp").exists());
             assertFalse(new File(sampleDir, "meta.json").exists());
+            assertFalse(new File(sampleDir, "landmarks.json").exists());
         } finally {
             assertTrue(blocker.delete() || !blocker.exists());
         }
+    }
+
+    @Test public void landmarkProvenanceHashesActualSavedBytes() throws Exception {
+        File sampleDir = Files.createTempDirectory("capture-landmarks").toFile();
+        try {
+            Files.write(new File(sampleDir, "RGB.bmp").toPath(), "abc".getBytes(StandardCharsets.UTF_8));
+            Files.write(new File(sampleDir, "meta.json").toPath(), "{}".getBytes(StandardCharsets.UTF_8));
+            assertTrue(CaptureStorage.saveLandmarks(missingLandmarks(), sampleDir).saved);
+            org.json.JSONObject json = new org.json.JSONObject(new String(Files.readAllBytes(
+                    new File(sampleDir, "landmarks.json").toPath()), StandardCharsets.UTF_8));
+            assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+                    json.getString("imageSha256"));
+            assertEquals("44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                    json.getString("metaSha256"));
+            assertEquals("not_detected", json.getString("status"));
+        } finally {
+            deleteRecursively(sampleDir);
+        }
+    }
+
+    @Test public void missingSourceOrUnwritableLandmarksRejectsSave() throws Exception {
+        File sampleDir = Files.createTempDirectory("capture-landmark-failure").toFile();
+        try {
+            assertFalse(CaptureStorage.saveLandmarks(missingLandmarks(), sampleDir).saved);
+            assertFalse(new File(sampleDir, "landmarks.json").exists());
+            Files.write(new File(sampleDir, "RGB.bmp").toPath(), new byte[] {1});
+            assertFalse(CaptureStorage.saveLandmarks(missingLandmarks(), sampleDir).saved);
+            Files.write(new File(sampleDir, "meta.json").toPath(), new byte[] {2});
+            assertTrue(new File(sampleDir, "landmarks.json").mkdir());
+            assertFalse(CaptureStorage.saveLandmarks(missingLandmarks(), sampleDir).saved);
+        } finally {
+            deleteRecursively(sampleDir);
+        }
+    }
+
+    @Test public void missingLandmarkSnapshotRejectsSampleBeforeWriting() throws Exception {
+        File sampleDir = Files.createTempDirectory("capture-no-landmarks").toFile();
+        try {
+            assertFalse(CaptureStorage.saveCompleteSample(null, null, null, null,
+                    "{}", null, sampleDir).saved);
+            assertEquals(0, sampleDir.list().length);
+        } finally {
+            deleteRecursively(sampleDir);
+        }
+    }
+
+    private static LandmarkMetadata missingLandmarks() {
+        return new LandmarkMetadata(100, 120, new RectValue(10, 10, 90, 110),
+                null, "FACEME", "7.8.2", 123L, "live");
     }
 
     @Test public void allTwentyFiveValidConfigsMatchBaseDirAndSampleDir() {

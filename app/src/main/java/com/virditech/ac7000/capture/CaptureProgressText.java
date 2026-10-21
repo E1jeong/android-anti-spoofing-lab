@@ -24,7 +24,8 @@ public final class CaptureProgressText {
         String header = config != null ? config.toSummaryLabel() : "UNKNOWN";
         StringBuilder sb = new StringBuilder();
         sb.append(header)
-                .append(" / Sector ")
+                .append("\n")
+                .append("Sector ")
                 .append(step.sector)
                 .append(" ")
                 .append(step.name)

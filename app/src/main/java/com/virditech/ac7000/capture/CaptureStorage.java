@@ -6,10 +6,13 @@ import android.util.Log;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 public final class CaptureStorage {
     private static final String TAG = "CaptureStorage";
@@ -138,10 +141,15 @@ public final class CaptureStorage {
     }
 
     public static SaveResult saveCompleteSample(Bitmap rgb, Rect rgbCrop, Bitmap ir, Rect irCrop,
-                                                String metadataJson, File sampleDir) {
+                                                String metadataJson, LandmarkMetadata landmarks, File sampleDir) {
+        if (landmarks == null) return SaveResult.failure("landmark metadata is required");
         if (!sampleDir.isDirectory() && !sampleDir.mkdirs()) {
             Log.e(TAG, "Unable to create collection sample folder: " + sampleDir.getAbsolutePath());
             return SaveResult.failure("unable to create " + sampleDir.getAbsolutePath());
+        }
+        File landmarkFile = new File(sampleDir, "landmarks.json");
+        if (landmarkFile.exists() && (!landmarkFile.isFile() || !landmarkFile.delete())) {
+            return SaveResult.failure("unable to replace " + landmarkFile.getAbsolutePath());
         }
         SaveResult result = saveBitmapAsBmp(rgb, new File(sampleDir, "RGB.bmp"));
         if (!result.saved) return result;
@@ -151,7 +159,38 @@ public final class CaptureStorage {
         if (!result.saved) return result;
         result = saveBitmapRegionAsBmp(ir, irCrop, new File(sampleDir, "cropIR.bmp"));
         if (!result.saved) return result;
-        return saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
+        result = saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
+        if (!result.saved) return result;
+        return saveLandmarks(landmarks, sampleDir);
+    }
+
+    static SaveResult saveLandmarks(LandmarkMetadata landmarks, File sampleDir) {
+        try {
+            return saveTextFile(landmarks.build(sha256(new File(sampleDir, "RGB.bmp")),
+                    sha256(new File(sampleDir, "meta.json"))), new File(sampleDir, "landmarks.json"));
+        } catch (IOException | SecurityException e) {
+            Log.e(TAG, "Unable to save capture landmark provenance", e);
+            return SaveResult.failure(e.getMessage());
+        }
+    }
+
+    private static String sha256(File file) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (FileInputStream in = new FileInputStream(file)) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = in.read(buffer)) != -1) digest.update(buffer, 0, count);
+            }
+            StringBuilder hex = new StringBuilder(64);
+            for (byte value : digest.digest()) {
+                hex.append(Character.forDigit((value & 0xff) >>> 4, 16));
+                hex.append(Character.forDigit(value & 0xf, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     public static String buildSampleMetadataJson(int rgbWidth, int rgbHeight, Rect rgbFaceRect, Rect rgbCropRect,

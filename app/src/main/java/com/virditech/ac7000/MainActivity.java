@@ -39,6 +39,8 @@ import com.virditech.ac7000.capture.CaptureProgressText;
 import com.virditech.ac7000.capture.CaptureSchedule;
 import com.virditech.ac7000.capture.CaptureSession;
 import com.virditech.ac7000.capture.CaptureStep;
+import com.virditech.ac7000.capture.LandmarkMetadata;
+import com.virditech.ac7000.capture.RectValue;
 import com.virditech.ac7000.capture.CaptureStorage;
 import com.virditech.ac7000.call.WebRtcCallActivity;
 import com.virditech.ac7000.concurrent.GenerationGuard;
@@ -1172,6 +1174,8 @@ public final class MainActivity extends Activity {
                         frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight(), irDetected, irR, margin,
                         savePermit.className, savePermit.environment, savePermit.qualityMode,
                         minQualityLevel, actualQualityLevel, qualityScore);
+                final LandmarkMetadata landmarkMetadata = snapshotCaptureLandmarks(
+                        frame, detected, currentLandmarks, activeDetector, savePermit.className);
 
                 final File root = saveCandidate.rawRoot;
                 final File sampleDir = CaptureStorage.sampleDir(root, savePermit.config,
@@ -1197,7 +1201,7 @@ public final class MainActivity extends Activity {
                         saveStartNs = SystemClock.elapsedRealtimeNanos();
                         CaptureStorage.SaveResult writeResult = CaptureStorage.saveCompleteSample(
                                 capturePair.rgb.bitmap, rgbR, capturePair.ir.bitmap, irR,
-                                metadataJson, sampleDir);
+                                metadataJson, landmarkMetadata, sampleDir);
                         if (!writeResult.saved) {
                             showTransientStatus("Save failed: " + writeResult.errorMessage);
                         }
@@ -1262,9 +1266,26 @@ public final class MainActivity extends Activity {
             }
         }
         inferenceBlockedByMotion = false;
+        LandmarkMetadata attackLandmarks = isAttackLiveCapturing
+                ? snapshotCaptureLandmarks(frame, detected, currentLandmarks, activeDetector, "attack_live")
+                : null;
         submitInference(new InferenceTask(frame.detachPair(), detected, irDetected, rgbCrop, irCrop, currentLandmarks,
                 frame.generation, activeEngine, activeEngineInfo.cropMarginRatio,
-                frame.receivedNs, inferenceMotionGeneration.get()));
+                frame.receivedNs, inferenceMotionGeneration.get(), attackLandmarks));
+    }
+
+    private static LandmarkMetadata snapshotCaptureLandmarks(TrackingFrame frame, Rect face,
+                                                             PointF[] landmarks,
+                                                             FaceDetectionEngine detector, String className) {
+        float[][] points = landmarks == null ? null : new float[Math.min(5, landmarks.length)][];
+        if (points != null) {
+            for (int i = 0; i < points.length; i++) {
+                if (landmarks[i] != null) points[i] = new float[] {landmarks[i].x, landmarks[i].y};
+            }
+        }
+        return new LandmarkMetadata(frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(),
+                RectValue.from(face), points, detector.label(), detector.landmarkExtractorVersion(),
+                frame.rgb.timestampNs, className);
     }
 
     private static Bitmap createCropPreviewBitmap(Bitmap source, Rect crop) {
@@ -1955,6 +1976,7 @@ public final class MainActivity extends Activity {
     }
 
     private void maybeSaveAttackLiveCapture(InferenceTask task, AntiSpoofingResult result) {
+        if (task.captureLandmarks == null) return;
         float[] probabilities = result.probabilities();
         if (probabilities == null || !AttackLiveCaptureGate.shouldSave(probabilities)) {
             return;
@@ -1981,7 +2003,7 @@ public final class MainActivity extends Activity {
             try {
                 CaptureStorage.SaveResult writeResult = CaptureStorage.saveCompleteSample(
                         pair.rgb.bitmap, task.rgbCrop, pair.ir.bitmap, task.irCrop,
-                        metadataJson, sampleDir);
+                        metadataJson, task.captureLandmarks, sampleDir);
                 if (!writeResult.saved) {
                     showTransientStatus("Save failed: " + writeResult.errorMessage);
                     return;
@@ -2383,6 +2405,7 @@ public final class MainActivity extends Activity {
         final Rect rgbCrop;
         final Rect irCrop;
         final PointF[] landmarks;
+        final LandmarkMetadata captureLandmarks;
         final int generation;
         final AntiSpoofingEngine engine;
         final float cropMarginRatio;
@@ -2392,13 +2415,14 @@ public final class MainActivity extends Activity {
 
         InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, PointF[] landmarks,
                       int generation, AntiSpoofingEngine engine, float cropMarginRatio,
-                      long receivedNs, long motionGeneration) {
+                      long receivedNs, long motionGeneration, LandmarkMetadata captureLandmarks) {
             this.pair = pair;
             this.rgbFace = rgbFace;
             this.irFace = irFace;
             this.rgbCrop = rgbCrop;
             this.irCrop = irCrop;
             this.landmarks = landmarks;
+            this.captureLandmarks = captureLandmarks;
             this.generation = generation;
             this.engine = engine;
             this.cropMarginRatio = cropMarginRatio;

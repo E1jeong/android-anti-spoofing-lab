@@ -10,13 +10,16 @@ public final class CaptureScheduleTest {
     @Test public void defaultScheduleCollectsExactlyOneHundredSamples() {
         assertEquals(100, CaptureSchedule.TARGET_COUNT);
         assertEquals(9, CaptureSchedule.DEFAULT_STEPS.length);
-        assertEquals(5, CaptureSchedule.DEFAULT_STEPS[0].sector);
-        assertEquals("CENTER", CaptureSchedule.DEFAULT_STEPS[0].name);
-        assertEquals(20, CaptureSchedule.DEFAULT_STEPS[0].targetCount);
+        int[] sectors = {1, 4, 7, 2, 5, 8, 3, 6, 9};
+        for (int i = 0; i < sectors.length; i++) {
+            assertEquals(sectors[i], CaptureSchedule.DEFAULT_STEPS[i].sector);
+            assertEquals(i == 4 ? 20 : 10, CaptureSchedule.DEFAULT_STEPS[i].targetCount);
+        }
+        assertEquals("CENTER", CaptureSchedule.DEFAULT_STEPS[4].name);
     }
 
     @Test public void currentStepClampsOutOfRangeIndexes() {
-        assertEquals("CENTER", CaptureSchedule.currentStep(-1).name);
+        assertEquals("LEFT TOP", CaptureSchedule.currentStep(-1).name);
         assertEquals("RIGHT BOTTOM", CaptureSchedule.currentStep(99).name);
     }
 
