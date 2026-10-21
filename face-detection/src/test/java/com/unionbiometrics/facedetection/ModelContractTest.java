@@ -103,6 +103,65 @@ public class ModelContractTest {
         assertFalse(contract.logits.quantized);
     }
 
+    @Test
+    public void landmarkV2AcceptsIndependentThirdTensorInAnyOrder() throws Exception {
+        JSONObject json = landmarkManifest();
+        JSONArray tensors = artifact(json).getJSONArray("outputs");
+        artifact(json).put("outputs", new JSONArray().put(tensors.get(2)).put(tensors.get(0)).put(tensors.get(1)));
+        ModelContract contract = new ModelContract(json, "int8");
+        assertEquals(10, contract.landmarks.shape[2]);
+        assertEquals(0.125f, contract.landmarks.dequantize((byte) 5), 0);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void landmarkV2RejectsMissingThirdTensor() throws Exception {
+        JSONObject json = landmarkManifest();
+        artifact(json).getJSONArray("outputs").remove(2);
+        new ModelContract(json, "int8");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void landmarkV2RejectsReorderedPointNames() throws Exception {
+        JSONObject json = landmarkManifest();
+        json.getJSONObject("output").getJSONArray("landmark_names").put(0, "noseTip");
+        new ModelContract(json, "int8");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void landmarkV2RejectsInvalidScale() throws Exception {
+        JSONObject json = landmarkManifest();
+        artifact(json).getJSONArray("outputs").getJSONObject(2)
+                .put("quantization", new JSONArray(new double[]{0, 0}));
+        new ModelContract(json, "int8");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void boxV1RejectsUndeclaredLandmarkTensor() throws Exception {
+        JSONObject json = landmarkManifest().put("format_version", 1);
+        new ModelContract(json, "int8");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void landmarkV2RejectsWrongCoordinateEncoding() throws Exception {
+        JSONObject json = landmarkManifest();
+        json.getJSONObject("postprocess").put("landmarks", "normalized_coordinates");
+        new ModelContract(json, "int8");
+    }
+
+    private static JSONObject landmarkManifest() throws Exception {
+        JSONObject json = manifest().put("format_version", 2).put("model", "yunet_n_landmarks");
+        String[] names = {"eyeImageLeft", "eyeImageRight", "noseTip", "mouthImageLeft", "mouthImageRight"};
+        JSONArray channels = new JSONArray();
+        for (String name : names) { channels.put(name + "_x"); channels.put(name + "_y"); }
+        json.getJSONObject("output").put("landmark_names", new JSONArray(names)).put("landmark_channels", channels);
+        json.getJSONObject("postprocess")
+                .put("landmarks", "(grid_xy + offset_xy) * stride; same candidate/NMS indices as boxes")
+                .put("landmark_restore", "subtract padding, divide by letterbox scale, clip to original RGB bounds")
+                .put("landmark_visibility", "not predicted; training masks are supervision only");
+        artifact(json).getJSONArray("outputs").put(tensor(10, 0.125, 4));
+        return json;
+    }
+
     private static JSONObject artifact(JSONObject manifest) throws Exception {
         return manifest.getJSONObject("artifacts").getJSONObject("int8");
     }

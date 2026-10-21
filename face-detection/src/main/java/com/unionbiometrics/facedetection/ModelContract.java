@@ -14,12 +14,16 @@ final class ModelContract {
     final TensorSpec input;
     final TensorSpec logits;
     final TensorSpec boxes;
+    final TensorSpec landmarks;
     final YuNetPostprocessor postprocessor;
 
     ModelContract(JSONObject manifest, String artifact) throws JSONException {
-        if (manifest.getInt("format_version") != 1) {
+        int version = manifest.getInt("format_version");
+        if (version != 1 && version != 2) {
             throw new IllegalArgumentException("Unsupported YuNet manifest version");
         }
+        boolean hasLandmarks = version == 2;
+        if (hasLandmarks) require(manifest, "model", "yunet_n_landmarks");
         JSONObject image = manifest.getJSONObject("input");
         require(image, "layout", "NHWC");
         require(image, "color", "RGB");
@@ -46,6 +50,22 @@ final class ModelContract {
         require(post, "center", "(grid_xy + delta_xy) * stride");
         require(post, "size", "exp(clip(log_wh, -16, 16)) * stride");
         require(post, "restore", "subtract padding, divide by letterbox scale, clip");
+        if (hasLandmarks) {
+            if (!new JSONArray(FaceDetection.LANDMARK_NAMES).toString()
+                    .equals(output.getJSONArray("landmark_names").toString())) {
+                throw new IllegalArgumentException("Unsupported YuNet landmark order");
+            }
+            JSONArray channels = new JSONArray();
+            for (String name : FaceDetection.LANDMARK_NAMES) {
+                channels.put(name + "_x").put(name + "_y");
+            }
+            if (!channels.toString().equals(output.getJSONArray("landmark_channels").toString())) {
+                throw new IllegalArgumentException("Unsupported YuNet landmark channel order");
+            }
+            require(post, "landmarks", "(grid_xy + offset_xy) * stride; same candidate/NMS indices as boxes");
+            require(post, "landmark_restore", "subtract padding, divide by letterbox scale, clip to original RGB bounds");
+            require(post, "landmark_visibility", "not predicted; training masks are supervision only");
+        }
         postprocessor = new YuNetPostprocessor(width, height,
                 (float) post.getDouble("score_threshold"), (float) post.getDouble("nms_threshold"),
                 post.getInt("max_detections"));
@@ -58,9 +78,12 @@ final class ModelContract {
         String type = "int8".equals(artifact) ? "int8" : "float32";
         input = new TensorSpec(model.getJSONObject("input"), shape, type);
         JSONArray outputs = model.getJSONArray("outputs");
-        if (outputs.length() != 2) throw new IllegalArgumentException("YuNet requires two separate outputs");
+        if (outputs.length() != (hasLandmarks ? 3 : 2)) {
+            throw new IllegalArgumentException("YuNet output count disagrees with manifest version");
+        }
         TensorSpec foundLogits = null;
         TensorSpec foundBoxes = null;
+        TensorSpec foundLandmarks = null;
         for (int i = 0; i < outputs.length(); i++) {
             JSONObject tensor = outputs.getJSONObject(i);
             int[] tensorShape = ints(tensor.getJSONArray("shape"));
@@ -68,13 +91,18 @@ final class ModelContract {
                 foundLogits = new TensorSpec(tensor, tensorShape, type);
             } else if (Arrays.equals(tensorShape, new int[]{1, postprocessor.candidateCount, 4}) && foundBoxes == null) {
                 foundBoxes = new TensorSpec(tensor, tensorShape, type);
+            } else if (hasLandmarks && foundLandmarks == null
+                    && Arrays.equals(tensorShape, new int[]{1, postprocessor.candidateCount, 10})) {
+                foundLandmarks = new TensorSpec(tensor, tensorShape, type);
             } else {
                 throw new IllegalArgumentException("YuNet requires [1,N,2] logits and [1,N,4] boxes");
             }
         }
         if (foundLogits == null || foundBoxes == null) throw new IllegalArgumentException("Missing YuNet output");
+        if (hasLandmarks && foundLandmarks == null) throw new IllegalArgumentException("Missing YuNet landmarks");
         logits = foundLogits;
         boxes = foundBoxes;
+        landmarks = foundLandmarks;
     }
 
     private static void require(JSONObject object, String key, String expected) throws JSONException {

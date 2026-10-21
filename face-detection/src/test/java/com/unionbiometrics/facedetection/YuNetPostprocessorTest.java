@@ -96,6 +96,56 @@ public class YuNetPostprocessorTest {
                 .decode(logits, boxes, new Letterbox(432, 768, 320, 320)).size());
     }
 
+    @Test
+    public void landmarksFollowSelectedBoxAndRestoreOriginalRgbCoordinates() {
+        float[] logits = logits();
+        float[] boxes = boxes();
+        float[] points = new float[2100 * 10];
+        int best = 10 * 40 + 15;
+        face(logits, boxes, best, 8, 0, 0, 40, 80, 10);
+        face(logits, boxes, 1600 + 5 * 20 + 7, 16, 0.5f, 0, 40, 80, 8);
+        points[best * 10] = 1;
+        points[best * 10 + 1] = 2;
+        List<FaceDetection> faces = decoder.decode(logits, boxes, points, new Letterbox(432, 768, 320, 320));
+        assertEquals(1, faces.size());
+        assertEquals(5, faces.get(0).landmarks.size());
+        FaceDetection.Landmark eye = faces.get(0).landmarks.get(0);
+        assertEquals("eyeImageLeft", eye.name);
+        assertEquals(139.2f, eye.x, 0.001f);
+        assertEquals(230.4f, eye.y, 0.001f);
+        assertTrue(decode(logits, boxes).get(0).landmarks.isEmpty());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNonFiniteLandmarkEvenForBackground() {
+        float[] points = new float[2100 * 10];
+        points[0] = Float.NaN;
+        decoder.decode(logits(), boxes(), points, new Letterbox(432, 768, 320, 320));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsWrongLandmarkLength() {
+        decoder.decode(logits(), boxes(), new float[10], new Letterbox(432, 768, 320, 320));
+    }
+
+    @Test
+    public void landmarkBackgroundIsEmptyAndSourcePointsAreClipped() {
+        float[] points = new float[2100 * 10];
+        assertTrue(decoder.decode(logits(), boxes(), points, new Letterbox(432, 768, 320, 320)).isEmpty());
+        FaceDetection face = new FaceDetection(0, 0, 100, 100, 1,
+                new float[]{-100, -100, 1000, 1000, 0, 0, 0, 0, 0, 0});
+        FaceDetection restored = new Letterbox(432, 768, 320, 320).restore(face);
+        assertEquals(0, restored.landmarks.get(0).x, 0);
+        assertEquals(0, restored.landmarks.get(0).y, 0);
+        assertEquals(432, restored.landmarks.get(1).x, 0);
+        assertEquals(768, restored.landmarks.get(1).y, 0);
+    }
+
+    @Test(expected = UnsupportedOperationException.class)
+    public void returnedLandmarksAreImmutable() {
+        new FaceDetection(0, 0, 1, 1, 1, new float[10]).landmarks.clear();
+    }
+
     private List<FaceDetection> decode(float[] logits, float[] boxes) {
         return decoder.decode(logits, boxes, new Letterbox(432, 768, 320, 320));
     }

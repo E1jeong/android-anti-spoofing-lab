@@ -25,7 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** RGB box-only detector. Create, detect and close on background threads; calls are serialized. */
+/** RGB detector with optional five-point landmarks. Background-thread calls are serialized. */
 public final class YuNetFaceDetector implements AutoCloseable {
     private static final String ASSET_DIRECTORY = "ubio-face-detection/";
 
@@ -45,11 +45,13 @@ public final class YuNetFaceDetector implements AutoCloseable {
     private final ByteBuffer input;
     private final ByteBuffer logits;
     private final ByteBuffer boxes;
+    private final ByteBuffer landmarks;
     private final Object[] inputs;
     private final Map<Integer, Object> outputs = new HashMap<>();
     private final int[] pixels;
     private final float[] decodedLogits;
     private final float[] decodedBoxes;
+    private final float[] decodedLandmarks;
 
     public static YuNetFaceDetector create(Context applicationContext) throws Exception {
         return create(applicationContext, Mode.INT8_NNAPI);
@@ -83,14 +85,16 @@ public final class YuNetFaceDetector implements AutoCloseable {
             }
             interpreter = new Interpreter(modelBuffer, options);
             interpreter.allocateTensors();
-            if (interpreter.getInputTensorCount() != 1 || interpreter.getOutputTensorCount() != 2) {
-                throw new IllegalArgumentException("YuNet requires one input and two outputs");
+            int outputCount = contract.landmarks == null ? 2 : 3;
+            if (interpreter.getInputTensorCount() != 1 || interpreter.getOutputTensorCount() != outputCount) {
+                throw new IllegalArgumentException("YuNet tensor count disagrees with manifest version");
             }
             validateTensor(interpreter.getInputTensor(0), contract.input);
             input = buffer(interpreter.getInputTensor(0));
             ByteBuffer foundLogits = null;
             ByteBuffer foundBoxes = null;
-            for (int slot = 0; slot < 2; slot++) {
+            ByteBuffer foundLandmarks = null;
+            for (int slot = 0; slot < outputCount; slot++) {
                 Tensor tensor = interpreter.getOutputTensor(slot);
                 // Manifest tensor indices are graph indices, not Java output-slot indices.
                 if (Arrays.equals(tensor.shape(), contract.logits.shape) && foundLogits == null) {
@@ -101,17 +105,28 @@ public final class YuNetFaceDetector implements AutoCloseable {
                     validateTensor(tensor, contract.boxes);
                     foundBoxes = buffer(tensor);
                     outputs.put(slot, foundBoxes);
+                } else if (contract.landmarks != null && foundLandmarks == null
+                        && Arrays.equals(tensor.shape(), contract.landmarks.shape)) {
+                    validateTensor(tensor, contract.landmarks);
+                    foundLandmarks = buffer(tensor);
+                    outputs.put(slot, foundLandmarks);
                 } else {
                     throw new IllegalArgumentException("Unexpected YuNet output tensor");
                 }
             }
             if (foundLogits == null || foundBoxes == null) throw new IllegalArgumentException("Missing YuNet output tensor");
+            if (contract.landmarks != null && foundLandmarks == null) {
+                throw new IllegalArgumentException("Missing YuNet landmark tensor");
+            }
             logits = foundLogits;
             boxes = foundBoxes;
+            landmarks = foundLandmarks;
             inputs = new Object[]{input};
             pixels = new int[contract.width * contract.height];
             decodedLogits = new float[contract.postprocessor.candidateCount * 2];
             decodedBoxes = new float[contract.postprocessor.candidateCount * 4];
+            decodedLandmarks = contract.landmarks == null ? null
+                    : new float[contract.postprocessor.candidateCount * 10];
             resized = Bitmap.createBitmap(contract.width, contract.height, Bitmap.Config.ARGB_8888);
             canvas = new Canvas(resized);
             // Warmup with correctly encoded black RGB, not zero bytes for quantized input.
@@ -127,7 +142,7 @@ public final class YuNetFaceDetector implements AutoCloseable {
 
     public Mode mode() { return mode; }
 
-    /** Returns confidence-ordered boxes in the unmirrored source image. Does not recycle the image. */
+    /** Returns boxes and available landmarks in unmirrored source pixels. Does not recycle the image. */
     public synchronized List<FaceDetection> detect(Bitmap rgb) {
         if (interpreter == null) throw new IllegalStateException("YuNet detector is closed");
         if (rgb == null || rgb.isRecycled()) throw new IllegalArgumentException("Valid RGB bitmap required");
@@ -143,7 +158,7 @@ public final class YuNetFaceDetector implements AutoCloseable {
             putPixel(pixel & 255);
         }
         run();
-        return contract.postprocessor.decode(decodedLogits, decodedBoxes, geometry);
+        return contract.postprocessor.decode(decodedLogits, decodedBoxes, decodedLandmarks, geometry);
     }
 
     private void putPixel(int value) {
@@ -155,9 +170,11 @@ public final class YuNetFaceDetector implements AutoCloseable {
         input.rewind();
         logits.rewind();
         boxes.rewind();
+        if (landmarks != null) landmarks.rewind();
         interpreter.runForMultipleInputsOutputs(inputs, outputs);
         unpack(logits, decodedLogits, contract.logits);
         unpack(boxes, decodedBoxes, contract.boxes);
+        if (landmarks != null) unpack(landmarks, decodedLandmarks, contract.landmarks);
     }
 
     private static void unpack(ByteBuffer buffer, float[] values, ModelContract.TensorSpec spec) {

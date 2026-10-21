@@ -34,8 +34,20 @@ final class YuNetPostprocessor {
     }
 
     List<FaceDetection> decode(float[] logits, float[] boxes, Letterbox geometry) {
+        return decode(logits, boxes, null, geometry);
+    }
+
+    List<FaceDetection> decode(float[] logits, float[] boxes, float[] landmarks, Letterbox geometry) {
         if (logits.length != candidateCount * 2 || boxes.length != candidateCount * 4) {
             throw new IllegalArgumentException("YuNet requires separate [1,N,2] logits and [1,N,4] boxes");
+        }
+        if (landmarks != null) {
+            if (landmarks.length != candidateCount * 10) {
+                throw new IllegalArgumentException("YuNet landmarks must be [1,N,10]");
+            }
+            for (float value : landmarks) {
+                if (!Float.isFinite(value)) throw new IllegalArgumentException("Non-finite YuNet landmark");
+            }
         }
         ArrayList<FaceDetection> candidates = new ArrayList<>();
         int index = 0;
@@ -56,9 +68,17 @@ final class YuNetPostprocessor {
                     float centerY = (y + boxes[offset + 1]) * stride;
                     float boxWidth = size(boxes[offset + 2], stride);
                     float boxHeight = size(boxes[offset + 3], stride);
+                    float[] points = null;
+                    if (landmarks != null) {
+                        points = new float[10];
+                        for (int point = 0; point < 5; point++) {
+                            points[point * 2] = (x + landmarks[index * 10 + point * 2]) * stride;
+                            points[point * 2 + 1] = (y + landmarks[index * 10 + point * 2 + 1]) * stride;
+                        }
+                    }
                     FaceDetection box = new FaceDetection(clip(centerX - boxWidth / 2, width),
                             clip(centerY - boxHeight / 2, height), clip(centerX + boxWidth / 2, width),
-                            clip(centerY + boxHeight / 2, height), score);
+                            clip(centerY + boxHeight / 2, height), score, points);
                     if (box.right > box.left && box.bottom > box.top) candidates.add(box);
                 }
             }

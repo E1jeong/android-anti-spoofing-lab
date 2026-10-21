@@ -27,11 +27,19 @@ final class Letterbox {
     }
 
     FaceDetection restore(FaceDetection box) {
+        float[] points = box.landmarks.isEmpty() ? null : new float[10];
+        if (points != null) {
+            for (int i = 0; i < 5; i++) {
+                FaceDetection.Landmark point = box.landmarks.get(i);
+                points[i * 2] = clip((point.x - padLeft) / scale, sourceWidth);
+                points[i * 2 + 1] = clip((point.y - padTop) / scale, sourceHeight);
+            }
+        }
         return new FaceDetection(
                 clip((box.left - padLeft) / scale, sourceWidth),
                 clip((box.top - padTop) / scale, sourceHeight),
                 clip((box.right - padLeft) / scale, sourceWidth),
-                clip((box.bottom - padTop) / scale, sourceHeight), box.confidence);
+                clip((box.bottom - padTop) / scale, sourceHeight), box.confidence, points);
     }
 
     private static float clip(double value, int limit) {
