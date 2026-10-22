@@ -1,7 +1,6 @@
 package com.unionbiometrics.vision;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -36,13 +35,11 @@ public class ModelSpecTest {
                 + "}");
 
         assertEquals("ir", spec.inputKind);
-        assertEquals("nnapi", spec.delegate);
         assertEquals(0.1f, spec.cropMarginRatio, 0.0001f);
         assertEquals(0, spec.irInputIndex);
         assertEquals(-1, spec.rgbInputIndex);
         assertEquals(0.5f, spec.irMean[0], 0.0001f);
         assertEquals(0.5f, spec.irStd[0], 0.0001f);
-        assertTrue(spec.outputIsLogits);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -83,7 +80,7 @@ public class ModelSpecTest {
                 + "\"normalization\":{\"mean\":[0.4,0.5,0.6],\"std\":[0.2,0.3,0.4]}},"
                 + "{\"index\":1,\"shape\":[1,224,224,1],\"input_kind\":\"ir\","
                 + "\"normalization\":{\"mean\":[0.6],\"std\":[0.3]}}"
-                + "],\"outputs\":[{\"output_is_logits\":false}]," + CLASS_ORDER
+                + "],\"outputs\":[{\"output_is_logits\":true}]," + CLASS_ORDER
                 + "}");
 
         assertEquals(0, spec.rgbInputIndex);
@@ -93,7 +90,63 @@ public class ModelSpecTest {
         assertEquals(0.6f, spec.irMean[0], 0.0001f);
         assertEquals(0.3f, spec.irStd[0], 0.0001f);
         assertEquals(0.2f, spec.cropMarginRatio, 0.0001f);
-        assertEquals(false, spec.outputIsLogits);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsCpuDelegate() throws Exception {
+        ModelSpec.parse(irSpec("\"delegate\":\"cpu\",", 224, true));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsUnknownDelegate() throws Exception {
+        ModelSpec.parse(irSpec("\"delegate\":\"gpu\",", 224, true));
+    }
+
+    @Test
+    public void acceptsNnapiDelegateRegardlessOfCase() throws Exception {
+        for (String delegate : new String[]{"nnapi", "NNAPI", "NnApi"}) {
+            ModelSpec spec = ModelSpec.parse(irSpec("\"delegate\":\"" + delegate + "\",", 224, true));
+            assertEquals(0, spec.irInputIndex);
+        }
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsProbabilityOutput() throws Exception {
+        ModelSpec.parse(irSpec("", 224, false));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNon224InputEvenWithSizeOverrides() throws Exception {
+        ModelSpec.parse(irSpec("\"inputWidth\":192,\"inputHeight\":192,", 192, true));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNon224ShapeWithoutSizeOverrides() throws Exception {
+        ModelSpec.parse(irSpec("", 192, true));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsHeightOverrideThatConflictsWithFixedInput() throws Exception {
+        ModelSpec.parse(irSpec("\"inputHeight\":192,", 224, true));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsSizeOverrideThatConflictsWithFixedInput() throws Exception {
+        ModelSpec.parse(irSpec("\"inputWidth\":192,", 224, true));
+    }
+
+    @Test
+    public void acceptsFixedContractWithoutOptionalSettings() throws Exception {
+        ModelSpec spec = ModelSpec.parse("{\"inputs\":[{\"index\":0,"
+                + "\"shape\":[1,224,224,1],\"input_kind\":\"ir\"}]," + CLASS_ORDER + "}");
+
+        assertEquals(0, spec.irInputIndex);
+    }
+
+    private static String irSpec(String settings, int size, boolean logits) {
+        return "{" + settings + "\"inputs\":[{\"index\":0,\"shape\":[1,"
+                + size + "," + size + ",1],\"input_kind\":\"ir\"}],"
+                + "\"outputs\":[{\"output_is_logits\":" + logits + "}]," + CLASS_ORDER + "}";
     }
 
     @Test(expected = IllegalArgumentException.class)

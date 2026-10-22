@@ -1,5 +1,7 @@
 package com.unionbiometrics.vision;
 
+import java.util.Arrays;
+
 /** One raw frame result or one callback session state. */
 public final class AntiSpoofingResult {
     public enum Status { RUNNING, LIVE, SPOOF, ERROR }
@@ -87,6 +89,8 @@ public final class AntiSpoofingResult {
     }
 
     static boolean isAcceptedClass(int index) {
-        return index == 0 || index == 10 || index == 11;
+        return index == Arrays.asList(VisionConstants.CLASS_LABELS).indexOf("LIVE")
+                || index == Arrays.asList(VisionConstants.CLASS_LABELS).indexOf("DENTAL_WHITE")
+                || index == Arrays.asList(VisionConstants.CLASS_LABELS).indexOf("DENTAL_BLACK");
     }
 }

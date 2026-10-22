@@ -9,15 +9,11 @@ import org.json.JSONObject;
 final class ModelSpec {
     final int rgbInputIndex;
     final int irInputIndex;
-    final int inputWidth;
-    final int inputHeight;
     final String inputKind;
     final float[] rgbMean;
     final float[] rgbStd;
     final float[] irMean;
     final float[] irStd;
-    final String delegate;
-    final boolean outputIsLogits;
     final float cropMarginRatio;
 
     private ModelSpec(JSONObject json) throws JSONException {
@@ -25,8 +21,10 @@ final class ModelSpec {
         if (inputsArray == null) {
             throw new IllegalArgumentException("model_spec.json must contain generated inputs");
         }
-        inputWidth = json.optInt("inputWidth", 224);
-        inputHeight = json.optInt("inputHeight", 224);
+        if (json.optInt("inputWidth", VisionConstants.INPUT_SIZE) != VisionConstants.INPUT_SIZE
+                || json.optInt("inputHeight", VisionConstants.INPUT_SIZE) != VisionConstants.INPUT_SIZE) {
+            throw new IllegalArgumentException("model_spec.json input size must be " + VisionConstants.INPUT_SIZE);
+        }
 
         String kind = "";
         int rgbIndex = -1;
@@ -39,25 +37,25 @@ final class ModelSpec {
         for (int i = 0; i < inputsArray.length(); i++) {
             JSONObject inputTensor = inputsArray.getJSONObject(i);
             String itemKind = inputTensor.optString("input_kind", "unknown");
-            if (inputsArray.length() == 1) {
+            if (inputsArray.length() == VisionConstants.IR_INPUT_COUNT) {
                 kind = itemKind;
             }
-            if ("rgb".equals(itemKind)) {
+            if (VisionConstants.INPUT_KIND_RGB.equals(itemKind)) {
                 rgbIndex = inputTensor.optInt("index", i);
-            } else if ("ir".equals(itemKind)) {
+            } else if (VisionConstants.INPUT_KIND_IR.equals(itemKind)) {
                 irIndex = inputTensor.optInt("index", i);
             }
             JSONArray shape = inputTensor.optJSONArray("shape");
             if (shape == null || shape.length() != 4 || shape.optInt(0, -1) != 1
-                    || shape.optInt(1, -1) != inputHeight
-                    || shape.optInt(2, -1) != inputWidth) {
+                    || shape.optInt(1, -1) != VisionConstants.INPUT_SIZE
+                    || shape.optInt(2, -1) != VisionConstants.INPUT_SIZE) {
                 throw new IllegalArgumentException(
-                        "model_spec.json input shape must be [1," + inputHeight + ","
-                                + inputWidth + ",channels]");
+                        "model_spec.json input shape must be [1," + VisionConstants.INPUT_SIZE + ","
+                                + VisionConstants.INPUT_SIZE + ",channels]");
             }
             int channels = shape.optInt(3, -1);
-            if (("rgb".equals(itemKind) && channels != 3)
-                    || ("ir".equals(itemKind) && channels != 1)) {
+            if ((VisionConstants.INPUT_KIND_RGB.equals(itemKind) && channels != VisionConstants.RGB_CHANNELS)
+                    || (VisionConstants.INPUT_KIND_IR.equals(itemKind) && channels != VisionConstants.IR_CHANNELS)) {
                 throw new IllegalArgumentException(
                         "model_spec.json input channels do not match input_kind=" + itemKind);
             }
@@ -66,18 +64,21 @@ final class ModelSpec {
             if (normObj != null) {
                 float[] mean = parseFloatArray(normObj, "mean");
                 float[] std = parseFloatArray(normObj, "std");
-                if ("rgb".equals(itemKind)) {
+                if (VisionConstants.INPUT_KIND_RGB.equals(itemKind)) {
                     rgbM = mean;
                     rgbS = std;
-                } else if ("ir".equals(itemKind)) {
+                } else if (VisionConstants.INPUT_KIND_IR.equals(itemKind)) {
                     irM = mean;
                     irS = std;
                 }
             }
         }
-        boolean validIrOnly = inputsArray.length() == 1 && "ir".equals(kind) && irIndex == 0;
-        boolean validRgbAndIr = inputsArray.length() == 2 && rgbIndex >= 0 && irIndex >= 0
-                && rgbIndex < 2 && irIndex < 2 && rgbIndex != irIndex;
+        boolean validIrOnly = inputsArray.length() == VisionConstants.IR_INPUT_COUNT
+                && VisionConstants.INPUT_KIND_IR.equals(kind) && irIndex == 0;
+        boolean validRgbAndIr = inputsArray.length() == VisionConstants.DUAL_INPUT_COUNT
+                && rgbIndex >= 0 && irIndex >= 0
+                && rgbIndex < VisionConstants.DUAL_INPUT_COUNT
+                && irIndex < VisionConstants.DUAL_INPUT_COUNT && rgbIndex != irIndex;
         if (!validIrOnly && !validRgbAndIr) {
             throw new IllegalArgumentException(
                     "model_spec.json must define one IR input or one RGB and one IR input");
@@ -97,21 +98,19 @@ final class ModelSpec {
         irMean = irM;
         irStd = irS;
         JSONArray outputsArray = json.optJSONArray("outputs");
-        boolean logits = true;
-        if (outputsArray != null && outputsArray.length() > 0) {
-            logits = outputsArray.getJSONObject(0).optBoolean("output_is_logits", true);
+        if (outputsArray != null && outputsArray.length() > 0
+                && !outputsArray.getJSONObject(0).optBoolean("output_is_logits", true)) {
+            throw new IllegalArgumentException("model_spec.json output must be logits");
         }
-        outputIsLogits = logits;
         cropMarginRatio = (float) json.optDouble("crop_margin_ratio", 0.10);
-        delegate = json.optString("delegate", "nnapi");
         rgbInputIndex = rgbIndex;
         irInputIndex = irIndex;
 
         if (cropMarginRatio < 0f || cropMarginRatio > 1f) {
             throw new IllegalArgumentException("model_spec.json contains invalid cropMarginRatio");
         }
-        if (!"cpu".equals(delegate) && !"nnapi".equals(delegate)) {
-            throw new IllegalArgumentException("Unsupported delegate: " + delegate);
+        if (!VisionConstants.BACKEND_NNAPI.equalsIgnoreCase(json.optString("delegate", VisionConstants.BACKEND_NNAPI))) {
+            throw new IllegalArgumentException("model_spec.json delegate must be nnapi");
         }
         for (float s : rgbStd) {
             if (s == 0f) throw new IllegalArgumentException("rgbStd contains 0f");

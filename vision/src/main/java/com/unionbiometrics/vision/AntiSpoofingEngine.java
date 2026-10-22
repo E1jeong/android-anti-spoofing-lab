@@ -37,9 +37,9 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private AntiSpoofingEngine(ModelLoader.LoadedModel model, int settleFrames, int sampleCount) {
         classifier = model.classifier;
         session = new SessionController(settleFrames, sampleCount);
-        requiresRgb = classifier.inputTensorCount() == 2;
+        requiresRgb = classifier.inputTensorCount() == VisionConstants.DUAL_INPUT_COUNT;
         label = model.label;
-        backend = classifier.inferenceBackend();
+        backend = VisionConstants.BACKEND_NNAPI;
         cropMarginRatio = classifier.cropMarginRatio();
     }
 

@@ -29,7 +29,6 @@ final class Classifier {
     private static final float LUMINANCE_BLUE = 0.072f;
 
     private final Interpreter interpreter;
-    private final String inferenceBackend;
     private final ModelSpec spec;
     private final InputMapping inputMapping;
     private final InputBuffer cropRgbInput;
@@ -43,9 +42,7 @@ final class Classifier {
 
     Classifier(Context context, String modelName, String specName) throws Exception {
         spec = ModelSpec.load(context, specName);
-        InterpreterBundle bundle = createInterpreter(loadModel(context, modelName), spec.delegate, modelName, specName);
-        interpreter = bundle.interpreter;
-        inferenceBackend = bundle.backend;
+        interpreter = createInterpreter(loadModel(context, modelName), modelName, specName);
         InputMapping mapping = null;
         InputBuffer cropRgb = null;
         InputBuffer cropIr = null;
@@ -64,12 +61,12 @@ final class Classifier {
             mapping = resolveInputMapping();
             if (mapping.cropRgbIndex >= 0) {
                 Tensor cropRgbTensor = interpreter.getInputTensor(mapping.cropRgbIndex);
-                validateInput(cropRgbTensor, "cropRgb", 3);
+                validateInput(cropRgbTensor, "cropRgb", VisionConstants.RGB_CHANNELS);
                 cropRgb = new InputBuffer(cropRgbTensor, InputKind.RGB);
             }
             if (mapping.cropIrIndex >= 0) {
                 Tensor cropIrTensor = interpreter.getInputTensor(mapping.cropIrIndex);
-                validateInput(cropIrTensor, "cropIr", 1);
+                validateInput(cropIrTensor, "cropIr", VisionConstants.IR_CHANNELS);
                 cropIr = new InputBuffer(cropIrTensor, InputKind.IR);
             }
             liveInputs = new Object[interpreter.getInputTensorCount()];
@@ -96,7 +93,7 @@ final class Classifier {
             interpreter.runForMultipleInputsOutputs(liveInputs, outputs);
             Log.i(TAG, "Model warmup completed in "
                     + (SystemClock.elapsedRealtime() - warmupStart)
-                    + " ms using " + inferenceBackend);
+                    + " ms using " + VisionConstants.BACKEND_NNAPI);
         } catch (IllegalArgumentException e) {
             releasePartial(interpreter, cropRgb, cropIr);
             throw e;
@@ -117,10 +114,6 @@ final class Classifier {
         return spec.cropMarginRatio;
     }
 
-    String inferenceBackend() {
-        return inferenceBackend;
-    }
-
     int inputTensorCount() {
         return interpreter.getInputTensorCount();
     }
@@ -136,7 +129,7 @@ final class Classifier {
         interpreter.runForMultipleInputsOutputs(inputs, outputs);
         long inferenceMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         float[] modelOutput = readModelOutput();
-        float[] probabilities = spec.outputIsLogits ? softmax(modelOutput) : validateProbabilities(modelOutput);
+        float[] probabilities = softmax(modelOutput);
 
         return AntiSpoofingResult.frame(probabilities, preprocessMs, inferenceMs);
     }
@@ -158,7 +151,7 @@ final class Classifier {
     private InputMapping resolveInputMapping() {
         if (interpreter.getInputTensorCount() == VisionConstants.IR_INPUT_COUNT) {
             InputMapping mapping = new InputMapping();
-            if (!"ir".equals(spec.inputKind)) {
+            if (!VisionConstants.INPUT_KIND_IR.equals(spec.inputKind)) {
                 throw new IllegalArgumentException("1-input model requires inputKind=ir in model_spec.json");
             }
             mapping.cropIrIndex = 0;
@@ -184,21 +177,15 @@ final class Classifier {
 
     private void validateInput(Tensor tensor, String name, int requiredChannels) {
         int[] shape = tensor.shape();
-        boolean validSize = spec.inputWidth > 0 && spec.inputHeight > 0
-                ? shape.length == 4 && shape[1] == spec.inputHeight && shape[2] == spec.inputWidth
-                : shape.length == 4 && shape[1] > 0 && shape[2] > 0;
-        boolean validChannels = requiredChannels > 0
-                ? shape.length == 4 && shape[3] == requiredChannels
-                : shape.length == 4 && (shape[3] == 1 || shape[3] == 3);
+        boolean validSize = shape.length == 4 && shape[1] == VisionConstants.INPUT_SIZE
+                && shape[2] == VisionConstants.INPUT_SIZE;
+        boolean validChannels = shape.length == 4 && shape[3] == requiredChannels;
         if (shape.length != 4 || shape[0] != 1 || !validSize || !validChannels
                 || (tensor.dataType() != DataType.FLOAT32 && tensor.dataType() != DataType.UINT8
                 && tensor.dataType() != DataType.INT8)) {
-            String channels = requiredChannels > 0 ? String.valueOf(requiredChannels) : "1 or 3";
-            String size = spec.inputWidth > 0 && spec.inputHeight > 0
-                    ? spec.inputHeight + "x" + spec.inputWidth
-                    : "positive height/width";
             throw new IllegalArgumentException(name + " input must be NHWC "
-                    + size + "x" + channels + " FLOAT32/UINT8/INT8, actual="
+                    + VisionConstants.INPUT_SIZE + "x" + VisionConstants.INPUT_SIZE
+                    + "x" + requiredChannels + " FLOAT32/UINT8/INT8, actual="
                     + tensor.dataType() + " " + Arrays.toString(shape));
         }
         if (tensor.dataType() == DataType.INT8 && tensor.quantizationParams().getScale() <= 0f) {
@@ -230,19 +217,6 @@ final class Classifier {
         return output;
     }
 
-    private static float[] validateProbabilities(float[] values) {
-        float sum = 0f;
-        for (float value : values) {
-            if (!Float.isFinite(value) || value < 0f || value > 1f) {
-                throw new IllegalStateException("Model probability is outside [0,1]");
-            }
-            sum += value;
-        }
-        if (Math.abs(sum - 1f) > 0.02f)
-            throw new IllegalStateException("Model probabilities do not sum to 1");
-        return values.clone();
-    }
-
     private static MappedByteBuffer loadModel(Context context, String modelName) throws Exception {
         return AssetLoader.mapModel(context, modelName);
     }
@@ -260,31 +234,24 @@ final class Classifier {
     // here: the i.MX 8M Plus VSI NPU driver fails compilation with
     // "File ... couldn't be opened for reading" + ANEURALNETWORKS_OP_FAILED when caching is set,
     // even for models that compile fine without it.
-    private static InterpreterBundle createInterpreter(MappedByteBuffer model, String delegate,
-                                                       String modelName, String specName) {
-        if ("cpu".equals(delegate)) {
-            Interpreter.Options cpuOptions = new Interpreter.Options()
-                    .setNumThreads(THREAD_COUNT)
-                    .setUseXNNPACK(true);
-            return createAllocatedInterpreter(model, cpuOptions, "CPU");
-        }
+    private static Interpreter createInterpreter(MappedByteBuffer model,
+                                                 String modelName, String specName) {
         try {
             Interpreter.Options nnapiOptions = new Interpreter.Options()
                     .setNumThreads(THREAD_COUNT)
                     .setUseNNAPI(true);
-            return createAllocatedInterpreter(model, nnapiOptions, "NNAPI");
+            return createAllocatedInterpreter(model, nnapiOptions);
         } catch (RuntimeException nnapiError) {
             throw new IllegalStateException("NNAPI delegate failed for " + modelName + " with " + specName, nnapiError);
         }
     }
 
-    private static InterpreterBundle createAllocatedInterpreter(MappedByteBuffer model,
-                                                                Interpreter.Options options,
-                                                                String backend) {
+    private static Interpreter createAllocatedInterpreter(MappedByteBuffer model,
+                                                          Interpreter.Options options) {
         Interpreter interpreter = new Interpreter(model, options);
         try {
             interpreter.allocateTensors();
-            return new InterpreterBundle(interpreter, backend);
+            return interpreter;
         } catch (RuntimeException e) {
             try {
                 interpreter.close();
@@ -309,16 +276,6 @@ final class Classifier {
     private static final class InputMapping {
         int cropRgbIndex = -1;
         int cropIrIndex = -1;
-    }
-
-    private static final class InterpreterBundle {
-        final Interpreter interpreter;
-        final String backend;
-
-        InterpreterBundle(Interpreter interpreter, String backend) {
-            this.interpreter = interpreter;
-            this.backend = backend;
-        }
     }
 
     static int irLuminance(int pixel) {
@@ -448,11 +405,6 @@ final class Classifier {
                         floatScratch[index++] = floatLut[channel][value];
                     }
                 }
-            } else if (channels == 1) {
-                float[] lut = floatLut[0];
-                for (int pixel : pixels) {
-                    floatScratch[index++] = lut[(pixel >> 16) & 0xFF];
-                }
             } else {
                 float[] lut0 = floatLut[0];
                 float[] lut1 = floatLut[1];
@@ -473,11 +425,6 @@ final class Classifier {
                     for (int channel = 0; channel < channels; channel++) {
                         byteScratch[index++] = byteLut[channel][value];
                     }
-                }
-            } else if (channels == 1) {
-                byte[] lut = byteLut[0];
-                for (int pixel : pixels) {
-                    byteScratch[index++] = lut[(pixel >> 16) & 0xFF];
                 }
             } else {
                 byte[] lut0 = byteLut[0];

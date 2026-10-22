@@ -22,7 +22,7 @@
 
 - Preserve camera selection, resolution, timestamp synchronization, calibration, IR LED/LCD control, watchdog behavior, lifecycle cleanup, package identity, and signing unless the request targets them. Consult UBio-N Face Pro when copied device behavior is unclear; do not import unrelated production features or modules.
 
-- **Anti-Spoofing NNAPI No-Fallback Rule**: Never implement silent CPU fallback for a manifest model slot. An NNAPI error during setup/warmup must reject the slot so NPU defects are immediately detected. Recognition has a separate delegate policy in `app/AGENTS.md`; the older PReLU CPU baseline does not define the current recognition model's default.
+- **Anti-Spoofing NNAPI-Only Rule**: Manifest model slots use NNAPI only; reject explicit non-NNAPI sidecar delegates and never implement CPU fallback. An NNAPI error during setup/warmup must reject the slot so NPU defects are immediately detected. Recognition has a separate delegate policy in `app/AGENTS.md`; the older PReLU CPU baseline does not define the current recognition model's default.
 - **VSI NPU Cache Restriction**: Never enable NNAPI compilation caching (`setCacheDir`/`setModelToken`); the board driver will fail compilation.
 - **Camera Teardown Sequencing**: Never close `ImageReader` or preview `Surface` before `CameraDevice.StateCallback.onClosed()` has fired (avoids native `SIGSEGV` in `YuvConverter`).
 - **Capture Atomicity**: A capture sample advances the count only when all 6 files (`RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, `meta.json`, `landmarks.json`) succeed, including explicit unavailable-landmark records.
