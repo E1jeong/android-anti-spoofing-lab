@@ -126,15 +126,8 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         if (ir == null || irFace == null || irFace.isEmpty()) {
             throw new IllegalArgumentException("IR bitmap and nonempty face box are required");
         }
-        if ((rgb == null) != (rgbFace == null)
-                || (rgbFace != null && rgbFace.isEmpty())) {
-            throw new IllegalArgumentException("RGB bitmap and nonempty face box must be paired");
-        }
-        if (requiresRgb != (rgb != null)) {
-            throw new IllegalArgumentException(requiresRgb
-                    ? "RGB and IR frame required by this slot"
-                    : "IR-only frame required by this slot");
-        }
+        boolean copyRgb = shouldCopyRgb(requiresRgb, rgb, rgbFace,
+                rgbFace != null && rgbFace.isEmpty());
         validateBox(ir, irFace, "IR");
         if (rgb != null) validateBox(rgb, rgbFace, "RGB");
 
@@ -149,7 +142,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         Bitmap irCopy = copyCrop(ir, irFace, margin);
         Bitmap rgbCopy = null;
         try {
-            if (rgb != null) rgbCopy = copyCrop(rgb, rgbFace, margin);
+            if (copyRgb) rgbCopy = copyCrop(rgb, rgbFace, margin);
         } catch (RuntimeException e) {
             irCopy.recycle();
             throw e;
@@ -257,6 +250,17 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         } catch (RuntimeException e) {
             return AntiSpoofingResult.frameError("Vision inference failed: " + e.getMessage());
         }
+    }
+
+    static boolean shouldCopyRgb(boolean requiresRgb, Object rgb, Object rgbFace,
+                                 boolean rgbFaceEmpty) {
+        if ((rgb == null) != (rgbFace == null) || (rgbFace != null && rgbFaceEmpty)) {
+            throw new IllegalArgumentException("RGB bitmap and nonempty face box must be paired");
+        }
+        if (requiresRgb && rgb == null) {
+            throw new IllegalArgumentException("RGB and IR frame required by this slot");
+        }
+        return requiresRgb && rgb != null;
     }
 
     private static void validateBox(Bitmap bitmap, Rect box, String name) {

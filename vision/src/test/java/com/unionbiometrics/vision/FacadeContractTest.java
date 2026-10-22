@@ -3,7 +3,9 @@ package com.unionbiometrics.vision;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public final class FacadeContractTest {
     @Test(expected = IllegalArgumentException.class)
@@ -104,5 +106,41 @@ public final class FacadeContractTest {
     @Test(expected = IllegalArgumentException.class)
     public void sessionRejectsWrongProbabilityCount() {
         AntiSpoofingResult.sessionDecision(new float[]{1f}, 0L, 0, 1);
+    }
+
+    @Test
+    public void irOnlySlotAcceptsNullOrPairedRgbWithoutCopying() {
+        assertFalse(AntiSpoofingEngine.shouldCopyRgb(false, null, null, false));
+        assertFalse(AntiSpoofingEngine.shouldCopyRgb(false, new Object(), new Object(), false));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void irOnlySlotRejectsUnpairedRgbInputs() {
+        AntiSpoofingEngine.shouldCopyRgb(false, new Object(), null, false);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void irOnlySlotRejectsNullRgbWithEmptyFaceBox() {
+        AntiSpoofingEngine.shouldCopyRgb(false, null, new Object(), true);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void irOnlySlotRejectsEmptyRgbFaceBox() {
+        AntiSpoofingEngine.shouldCopyRgb(false, new Object(), new Object(), true);
+    }
+
+    @Test
+    public void dualSlotCopiesPairedRgbInputs() {
+        assertTrue(AntiSpoofingEngine.shouldCopyRgb(true, new Object(), new Object(), false));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void dualSlotRejectsMissingRgbInputs() {
+        AntiSpoofingEngine.shouldCopyRgb(true, null, null, false);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void dualSlotRejectsUnpairedRgbInputs() {
+        AntiSpoofingEngine.shouldCopyRgb(true, null, new Object(), false);
     }
 }
