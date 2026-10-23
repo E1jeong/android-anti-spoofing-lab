@@ -54,7 +54,7 @@ final class SessionController {
         AntiSpoofingResult result = samplingCount < requiredSamplingCount
                 ? AntiSpoofingResult.sessionRunning(average, inferenceMs,
                         settleFramesRemaining, samplingCount)
-                : AntiSpoofingResult.sessionDecision(average, inferenceMs,
+                : AntiSpoofingResult.sessionComplete(average, inferenceMs,
                         settleFramesRemaining, samplingCount);
         if (result.status() == AntiSpoofingResult.Status.LIVE
                 || result.status() == AntiSpoofingResult.Status.SPOOF) {

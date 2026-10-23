@@ -15,18 +15,18 @@ public class SessionControllerTest {
             AntiSpoofingResult waiting = controller.prepare();
             assertEquals(AntiSpoofingResult.Status.RUNNING, waiting.status());
             assertEquals(9 - i, waiting.settleRemaining());
-            assertEquals(0, waiting.acceptedSamples());
+            assertEquals(0, waiting.usedFrameCount());
         }
         assertNull(controller.prepare());
         AntiSpoofingResult firstSample = controller.add(classificationAt(0), 11L);
         assertEquals(AntiSpoofingResult.Status.RUNNING, firstSample.status());
-        assertEquals(1, firstSample.acceptedSamples());
+        assertEquals(1, firstSample.usedFrameCount());
         assertEquals(Long.valueOf(11L), firstSample.inferenceMs());
         assertEquals(AntiSpoofingResult.Status.RUNNING,
                 controller.add(classificationAt(0), 12L).status());
         AntiSpoofingResult decision = controller.add(classificationAt(0), 13L);
         assertEquals(AntiSpoofingResult.Status.LIVE, decision.status());
-        assertEquals(3, decision.acceptedSamples());
+        assertEquals(3, decision.usedFrameCount());
         assertEquals(Long.valueOf(13L), decision.inferenceMs());
         assertEquals(AntiSpoofingResult.Status.LIVE, controller.prepare().status());
     }
@@ -39,7 +39,7 @@ public class SessionControllerTest {
 
         AntiSpoofingResult error = controller.fail("bad frame");
         assertEquals(AntiSpoofingResult.Status.ERROR, error.status());
-        assertEquals(0, error.acceptedSamples());
+        assertEquals(0, error.usedFrameCount());
         assertNull(controller.prepare());
         AntiSpoofingResult restarted = controller.add(classificationAt(0), 1L);
         assertEquals(AntiSpoofingResult.Status.RUNNING, restarted.status());
@@ -102,7 +102,7 @@ public class SessionControllerTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNonContractProbabilityCount() {
-        AntiSpoofingResult.sessionDecision(new float[]{1f}, 1L, 0, 1);
+        AntiSpoofingResult.sessionComplete(new float[]{1f}, 1L, 0, 1);
     }
 
     private static float[] classificationAt(int index) {

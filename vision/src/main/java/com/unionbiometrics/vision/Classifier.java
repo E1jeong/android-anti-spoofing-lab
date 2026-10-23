@@ -58,16 +58,16 @@ final class Classifier {
             }
 
             logModelIo();
-            mapping = resolveInputMapping();
+            mapping = getInputMapping();
             if (mapping.cropRgbIndex >= 0) {
                 Tensor cropRgbTensor = interpreter.getInputTensor(mapping.cropRgbIndex);
                 validateInput(cropRgbTensor, "cropRgb", VisionConstants.RGB_CHANNELS);
-                cropRgb = new InputBuffer(cropRgbTensor, InputKind.RGB);
+                cropRgb = new InputBuffer(cropRgbTensor, InputType.RGB);
             }
             if (mapping.cropIrIndex >= 0) {
                 Tensor cropIrTensor = interpreter.getInputTensor(mapping.cropIrIndex);
                 validateInput(cropIrTensor, "cropIr", VisionConstants.IR_CHANNELS);
-                cropIr = new InputBuffer(cropIrTensor, InputKind.IR);
+                cropIr = new InputBuffer(cropIrTensor, InputType.IR);
             }
             liveInputs = new Object[interpreter.getInputTensorCount()];
 
@@ -131,7 +131,7 @@ final class Classifier {
         float[] modelOutput = readModelOutput();
         float[] probabilities = softmax(modelOutput);
 
-        return AntiSpoofingResult.frame(probabilities, preprocessMs, inferenceMs);
+        return AntiSpoofingResult.frameResult(probabilities, preprocessMs, inferenceMs);
     }
 
     private void logModelIo() {
@@ -148,7 +148,7 @@ final class Classifier {
         Log.i(TAG, "Output[0] shape=" + Arrays.toString(output.shape()) + " dtype=" + output.dataType());
     }
 
-    private InputMapping resolveInputMapping() {
+    private InputMapping getInputMapping() {
         if (interpreter.getInputTensorCount() == VisionConstants.IR_INPUT_COUNT) {
             InputMapping mapping = new InputMapping();
             if (!VisionConstants.INPUT_KIND_IR.equals(spec.inputKind)) {
@@ -268,7 +268,7 @@ final class Classifier {
         interpreter.close();
     }
 
-    private enum InputKind {
+    private enum InputType {
         RGB,
         IR
     }
@@ -291,7 +291,7 @@ final class Classifier {
         final int channels;
         final DataType dataType;
         final Tensor.QuantizationParams quantization;
-        final InputKind kind;
+        final InputType inputType;
         final Bitmap scaled;
         final Canvas canvas;
         final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -305,14 +305,14 @@ final class Classifier {
         final float[] floatScratch;
         final byte[] byteScratch;
 
-        InputBuffer(Tensor tensor, InputKind kind) {
+        InputBuffer(Tensor tensor, InputType inputType) {
             int[] shape = tensor.shape();
             height = shape[1];
             width = shape[2];
             channels = shape[3];
             dataType = tensor.dataType();
             quantization = tensor.quantizationParams();
-            this.kind = kind;
+            this.inputType = inputType;
             int bytesPerValue = dataType == DataType.FLOAT32 ? 4 : 1;
             scaled = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
             canvas = new Canvas(scaled);
@@ -398,7 +398,7 @@ final class Classifier {
 
         private void fillFloatPixels() {
             int index = 0;
-            if (kind == InputKind.IR) {
+            if (inputType == InputType.IR) {
                 for (int pixel : pixels) {
                     int value = irLuminance(pixel);
                     for (int channel = 0; channel < channels; channel++) {
@@ -419,7 +419,7 @@ final class Classifier {
 
         private void fillBytePixels() {
             int index = 0;
-            if (kind == InputKind.IR) {
+            if (inputType == InputType.IR) {
                 for (int pixel : pixels) {
                     int value = irLuminance(pixel);
                     for (int channel = 0; channel < channels; channel++) {
@@ -439,7 +439,7 @@ final class Classifier {
         }
 
         private float normalizeImage(int value, int channel) {
-            if (kind == InputKind.IR) {
+            if (inputType == InputType.IR) {
                 return normalizeWithMeanStd(value / 255.0f, spec.irMean, spec.irStd, channel);
             }
             return normalizeWithMeanStd(value / 255.0f, spec.rgbMean, spec.rgbStd, channel);

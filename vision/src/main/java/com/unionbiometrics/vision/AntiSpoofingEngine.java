@@ -18,9 +18,10 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private final SessionController session;
     private final boolean requiresRgb;
     public final float cropMarginRatio;
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ExecutorService sessionExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final Object lock = new Object();
+    private final Object queueLock = new Object();
+    private final Object inferenceLock = new Object();
     private Bitmap queuedRgbCopy;
     private Bitmap queuedIrCopy;
     private AntiSpoofingCallback queuedCallback;
@@ -28,8 +29,8 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private volatile long generation;
     private long nextSubmissionId;
     private long latestQueuedSubmissionId;
-    private boolean draining;
-    private boolean terminalDelivered;
+    private boolean processingFrames;
+    private boolean decisionScheduled;
     private volatile boolean closed;
 
     private AntiSpoofingEngine(Classifier classifier, int settleFrames, int sampleCount) {
@@ -39,8 +40,8 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         cropMarginRatio = classifier.cropMarginRatio();
     }
 
-    /** Returns one raw frame result without changing the callback session. Call off the main thread. */
-    public AntiSpoofingResult process(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace) {
+    /** Synchronously infers one frame without advancing the session. Call off the main thread. */
+    public AntiSpoofingResult inferFrame(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace) {
         if (ir == null || irFace == null) {
             throw new IllegalArgumentException("IR bitmap and face box are required");
         }
@@ -53,9 +54,9 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         if (ir.isRecycled() || (rgb != null && rgb.isRecycled())) {
             throw new IllegalArgumentException("Frame bitmap is recycled");
         }
-        synchronized (session) {
+        synchronized (inferenceLock) {
             if (closed) throw new IllegalStateException("Vision engine is closed");
-            return classify(
+            return runInference(
                     rgb == null ? ir : rgb,
                     new Rect(rgbFace == null ? irFace : rgbFace),
                     ir, new Rect(irFace), false);
@@ -115,9 +116,9 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         return expanded;
     }
 
-    /** Copies expanded crops before returning. Delivers results on the main looper. */
-    public void infer(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
-                      AntiSpoofingCallback callback) {
+    /** Submits a frame for async session inference, copying crops before returning. Delivers results on the main looper. */
+    public void inferSession(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
+                             AntiSpoofingCallback callback) {
         if (callback == null) throw new IllegalArgumentException("callback must not be null");
         if (ir == null || irFace == null || irFace.isEmpty()) {
             throw new IllegalArgumentException("IR bitmap and nonempty face box are required");
@@ -129,21 +130,21 @@ public final class AntiSpoofingEngine implements AutoCloseable {
 
         final long submittedGeneration;
         final long submissionId;
-        synchronized (lock) {
+        synchronized (queueLock) {
             if (closed) throw new IllegalStateException("Vision engine is closed");
             submittedGeneration = generation;
             submissionId = ++nextSubmissionId;
         }
         float margin = cropMarginRatio;
-        Bitmap irCopy = copyCrop(ir, irFace, margin);
+        Bitmap irCopy = copyExpandedCrop(ir, irFace, margin);
         Bitmap rgbCopy = null;
         try {
-            if (copyRgb) rgbCopy = copyCrop(rgb, rgbFace, margin);
+            if (copyRgb) rgbCopy = copyExpandedCrop(rgb, rgbFace, margin);
         } catch (RuntimeException e) {
             irCopy.recycle();
             throw e;
         }
-        synchronized (lock) {
+        synchronized (queueLock) {
             if (closed || generation != submittedGeneration
                     || submissionId < latestQueuedSubmissionId) {
                 if (rgbCopy != null) rgbCopy.recycle();
@@ -156,9 +157,9 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             queuedIrCopy = irCopy;
             queuedCallback = callback;
             queuedGeneration = submittedGeneration;
-            if (!draining) {
-                draining = true;
-                worker.execute(this::processPendingFrames);
+            if (!processingFrames) {
+                processingFrames = true;
+                sessionExecutor.execute(this::processPendingFrames);
             }
         }
     }
@@ -169,9 +170,9 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             Bitmap irCopy;
             AntiSpoofingCallback callback;
             long frameGeneration;
-            synchronized (lock) {
+            synchronized (queueLock) {
                 if (closed || queuedIrCopy == null) {
-                    draining = false;
+                    processingFrames = false;
                     return;
                 }
                 rgbCopy = queuedRgbCopy;
@@ -185,15 +186,15 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             AntiSpoofingResult result;
             boolean notifyResult;
             try {
-                synchronized (session) {
+                synchronized (inferenceLock) {
                     if (closed || generation != frameGeneration) continue;
-                    result = processSession(rgbCopy, irCopy);
+                    result = processSessionFrame(rgbCopy, irCopy);
                     notifyResult = result.status() == AntiSpoofingResult.Status.ERROR
                             || (result.status() != AntiSpoofingResult.Status.RUNNING
-                            && !terminalDelivered);
+                            && !decisionScheduled);
                     if (result.status() == AntiSpoofingResult.Status.LIVE
                             || result.status() == AntiSpoofingResult.Status.SPOOF) {
-                        terminalDelivered = true;
+                        decisionScheduled = true;
                     }
                 }
             } catch (RuntimeException e) {
@@ -206,7 +207,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             if (!notifyResult) continue;
             AntiSpoofingResult delivered = result;
             mainHandler.post(() -> {
-                synchronized (lock) {
+                synchronized (queueLock) {
                     if (closed || generation != frameGeneration) return;
                 }
                 try {
@@ -218,29 +219,29 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         }
     }
 
-    private AntiSpoofingResult processSession(Bitmap rgb, Bitmap ir) {
+    private AntiSpoofingResult processSessionFrame(Bitmap rgb, Bitmap ir) {
         AntiSpoofingResult state = session.prepare();
         if (state != null) return state;
         try {
             Bitmap inputRgb = rgb == null ? ir : rgb;
-            AntiSpoofingResult inference = classify(inputRgb,
+            AntiSpoofingResult frameResult = runInference(inputRgb,
                     new Rect(0, 0, inputRgb.getWidth(), inputRgb.getHeight()),
                     ir, new Rect(0, 0, ir.getWidth(), ir.getHeight()), true);
-            if (inference.status() == AntiSpoofingResult.Status.ERROR) {
-                return session.fail(inference.errorMessage());
+            if (frameResult.status() == AntiSpoofingResult.Status.ERROR) {
+                return session.fail(frameResult.errorMessage());
             }
-            return session.add(inference.probabilities(), inference.inferenceMs());
+            return session.add(frameResult.probabilities(), frameResult.inferenceMs());
         } catch (RuntimeException e) {
             return session.fail("Vision inference failed: " + e.getMessage());
         }
     }
 
-    private AntiSpoofingResult classify(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
-                                       boolean expanded) {
+    private AntiSpoofingResult runInference(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
+                                           boolean isExpanded) {
         try {
-            Rect rgbCrop = expanded ? rgbFace : expandFace(
+            Rect rgbCrop = isExpanded ? rgbFace : expandFace(
                     rgbFace, cropMarginRatio, rgb.getWidth(), rgb.getHeight());
-            Rect irCrop = expanded ? irFace : expandFace(
+            Rect irCrop = isExpanded ? irFace : expandFace(
                     irFace, cropMarginRatio, ir.getWidth(), ir.getHeight());
             return classifier.classify(rgb, rgbCrop, ir, irCrop);
         } catch (RuntimeException e) {
@@ -266,7 +267,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         }
     }
 
-    private static Bitmap copyCrop(Bitmap source, Rect face, float margin) {
+    private static Bitmap copyExpandedCrop(Bitmap source, Rect face, float margin) {
         Rect crop = expandFace(face, margin, source.getWidth(), source.getHeight());
         Bitmap copy = Bitmap.createBitmap(crop.width(), crop.height(), Bitmap.Config.ARGB_8888);
         try {
@@ -288,25 +289,25 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     }
 
     public void reset() {
-        synchronized (lock) {
+        synchronized (queueLock) {
             if (closed) return;
             generation++;
             recycleQueuedFrame();
-            synchronized (session) {
+            synchronized (inferenceLock) {
                 session.reset();
-                terminalDelivered = false;
+                decisionScheduled = false;
             }
         }
     }
 
     @Override public void close() {
-        synchronized (lock) {
+        synchronized (queueLock) {
             if (closed) return;
             closed = true;
             generation++;
             recycleQueuedFrame();
-            worker.shutdown();
-            synchronized (session) {
+            sessionExecutor.shutdown();
+            synchronized (inferenceLock) {
                 session.close();
                 classifier.close();
             }

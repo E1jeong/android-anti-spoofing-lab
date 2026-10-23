@@ -1394,7 +1394,7 @@ public final class MainActivity extends Activity {
                 || !isPipelineCurrent(task.generation) || task.engine == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
-        AntiSpoofingResult result = task.engine.process(
+        AntiSpoofingResult result = task.engine.inferFrame(
                 task.pair.rgb.bitmap, task.rgbFace,
                 task.pair.ir.bitmap, task.irFace);
         if (result.status() == AntiSpoofingResult.Status.ERROR) {

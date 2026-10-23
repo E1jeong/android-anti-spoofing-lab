@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 final class AssetLoader {
     private AssetLoader() {}
 
-    static String path(String relativeName) {
+    static String getAssetPath(String relativeName) {
         if (relativeName == null || relativeName.isEmpty()) {
             throw new IllegalArgumentException("Asset name is empty");
         }
@@ -27,7 +27,7 @@ final class AssetLoader {
     }
 
     static String readUtf8(Context context, String relativeName) throws IOException {
-        try (InputStream input = context.getAssets().open(path(relativeName));
+        try (InputStream input = context.getAssets().open(getAssetPath(relativeName));
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[4096];
             int n;
@@ -39,7 +39,7 @@ final class AssetLoader {
     }
 
     static MappedByteBuffer mapModel(Context context, String relativeName) throws IOException {
-        try (AssetFileDescriptor descriptor = context.getAssets().openFd(path(relativeName));
+        try (AssetFileDescriptor descriptor = context.getAssets().openFd(getAssetPath(relativeName));
              FileInputStream input = new FileInputStream(descriptor.getFileDescriptor())) {
             return input.getChannel().map(
                     FileChannel.MapMode.READ_ONLY,

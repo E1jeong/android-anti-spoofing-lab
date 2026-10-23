@@ -28,7 +28,7 @@ final class ModelLoader {
         JSONObject root = new JSONObject(AssetLoader.readUtf8(context, VisionConstants.MANIFEST));
         JSONArray models = root.optJSONArray("models");
         if (models == null || models.length() == 0) {
-            throw new IllegalStateException(AssetLoader.path(VisionConstants.MANIFEST) + " has no models");
+            throw new IllegalStateException(AssetLoader.getAssetPath(VisionConstants.MANIFEST) + " has no models");
         }
         return models;
     }

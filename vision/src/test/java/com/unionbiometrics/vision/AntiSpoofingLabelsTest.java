@@ -30,9 +30,9 @@ public class AntiSpoofingLabelsTest {
 
     @Test
     public void dentalMaskClassesAreAccepted() {
-        assertEquals(true, AntiSpoofingResult.isAcceptedClass(0));
-        assertEquals(true, AntiSpoofingResult.isAcceptedClass(10));
-        assertEquals(true, AntiSpoofingResult.isAcceptedClass(11));
-        assertEquals(false, AntiSpoofingResult.isAcceptedClass(1));
+        assertEquals(true, AntiSpoofingResult.isLiveClass(0));
+        assertEquals(true, AntiSpoofingResult.isLiveClass(10));
+        assertEquals(true, AntiSpoofingResult.isLiveClass(11));
+        assertEquals(false, AntiSpoofingResult.isLiveClass(1));
     }
 }

@@ -12,12 +12,12 @@ public final class AntiSpoofingResult {
     private final long preprocessMs;
     private final String errorMessage;
     private final int settleRemaining;
-    private final int acceptedSamples;
+    private final int usedFrameCount;
 
-    static AntiSpoofingResult frame(float[] probabilities, long preprocessMs, long inferenceMs) {
+    static AntiSpoofingResult frameResult(float[] probabilities, long preprocessMs, long inferenceMs) {
         if (probabilities == null) throw new IllegalArgumentException("Success requires a result");
         int topIndex = topIndexOf(probabilities);
-        return new AntiSpoofingResult(isAcceptedClass(topIndex) ? Status.LIVE : Status.SPOOF,
+        return new AntiSpoofingResult(isLiveClass(topIndex) ? Status.LIVE : Status.SPOOF,
                 probabilities, topIndex, inferenceMs, preprocessMs, null, 0, 0);
     }
 
@@ -27,17 +27,17 @@ public final class AntiSpoofingResult {
     }
 
     static AntiSpoofingResult sessionRunning(float[] probabilities, Long inferenceMs,
-                                            int settleRemaining, int acceptedSamples) {
+                                            int settleRemaining, int usedFrameCount) {
         return new AntiSpoofingResult(Status.RUNNING, probabilities,
                 probabilities == null ? -1 : topIndexOf(probabilities),
-                inferenceMs, 0L, null, settleRemaining, acceptedSamples);
+                inferenceMs, 0L, null, settleRemaining, usedFrameCount);
     }
 
-    static AntiSpoofingResult sessionDecision(float[] probabilities, long inferenceMs,
-                                             int settleRemaining, int acceptedSamples) {
+    static AntiSpoofingResult sessionComplete(float[] probabilities, long inferenceMs,
+                                             int settleRemaining, int usedFrameCount) {
         int topIndex = topIndexOf(probabilities);
-        return new AntiSpoofingResult(isAcceptedClass(topIndex) ? Status.LIVE : Status.SPOOF,
-                probabilities, topIndex, inferenceMs, 0L, null, settleRemaining, acceptedSamples);
+        return new AntiSpoofingResult(isLiveClass(topIndex) ? Status.LIVE : Status.SPOOF,
+                probabilities, topIndex, inferenceMs, 0L, null, settleRemaining, usedFrameCount);
     }
 
     static AntiSpoofingResult sessionError(String message) {
@@ -47,7 +47,7 @@ public final class AntiSpoofingResult {
 
     private AntiSpoofingResult(Status status, float[] probabilities, int topIndex,
                               Long inferenceMs, long preprocessMs, String errorMessage,
-                              int settleRemaining, int acceptedSamples) {
+                              int settleRemaining, int usedFrameCount) {
         this.status = status;
         this.probabilities = probabilities == null ? null : probabilities.clone();
         this.topIndex = topIndex;
@@ -55,7 +55,7 @@ public final class AntiSpoofingResult {
         this.preprocessMs = preprocessMs;
         this.errorMessage = errorMessage;
         this.settleRemaining = settleRemaining;
-        this.acceptedSamples = acceptedSamples;
+        this.usedFrameCount = usedFrameCount;
     }
 
     public Status status() { return status; }
@@ -75,7 +75,7 @@ public final class AntiSpoofingResult {
     public long preprocessMs() { return preprocessMs; }
     public String errorMessage() { return errorMessage; }
     public int settleRemaining() { return settleRemaining; }
-    public int acceptedSamples() { return acceptedSamples; }
+    public int usedFrameCount() { return usedFrameCount; }
 
     static int topIndexOf(float[] probabilities) {
         if (probabilities == null || probabilities.length != VisionConstants.CLASS_COUNT) {
@@ -88,7 +88,7 @@ public final class AntiSpoofingResult {
         return best;
     }
 
-    static boolean isAcceptedClass(int index) {
+    static boolean isLiveClass(int index) {
         return index == Arrays.asList(VisionConstants.CLASS_LABELS).indexOf("LIVE")
                 || index == Arrays.asList(VisionConstants.CLASS_LABELS).indexOf("DENTAL_WHITE")
                 || index == Arrays.asList(VisionConstants.CLASS_LABELS).indexOf("DENTAL_BLACK");
