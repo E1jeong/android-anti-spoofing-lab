@@ -35,3 +35,6 @@ credentials.*
 *.bak
 *.swp
 *~
+
+# graphify local cache (disposable)
+graphify-out/
