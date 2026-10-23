@@ -17,8 +17,6 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private final Classifier classifier;
     private final SessionController session;
     private final boolean requiresRgb;
-    public final String label;
-    public final String backend;
     public final float cropMarginRatio;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -34,12 +32,10 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private boolean terminalDelivered;
     private volatile boolean closed;
 
-    private AntiSpoofingEngine(ModelLoader.LoadedModel model, int settleFrames, int sampleCount) {
-        classifier = model.classifier;
+    private AntiSpoofingEngine(Classifier classifier, int settleFrames, int sampleCount) {
+        this.classifier = classifier;
         session = new SessionController(settleFrames, sampleCount);
         requiresRgb = classifier.inputTensorCount() == VisionConstants.DUAL_INPUT_COUNT;
-        label = model.label;
-        backend = VisionConstants.BACKEND_NNAPI;
         cropMarginRatio = classifier.cropMarginRatio();
     }
 
@@ -75,7 +71,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         if (context == null) throw new IllegalArgumentException("context must not be null");
         Context application = context.getApplicationContext();
         try {
-            ModelLoader.LoadedModel loaded = ModelLoader.loadSelected(
+            Classifier loaded = ModelLoader.loadSelected(
                     application == null ? context : application, slotIndex);
             boolean created = false;
             try {
@@ -85,7 +81,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                 return engine;
             } finally {
                 if (!created) {
-                    try { loaded.classifier.close(); } catch (RuntimeException ignored) {}
+                    try { loaded.close(); } catch (RuntimeException ignored) {}
                 }
             }
         } catch (Exception e) {
@@ -162,12 +158,12 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             queuedGeneration = submittedGeneration;
             if (!draining) {
                 draining = true;
-                worker.execute(this::drain);
+                worker.execute(this::processPendingFrames);
             }
         }
     }
 
-    private void drain() {
+    private void processPendingFrames() {
         while (true) {
             Bitmap rgbCopy;
             Bitmap irCopy;

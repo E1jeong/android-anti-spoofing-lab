@@ -68,6 +68,7 @@ public final class MainScreenView {
     private boolean recognitionEnrollmentMode;
     private boolean collectionActive;
     private boolean uiVisibilityLocked;
+    private boolean statusVisible = true;
     private CharSequence currentCleanResultText;
     private DualLightingDetector.Result currentLightingResult;
     private ForegroundEntryDetector.Result currentForegroundEntryResult;
@@ -427,6 +428,20 @@ public final class MainScreenView {
         irAeModeLabel.setVisibility(mode == null ? View.GONE : View.VISIBLE);
     }
 
+    public void setStatusText(CharSequence text) {
+        status.setText(text);
+        updateStatusVisibility();
+    }
+
+    private void setStatusVisible(boolean visible) {
+        statusVisible = visible;
+        updateStatusVisibility();
+    }
+
+    private void updateStatusVisibility() {
+        status.setVisibility(statusVisible && status.length() > 0 ? View.VISIBLE : View.GONE);
+    }
+
     public void enterCalibrationMode() {
         uiVisibilityLocked = true;
         setUiVisible(true);
@@ -434,7 +449,7 @@ public final class MainScreenView {
         clearCleanModeResult();
         overlay.setCalibrationMode(true);
         performance.setVisibility(View.GONE);
-        status.setVisibility(View.GONE);
+        setStatusVisible(false);
         resultsLabel.setVisibility(View.GONE);
         controlsLayout.setVisibility(View.GONE);
         calibrationHotspot.setVisibility(View.GONE);
@@ -455,8 +470,8 @@ public final class MainScreenView {
         calibrationConfirm.setVisibility(View.GONE);
         calibrationCancel.setVisibility(View.GONE);
         performance.setVisibility(View.VISIBLE);
-        status.setText(normalStatusMessage);
-        status.setVisibility(View.VISIBLE);
+        setStatusText(normalStatusMessage);
+        setStatusVisible(true);
         resultsLabel.setVisibility(View.VISIBLE);
         irCropContainer.setVisibility(View.VISIBLE);
         controlsLayout.setVisibility(View.VISIBLE);
@@ -473,7 +488,7 @@ public final class MainScreenView {
         overlay.setCalibrationMode(true);
         overlay.setGuideOnlyMode(true);
         performance.setVisibility(View.GONE);
-        status.setVisibility(View.GONE);
+        setStatusVisible(false);
         resultsLabel.setVisibility(View.GONE);
         irCropContainer.setVisibility(View.GONE);
         controlsLayout.setVisibility(View.GONE);
@@ -503,7 +518,7 @@ public final class MainScreenView {
         if (collectionActive) setUiVisible(true);
         int visibility = visible ? View.VISIBLE : View.GONE;
         performance.setVisibility(visibility);
-        status.setVisibility(visibility);
+        setStatusVisible(visible);
         resultsLabel.setVisibility(visibility);
         irCropContainer.setVisibility(visibility);
         controlsLayout.setVisibility(visibility);
@@ -514,7 +529,7 @@ public final class MainScreenView {
     public void setAuthMode(boolean authMode) {
         int visibility = authMode ? View.GONE : View.VISIBLE;
         performance.setVisibility(visibility);
-        status.setVisibility(visibility);
+        setStatusVisible(!authMode);
         resultsLabel.setVisibility(visibility);
         irCropContainer.setVisibility(visibility);
         controlsLayout.setVisibility(visibility);

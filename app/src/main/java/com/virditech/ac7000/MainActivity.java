@@ -23,6 +23,7 @@ import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
+import android.util.SparseArray;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
@@ -75,7 +76,6 @@ import com.virditech.ac7000.recognition.RecognitionResult;
 import com.virditech.ac7000.recognition.RecognitionWorkCoordinator;
 import com.virditech.ac7000.ui.MainScreenView;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -133,7 +133,7 @@ public final class MainActivity extends Activity {
     private final Object engineLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
     private final AtomicInteger pendingEngineLoads = new AtomicInteger(2);
-    private final ArrayList<AntiSpoofingEngine> antiSpoofingEngines = new ArrayList<>();
+    private SparseArray<AntiSpoofingEngine> antiSpoofingEngines = new SparseArray<>();
     private int activeEngineIndex;
     private volatile boolean enginesShutDown;
     // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
@@ -691,12 +691,13 @@ public final class MainActivity extends Activity {
     }
 
     private void loadAntiSpoofingEngines() {
-        List<AntiSpoofingEngine> loaded = new ArrayList<>();
+        SparseArray<AntiSpoofingEngine> loaded = new SparseArray<>();
         try {
             int slotCount = AntiSpoofingEngine.slotCount(getApplicationContext());
             for (int slotIndex = 0; slotIndex < slotCount; slotIndex++) {
                 try {
-                    loaded.add(AntiSpoofingEngine.create(getApplicationContext(), slotIndex, 10, 3));
+                    loaded.put(slotIndex,
+                            AntiSpoofingEngine.create(getApplicationContext(), slotIndex, 10, 3));
                 } catch (Exception e) {
                     reportEngineError("MODEL " + (slotIndex + 1) + " FAILED: " + e.getMessage());
                 }
@@ -733,20 +734,23 @@ public final class MainActivity extends Activity {
         }
         synchronized (engineLock) {
             if (enginesShutDown) {
-                for (AntiSpoofingEngine slot : loaded) {
-                    try { slot.close(); } catch (Exception ignored) {}
+                for (int i = 0; i < loaded.size(); i++) {
+                    try { loaded.valueAt(i).close(); } catch (Exception ignored) {}
                 }
                 return;
             }
-            antiSpoofingEngines.clear();
-            antiSpoofingEngines.addAll(loaded);
+            antiSpoofingEngines = loaded;
             activeEngineIndex = 0;
-            antiSpoofingEngine = antiSpoofingEngines.isEmpty() ? null : antiSpoofingEngines.get(0);
+            antiSpoofingEngine = loaded.size() == 0 ? null : loaded.valueAt(0);
         }
         runOnUiThread(() -> {
-            screen.modelSwitchButton.setEnabled(antiSpoofingEngines.size() > 1);
-            AntiSpoofingEngine activeInfo = antiSpoofingEngine;
-            if (activeInfo != null) screen.modelSwitchButton.setText(activeInfo.label);
+            synchronized (engineLock) {
+                screen.modelSwitchButton.setEnabled(antiSpoofingEngines.size() > 1);
+                if (antiSpoofingEngines.size() > 0) {
+                    screen.modelSwitchButton.setText(getString(R.string.model_label,
+                            antiSpoofingEngines.keyAt(activeEngineIndex) + 1));
+                }
+            }
             if (antiSpoofingEngine != null && cameras != null) cameras.setIrFramesEnabled(true);
         });
         if (antiSpoofingEngine == null) reportEngineError("No model slots loaded");
@@ -779,12 +783,11 @@ public final class MainActivity extends Activity {
             errors = engineErrors.toString();
         }
         AntiSpoofingEngine activeEngine = antiSpoofingEngine;
-        AntiSpoofingEngine activeInfo = activeEngine;
         String message = errors.isEmpty()
-                ? (activeInfo != null ? "Backend " + activeInfo.backend : "Loading model...")
+                ? (activeEngine != null ? "" : "Loading model...")
                 : errors;
         normalStatusMessage = message;
-        runOnUiThread(() -> screen.status.setText(message));
+        runOnUiThread(() -> screen.setStatusText(message));
     }
 
     private void startCameras() {
@@ -1071,7 +1074,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (!isPipelineCurrent(frame.generation)) return;
                     exitCalibrationMode();
-                    screen.status.setText("Calibration saved");
+                    screen.setStatusText("Calibration saved");
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -1086,13 +1089,11 @@ public final class MainActivity extends Activity {
         Rect rgbCrop = null;
         Rect irCrop = null;
         AntiSpoofingEngine activeEngine;
-        AntiSpoofingEngine activeEngineInfo;
         synchronized (engineLock) {
             activeEngine = antiSpoofingEngine;
-            activeEngineInfo = activeEngine;
         }
         if (activeEngine != null) {
-            float margin = activeEngineInfo.cropMarginRatio;
+            float margin = activeEngine.cropMarginRatio;
             rgbCrop = AntiSpoofingEngine.expandFace(
                     detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
             irCrop = AntiSpoofingEngine.expandFace(irDetected, margin, irWidth, irHeight);
@@ -1191,8 +1192,8 @@ public final class MainActivity extends Activity {
             if (savePermit != null) {
                 final int currentCount = savePermit.sampleIndex;
                 final String subjectDirName = savePermit.className + "_" + savePermit.subjectId;
-                float margin = activeEngineInfo != null
-                        ? activeEngineInfo.cropMarginRatio : 0.10f;
+                float margin = activeEngine != null
+                        ? activeEngine.cropMarginRatio : 0.10f;
                 Rect rgbR = AntiSpoofingEngine.expandFace(detected, margin,
                         frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
                 Rect irR = AntiSpoofingEngine.expandFace(irDetected, margin,
@@ -1302,7 +1303,7 @@ public final class MainActivity extends Activity {
                 ? snapshotCaptureLandmarks(frame, detected, currentLandmarks, activeDetector, "attack_live")
                 : null;
         submitInference(new InferenceTask(frame.detachPair(), detected, irDetected, rgbCrop, irCrop, currentLandmarks,
-                frame.generation, activeEngine, activeEngineInfo.cropMarginRatio,
+                frame.generation, activeEngine,
                 frame.receivedNs, inferenceMotionGeneration.get(), attackLandmarks));
     }
 
@@ -2029,7 +2030,7 @@ public final class MainActivity extends Activity {
         final String metadataJson = CaptureStorage.buildSampleMetadataJson(
                 pair.rgb.bitmap.getWidth(), pair.rgb.bitmap.getHeight(), task.rgbFace, task.rgbCrop,
                 pair.ir.bitmap.getWidth(), pair.ir.bitmap.getHeight(), task.irFace, task.irCrop,
-                task.cropMarginRatio, "attack_live", null, null, -1, -1, 0f);
+                task.engine.cropMarginRatio, "attack_live", null, null, -1, -1, 0f);
         OwnedFrameTask saveTask = new OwnedFrameTask(pair, () -> {
             boolean saved = false;
             try {
@@ -2176,17 +2177,15 @@ public final class MainActivity extends Activity {
 
     private void toggleModel() {
         synchronized (engineLock) {
-            if (antiSpoofingEngines.isEmpty()) return;
+            if (antiSpoofingEngines.size() == 0) return;
             activeEngineIndex = (activeEngineIndex + 1) % antiSpoofingEngines.size();
-            antiSpoofingEngine = antiSpoofingEngines.get(activeEngineIndex);
-            AntiSpoofingEngine activeInfo = antiSpoofingEngine;
-
-            final String btnText = activeInfo.label;
-            final String message = "Backend " + activeInfo.backend;
-            normalStatusMessage = message;
+            antiSpoofingEngine = antiSpoofingEngines.valueAt(activeEngineIndex);
+            final String btnText = getString(R.string.model_label,
+                    antiSpoofingEngines.keyAt(activeEngineIndex) + 1);
+            normalStatusMessage = "";
 
             runOnUiThread(() -> {
-                screen.status.setText(message);
+                screen.setStatusText("");
                 screen.modelSwitchButton.setText(btnText);
                 updatePerformanceHud();
             });
@@ -2219,12 +2218,12 @@ public final class MainActivity extends Activity {
     }
 
     private final Runnable restoreStatusRunnable = () -> {
-        screen.status.setText(normalStatusMessage);
+        screen.setStatusText(normalStatusMessage);
     };
 
     private void showTransientStatus(String message) {
         runOnUiThread(() -> {
-            screen.status.setText(message);
+            screen.setStatusText(message);
             screen.status.removeCallbacks(restoreStatusRunnable);
             screen.status.postDelayed(restoreStatusRunnable, 3000L);
         });
@@ -2448,13 +2447,12 @@ public final class MainActivity extends Activity {
         final LandmarkMetadata captureLandmarks;
         final int generation;
         final AntiSpoofingEngine engine;
-        final float cropMarginRatio;
         final long receivedNs;
         final long enqueuedNs;
         final long motionGeneration;
 
         InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, PointF[] landmarks,
-                      int generation, AntiSpoofingEngine engine, float cropMarginRatio,
+                      int generation, AntiSpoofingEngine engine,
                       long receivedNs, long motionGeneration, LandmarkMetadata captureLandmarks) {
             this.pair = pair;
             this.rgbFace = rgbFace;
@@ -2465,7 +2463,6 @@ public final class MainActivity extends Activity {
             this.captureLandmarks = captureLandmarks;
             this.generation = generation;
             this.engine = engine;
-            this.cropMarginRatio = cropMarginRatio;
             this.receivedNs = receivedNs;
             this.enqueuedNs = SystemClock.elapsedRealtimeNanos();
             this.motionGeneration = motionGeneration;
@@ -2587,8 +2584,8 @@ public final class MainActivity extends Activity {
 
     private void closeAntiSpoofingEngines() {
         synchronized (engineLock) {
-            for (AntiSpoofingEngine engine : antiSpoofingEngines) {
-                try { engine.close(); } catch (Exception ignored) {}
+            for (int i = 0; i < antiSpoofingEngines.size(); i++) {
+                try { antiSpoofingEngines.valueAt(i).close(); } catch (Exception ignored) {}
             }
             antiSpoofingEngine = null;
             antiSpoofingEngines.clear();

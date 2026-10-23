@@ -27,6 +27,7 @@
     <string name="attack_start">ATTACK</string>
     <string name="preview_show_ir">SHOW IR</string>
     <string name="model_initial">MODEL 1</string>
+    <string name="model_label">MODEL %1$d</string>
     <string name="calibration_instruction">Fit one face inside the guide, then press CONFIRM</string>
     <string name="calibration_confirm">CONFIRM</string>
     <string name="calibration_cancel" tools:ignore="ButtonCase">CANCEL</string>

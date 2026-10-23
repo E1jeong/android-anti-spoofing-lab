@@ -30,7 +30,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 2. **anti-spoofing host**:
    - Product hosts load through `AntiSpoofingEngine.create(applicationContext, slotIndex, settleFrames, sampleCount)` on a background thread and pass unexpanded boxes to `infer(rgb, rgbFace, ir, irFace, callback)`. IR-only slots accept null or paired RGB inputs without copying them. The host owns IR LED ON/OFF across every terminal, reset, failure, and close path. This in-repository Lab app discovers slots with `AntiSpoofingEngine.slotCount(...)`, creates one engine per slot, and uses `process(...)` for raw per-frame evaluation. Do not add a host `assets/model_manifest.json` or `assets/ubio-vision/` overlay. Recognition loads its own default when no root `model_manifest.json` is present.
    - Treat `AntiSpoofingResult.probabilities()` as the sole Lab per-frame probability result for both supported model layouts. Do not recreate separate RGB/IR result UI branches.
-   - Read Lab slot metadata from `AntiSpoofingEngine` fields and use `cropMarginRatio` with `AntiSpoofingEngine.expandFace(...)` for preview/capture crops. Model margin and crop implementation stay in `:vision`; do not maintain a parallel metadata list.
+   - Keep engines keyed by their original manifest slot number and display `MODEL 1`, `MODEL 2`, ... even when other slots fail to load. Use `AntiSpoofingEngine.cropMarginRatio` with `AntiSpoofingEngine.expandFace(...)` for preview/capture crops. Model margin and crop implementation stay in `:vision`; do not duplicate model metadata in the app.
    - `FaceMotionGate` (app `model/`) halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame. Lab-only helper, not part of `:vision`.
 
 3. **`recognition`**:
@@ -62,6 +62,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 
 7. **`ui`**:
    - `MainScreenView` owns the main screen hierarchy and UI state transitions.
+   - Update lower-left status messages through `MainScreenView.setStatusText(...)`; empty text is `GONE`, and message updates must preserve mode-specific hiding.
    - `CaptureConfigDialog` owns capture-dialog construction, input synchronization, and show/dismiss; `MainScreenView` delegates through its public entry points.
    - `OverlayView` renders the face box (white while collecting, cyan in Auth Mode, otherwise colored by result), the top-class and recognition labels outside collection/Auth Mode, the capture sector grid and countdown, and calibration/observation guides.
 

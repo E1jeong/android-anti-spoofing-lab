@@ -8,21 +8,11 @@ import org.json.JSONObject;
 final class ModelLoader {
     private ModelLoader() {}
 
-    static final class LoadedModel {
-        final String label;
-        final Classifier classifier;
-
-        private LoadedModel(String label, Classifier classifier) {
-            this.label = label;
-            this.classifier = classifier;
-        }
-    }
-
     static int slotCount(Context context) throws Exception {
         return loadManifest(context).length();
     }
 
-    static LoadedModel loadSelected(Context context, int index) throws Exception {
+    static Classifier loadSelected(Context context, int index) throws Exception {
         JSONArray models = loadManifest(context);
         if (index < 0 || index >= models.length()) {
             throw new IllegalArgumentException("Model slot index is out of range: " + index);
@@ -31,7 +21,7 @@ final class ModelLoader {
         if (json == null) {
             throw new IllegalArgumentException("Model slot is not an object: " + index);
         }
-        return loadSlot(context, json.optString("label", "MODEL " + (index + 1)), json);
+        return loadSlot(context, json);
     }
 
     private static JSONArray loadManifest(Context context) throws Exception {
@@ -43,7 +33,7 @@ final class ModelLoader {
         return models;
     }
 
-    private static LoadedModel loadSlot(Context context, String label, JSONObject json) throws Exception {
+    private static Classifier loadSlot(Context context, JSONObject json) throws Exception {
         String type = json.getString("type");
         validateType(type);
 
@@ -58,9 +48,8 @@ final class ModelLoader {
                     && inputCount != VisionConstants.DUAL_INPUT_COUNT)) {
                 throw new IllegalArgumentException(type + " model has " + inputCount + " inputs");
             }
-            LoadedModel model = new LoadedModel(label, classifier);
             loaded = true;
-            return model;
+            return classifier;
         } finally {
             if (!loaded) closeQuietly(classifier);
         }
