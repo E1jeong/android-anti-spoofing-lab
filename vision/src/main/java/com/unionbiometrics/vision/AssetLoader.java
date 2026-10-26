@@ -22,8 +22,8 @@ final class AssetLoader {
         if (normalized.startsWith("/")) {
             throw new IllegalArgumentException("Asset name must be relative: " + relativeName);
         }
-        if (normalized.startsWith(VisionConstants.DIRECTORY + "/")) return normalized;
-        return VisionConstants.DIRECTORY + "/" + normalized;
+        if (normalized.startsWith(Constants.ASSET_DIRECTORY + "/")) return normalized;
+        return Constants.ASSET_DIRECTORY + "/" + normalized;
     }
 
     static String readUtf8(Context context, String relativeName) throws IOException {

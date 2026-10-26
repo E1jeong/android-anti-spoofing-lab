@@ -8,11 +8,11 @@ import org.json.JSONObject;
 final class ModelLoader {
     private ModelLoader() {}
 
-    static int slotCount(Context context) throws Exception {
+    static int modelCount(Context context) throws Exception {
         return loadManifest(context).length();
     }
 
-    static Classifier loadSelected(Context context, int index) throws Exception {
+    static Classifier loadModel(Context context, int index) throws Exception {
         JSONArray models = loadManifest(context);
         if (index < 0 || index >= models.length()) {
             throw new IllegalArgumentException("Model slot index is out of range: " + index);
@@ -21,19 +21,19 @@ final class ModelLoader {
         if (json == null) {
             throw new IllegalArgumentException("Model slot is not an object: " + index);
         }
-        return loadSlot(context, json);
+        return loadClassifier(context, json);
     }
 
     private static JSONArray loadManifest(Context context) throws Exception {
-        JSONObject root = new JSONObject(AssetLoader.readUtf8(context, VisionConstants.MANIFEST));
+        JSONObject root = new JSONObject(AssetLoader.readUtf8(context, Constants.MODEL_MANIFEST));
         JSONArray models = root.optJSONArray("models");
         if (models == null || models.length() == 0) {
-            throw new IllegalStateException(AssetLoader.getAssetPath(VisionConstants.MANIFEST) + " has no models");
+            throw new IllegalStateException(AssetLoader.getAssetPath(Constants.MODEL_MANIFEST) + " has no models");
         }
         return models;
     }
 
-    private static Classifier loadSlot(Context context, JSONObject json) throws Exception {
+    private static Classifier loadClassifier(Context context, JSONObject json) throws Exception {
         String type = json.getString("type");
         validateType(type);
 
@@ -42,10 +42,10 @@ final class ModelLoader {
         boolean loaded = false;
         try {
             int inputCount = classifier.inputTensorCount();
-            if ((VisionConstants.SINGLE_1_INPUT.equals(type)
-                    && inputCount != VisionConstants.IR_INPUT_COUNT)
-                    || (VisionConstants.DUAL_2_INPUT.equals(type)
-                    && inputCount != VisionConstants.DUAL_INPUT_COUNT)) {
+            if ((Constants.SINGLE_1_INPUT.equals(type)
+                    && inputCount != Constants.IR_INPUT_COUNT)
+                    || (Constants.DUAL_2_INPUT.equals(type)
+                    && inputCount != Constants.DUAL_INPUT_COUNT)) {
                 throw new IllegalArgumentException(type + " model has " + inputCount + " inputs");
             }
             loaded = true;
@@ -56,8 +56,8 @@ final class ModelLoader {
     }
 
     static void validateType(String type) {
-        if (!VisionConstants.SINGLE_1_INPUT.equals(type)
-                && !VisionConstants.DUAL_2_INPUT.equals(type)) {
+        if (!Constants.SINGLE_1_INPUT.equals(type)
+                && !Constants.DUAL_2_INPUT.equals(type)) {
             throw new IllegalArgumentException("Unsupported model type: " + type);
         }
     }

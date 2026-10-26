@@ -27,7 +27,7 @@
 - **Camera Teardown Sequencing**: Never close `ImageReader` or preview `Surface` before `CameraDevice.StateCallback.onClosed()` has fired (avoids native `SIGSEGV` in `YuvConverter`).
 - **Capture Atomicity**: A capture sample advances the count only when all 6 files (`RGB.bmp`, `cropRGB.bmp`, `IR.bmp`, `cropIR.bmp`, `meta.json`, `landmarks.json`) succeed, including explicit unavailable-landmark records.
 - **Model Input Contract**: Manifest slots support only IR `single_1_input` and RGB+IR `dual_2_input`. Reject RGB-only, paired one-input, five-input, and any additional-input form in both build-time asset validation and runtime loading.
-- **Output Dimension Contract**: Anti-spoofing output must match `VisionConstants.CLASS_LABELS` in shape and order; the current evaluator requires `[1,12]` and rejects legacy ten-class assets.
+- **Output Dimension Contract**: Anti-spoofing output must match `Constants.CLASS_LABELS` in shape and order; the current evaluator requires `[1,12]` and rejects legacy ten-class assets.
 - **Secrets & Credentials**: Never commit `FACEME_LICENSE_KEY`, private Maven URLs, keystores, or signaling server credentials.
 
 ## Verify

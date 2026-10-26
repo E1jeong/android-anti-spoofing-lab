@@ -1,6 +1,7 @@
 package com.unionbiometrics.vision;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 import org.junit.Test;
 
@@ -28,13 +29,13 @@ public class ModelSpecTest {
                 + "\"inputs\":[{"
                 + "\"index\":0,"
                 + "\"shape\":[1,224,224,1],"
-                + "\"input_kind\":\"ir\","
+                + "\"input_type\":\"ir\","
                 + "\"normalization\":{\"mean\":[0.5],\"std\":[0.5]}"
                 + "}],"
                 + "\"outputs\":[{\"output_is_logits\":true}]," + CLASS_ORDER
                 + "}");
 
-        assertEquals("ir", spec.inputKind);
+        assertEquals("ir", spec.singleInputType);
         assertEquals(0.1f, spec.cropMarginRatio, 0.0001f);
         assertEquals(0, spec.irInputIndex);
         assertEquals(-1, spec.rgbInputIndex);
@@ -43,17 +44,24 @@ public class ModelSpecTest {
     }
 
     @Test(expected = IllegalArgumentException.class)
+    public void rejectsOldInputKindKey() throws Exception {
+        ModelSpec.parse("{\"inputs\":[{\"index\":0,"
+                + "\"shape\":[1,224,224,1],\"input_kind\":\"ir\"}]," + CLASS_ORDER + "}");
+    }
+
+    @Test
     public void rejectsInvalidCropMargin() throws Exception {
-        ModelSpec.parse("{"
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> ModelSpec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":1.5,"
                 + "\"inputs\":[{"
                 + "\"index\":0,"
                 + "\"shape\":[1,224,224,1],"
-                + "\"input_kind\":\"ir\","
+                + "\"input_type\":\"ir\","
                 + "\"normalization\":{\"mean\":[0.5],\"std\":[0.5]}"
-                + "}]"
-                + "}");
+                + "}]," + CLASS_ORDER
+                + "}"));
+        assertEquals("model_spec.json contains invalid cropMarginRatio", error.getMessage());
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -64,7 +72,7 @@ public class ModelSpecTest {
                 + "\"inputs\":[{"
                 + "\"index\":0,"
                 + "\"shape\":[1,224,224,3],"
-                + "\"input_kind\":\"rgb\","
+                + "\"input_type\":\"rgb\","
                 + "\"normalization\":{\"mean\":[0.5,0.5,0.5],\"std\":[0.5,0.5,0.5]}"
                 + "}]"
                 + "}");
@@ -76,13 +84,14 @@ public class ModelSpecTest {
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.2,"
                 + "\"inputs\":["
-                + "{\"index\":0,\"shape\":[1,224,224,3],\"input_kind\":\"rgb\","
+                + "{\"index\":0,\"shape\":[1,224,224,3],\"input_type\":\"rgb\","
                 + "\"normalization\":{\"mean\":[0.4,0.5,0.6],\"std\":[0.2,0.3,0.4]}},"
-                + "{\"index\":1,\"shape\":[1,224,224,1],\"input_kind\":\"ir\","
+                + "{\"index\":1,\"shape\":[1,224,224,1],\"input_type\":\"ir\","
                 + "\"normalization\":{\"mean\":[0.6],\"std\":[0.3]}}"
                 + "],\"outputs\":[{\"output_is_logits\":true}]," + CLASS_ORDER
                 + "}");
 
+        assertEquals("", spec.singleInputType);
         assertEquals(0, spec.rgbInputIndex);
         assertEquals(1, spec.irInputIndex);
         assertEquals(0.4f, spec.rgbMean[0], 0.0001f);
@@ -138,14 +147,14 @@ public class ModelSpecTest {
     @Test
     public void acceptsFixedContractWithoutOptionalSettings() throws Exception {
         ModelSpec spec = ModelSpec.parse("{\"inputs\":[{\"index\":0,"
-                + "\"shape\":[1,224,224,1],\"input_kind\":\"ir\"}]," + CLASS_ORDER + "}");
+                + "\"shape\":[1,224,224,1],\"input_type\":\"ir\"}]," + CLASS_ORDER + "}");
 
         assertEquals(0, spec.irInputIndex);
     }
 
     private static String irSpec(String settings, int size, boolean logits) {
         return "{" + settings + "\"inputs\":[{\"index\":0,\"shape\":[1,"
-                + size + "," + size + ",1],\"input_kind\":\"ir\"}],"
+                + size + "," + size + ",1],\"input_type\":\"ir\"}],"
                 + "\"outputs\":[{\"output_is_logits\":" + logits + "}]," + CLASS_ORDER + "}";
     }
 
@@ -155,11 +164,11 @@ public class ModelSpecTest {
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":["
-                + "{\"index\":0,\"shape\":[1,224,224,3],\"input_kind\":\"rgb\","
+                + "{\"index\":0,\"shape\":[1,224,224,3],\"input_type\":\"rgb\","
                 + "\"normalization\":{\"mean\":[0.5,0.5,0.5],\"std\":[0.5,0.5,0.5]}},"
-                + "{\"index\":1,\"shape\":[1,224,224,1],\"input_kind\":\"ir\","
+                + "{\"index\":1,\"shape\":[1,224,224,1],\"input_type\":\"ir\","
                 + "\"normalization\":{\"mean\":[0.5],\"std\":[0.5]}},"
-                + "{\"index\":2,\"shape\":[1,224,224,1],\"input_kind\":\"heatmap\","
+                + "{\"index\":2,\"shape\":[1,224,224,1],\"input_type\":\"heatmap\","
                 + "\"normalization\":{\"mean\":[0.0],\"std\":[1.0]}}"
                 + "]"
                 + "}");
@@ -168,13 +177,13 @@ public class ModelSpecTest {
     @Test(expected = IllegalArgumentException.class)
     public void rejectsMissingClassOrder() throws Exception {
         ModelSpec.parse("{\"inputs\":[{\"index\":0,\"shape\":[1,224,224,1],"
-                + "\"input_kind\":\"ir\"}]}");
+                + "\"input_type\":\"ir\"}]}");
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsReorderedClasses() throws Exception {
         ModelSpec.parse("{\"inputs\":[{\"index\":0,\"shape\":[1,224,224,1],"
-                + "\"input_kind\":\"ir\"}],"
+                + "\"input_type\":\"ir\"}],"
                 + CLASS_ORDER.replace("\"live\",\"print\"", "\"print\",\"live\"") + "}");
     }
 
@@ -186,7 +195,7 @@ public class ModelSpecTest {
                 + "\"inputs\":[{"
                 + "\"index\":1,"
                 + "\"shape\":[1,224,224,1],"
-                + "\"input_kind\":\"ir\","
+                + "\"input_type\":\"ir\","
                 + "\"normalization\":{\"mean\":[0.5],\"std\":[0.5]}"
                 + "}]"
                 + "}");
@@ -198,23 +207,23 @@ public class ModelSpecTest {
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":["
-                + "{\"index\":0,\"shape\":[1,224,224,3],\"input_kind\":\"rgb\","
+                + "{\"index\":0,\"shape\":[1,224,224,3],\"input_type\":\"rgb\","
                 + "\"normalization\":{\"mean\":[0.5,0.5,0.5],\"std\":[0.5,0.5,0.5]}},"
-                + "{\"index\":2,\"shape\":[1,224,224,1],\"input_kind\":\"ir\","
+                + "{\"index\":2,\"shape\":[1,224,224,1],\"input_type\":\"ir\","
                 + "\"normalization\":{\"mean\":[0.5],\"std\":[0.5]}}"
                 + "]"
                 + "}");
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void rejectsSidecarChannelsThatDoNotMatchInputKind() throws Exception {
+    public void rejectsSidecarChannelsThatDoNotMatchInputType() throws Exception {
         ModelSpec.parse("{"
                 + "\"delegate\":\"nnapi\","
                 + "\"crop_margin_ratio\":0.1,"
                 + "\"inputs\":[{"
                 + "\"index\":0,"
                 + "\"shape\":[1,224,224,3],"
-                + "\"input_kind\":\"ir\","
+                + "\"input_type\":\"ir\","
                 + "\"normalization\":{\"mean\":[0.5],\"std\":[0.5]}"
                 + "}]"
                 + "}");

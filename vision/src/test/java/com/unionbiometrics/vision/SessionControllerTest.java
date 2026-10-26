@@ -14,7 +14,7 @@ public class SessionControllerTest {
         for (int i = 0; i < 10; i++) {
             AntiSpoofingResult waiting = controller.prepare();
             assertEquals(AntiSpoofingResult.Status.RUNNING, waiting.status());
-            assertEquals(9 - i, waiting.settleRemaining());
+            assertEquals(9 - i, waiting.settleFramesRemaining());
             assertEquals(0, waiting.usedFrameCount());
         }
         assertNull(controller.prepare());
@@ -106,7 +106,7 @@ public class SessionControllerTest {
     }
 
     private static float[] classificationAt(int index) {
-        float[] probabilities = new float[VisionConstants.CLASS_COUNT];
+        float[] probabilities = new float[Constants.CLASS_COUNT];
         probabilities[index] = 1f;
         return probabilities;
     }

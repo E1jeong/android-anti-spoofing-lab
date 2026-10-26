@@ -79,13 +79,13 @@ tasks.register('verifyVisionAssets') {
             if (!(inputs instanceof List)) {
                 throw new GradleException('Vision sidecar must contain generated inputs: ' + model.spec)
             }
-            def inputKinds = inputs.collect { it.input_kind }
+            def inputTypes = inputs.collect { it.input_type }
             def inputIndices = inputs.collect { it.index }
             def validSingle = type == 'single_1_input'
-                    && inputKinds == ['ir'] && inputIndices == [0]
+                    && inputTypes == ['ir'] && inputIndices == [0]
             def validDual = type == 'dual_2_input'
                     && inputs.size() == 2
-                    && inputKinds.toSet() == ['rgb', 'ir'] as Set
+                    && inputTypes.toSet() == ['rgb', 'ir'] as Set
                     && inputIndices.toSet() == [0, 1] as Set
             if (!validSingle && !validDual) {
                 throw new GradleException('Vision sidecar inputs do not match ' + type + ': ' + model.spec)

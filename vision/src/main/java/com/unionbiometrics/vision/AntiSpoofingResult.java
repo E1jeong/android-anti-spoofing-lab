@@ -11,7 +11,7 @@ public final class AntiSpoofingResult {
     private final Long inferenceMs;
     private final long preprocessMs;
     private final String errorMessage;
-    private final int settleRemaining;
+    private final int settleFramesRemaining;
     private final int usedFrameCount;
 
     static AntiSpoofingResult frameResult(float[] probabilities, long preprocessMs, long inferenceMs) {
@@ -27,17 +27,17 @@ public final class AntiSpoofingResult {
     }
 
     static AntiSpoofingResult sessionRunning(float[] probabilities, Long inferenceMs,
-                                            int settleRemaining, int usedFrameCount) {
+                                            int settleFramesRemaining, int usedFrameCount) {
         return new AntiSpoofingResult(Status.RUNNING, probabilities,
                 probabilities == null ? -1 : topIndexOf(probabilities),
-                inferenceMs, 0L, null, settleRemaining, usedFrameCount);
+                inferenceMs, 0L, null, settleFramesRemaining, usedFrameCount);
     }
 
     static AntiSpoofingResult sessionComplete(float[] probabilities, long inferenceMs,
-                                             int settleRemaining, int usedFrameCount) {
+                                             int settleFramesRemaining, int usedFrameCount) {
         int topIndex = topIndexOf(probabilities);
         return new AntiSpoofingResult(isLiveClass(topIndex) ? Status.LIVE : Status.SPOOF,
-                probabilities, topIndex, inferenceMs, 0L, null, settleRemaining, usedFrameCount);
+                probabilities, topIndex, inferenceMs, 0L, null, settleFramesRemaining, usedFrameCount);
     }
 
     static AntiSpoofingResult sessionError(String message) {
@@ -47,14 +47,14 @@ public final class AntiSpoofingResult {
 
     private AntiSpoofingResult(Status status, float[] probabilities, int topIndex,
                               Long inferenceMs, long preprocessMs, String errorMessage,
-                              int settleRemaining, int usedFrameCount) {
+                              int settleFramesRemaining, int usedFrameCount) {
         this.status = status;
         this.probabilities = probabilities == null ? null : probabilities.clone();
         this.topIndex = topIndex;
         this.inferenceMs = inferenceMs;
         this.preprocessMs = preprocessMs;
         this.errorMessage = errorMessage;
-        this.settleRemaining = settleRemaining;
+        this.settleFramesRemaining = settleFramesRemaining;
         this.usedFrameCount = usedFrameCount;
     }
 
@@ -64,9 +64,9 @@ public final class AntiSpoofingResult {
     public float score() { return topIndex < 0 ? 0f : probabilities[topIndex]; }
     public float probability(int index) { return probabilities[index]; }
     public boolean isAccepted() { return status == Status.LIVE; }
-    public static String[] classLabels() { return VisionConstants.CLASS_LABELS.clone(); }
+    public static String[] classLabels() { return Constants.CLASS_LABELS.clone(); }
     public static String classDisplayLabel(int index) {
-        String label = VisionConstants.CLASS_LABELS[index];
+        String label = Constants.CLASS_LABELS[index];
         return label.startsWith("CURVED_")
                 ? "C " + label.substring("CURVED_".length()) : label;
     }
@@ -74,12 +74,12 @@ public final class AntiSpoofingResult {
     public Long inferenceMs() { return inferenceMs; }
     public long preprocessMs() { return preprocessMs; }
     public String errorMessage() { return errorMessage; }
-    public int settleRemaining() { return settleRemaining; }
+    public int settleFramesRemaining() { return settleFramesRemaining; }
     public int usedFrameCount() { return usedFrameCount; }
 
     static int topIndexOf(float[] probabilities) {
-        if (probabilities == null || probabilities.length != VisionConstants.CLASS_COUNT) {
-            throw new IllegalArgumentException("probabilities must have length " + VisionConstants.CLASS_COUNT);
+        if (probabilities == null || probabilities.length != Constants.CLASS_COUNT) {
+            throw new IllegalArgumentException("probabilities must have length " + Constants.CLASS_COUNT);
         }
         int best = 0;
         for (int i = 1; i < probabilities.length; i++) {
@@ -89,8 +89,8 @@ public final class AntiSpoofingResult {
     }
 
     static boolean isLiveClass(int index) {
-        return index == Arrays.asList(VisionConstants.CLASS_LABELS).indexOf("LIVE")
-                || index == Arrays.asList(VisionConstants.CLASS_LABELS).indexOf("DENTAL_WHITE")
-                || index == Arrays.asList(VisionConstants.CLASS_LABELS).indexOf("DENTAL_BLACK");
+        return index == Arrays.asList(Constants.CLASS_LABELS).indexOf("LIVE")
+                || index == Arrays.asList(Constants.CLASS_LABELS).indexOf("DENTAL_WHITE")
+                || index == Arrays.asList(Constants.CLASS_LABELS).indexOf("DENTAL_BLACK");
     }
 }

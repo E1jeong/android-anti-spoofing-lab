@@ -30,13 +30,13 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private long nextSubmissionId;
     private long latestQueuedSubmissionId;
     private boolean processingFrames;
-    private boolean decisionScheduled;
+    private boolean finalResultScheduled;
     private volatile boolean closed;
 
     private AntiSpoofingEngine(Classifier classifier, int settleFrames, int sampleCount) {
         this.classifier = classifier;
         session = new SessionController(settleFrames, sampleCount);
-        requiresRgb = classifier.inputTensorCount() == VisionConstants.DUAL_INPUT_COUNT;
+        requiresRgb = classifier.inputTensorCount() == Constants.DUAL_INPUT_COUNT;
         cropMarginRatio = classifier.cropMarginRatio();
     }
 
@@ -72,7 +72,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         if (context == null) throw new IllegalArgumentException("context must not be null");
         Context application = context.getApplicationContext();
         try {
-            Classifier loaded = ModelLoader.loadSelected(
+            Classifier loaded = ModelLoader.loadModel(
                     application == null ? context : application, slotIndex);
             boolean created = false;
             try {
@@ -92,10 +92,10 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     }
 
     /** Number of model entries in the bundled manifest. */
-    public static int slotCount(Context context) {
+    public static int modelCount(Context context) {
         if (context == null) throw new IllegalArgumentException("context must not be null");
         try {
-            return ModelLoader.slotCount(context);
+            return ModelLoader.modelCount(context);
         } catch (Exception e) {
             throw new IllegalStateException("Model manifest failed to load: " + e.getMessage(), e);
         }
@@ -191,10 +191,10 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                     result = processSessionFrame(rgbCopy, irCopy);
                     notifyResult = result.status() == AntiSpoofingResult.Status.ERROR
                             || (result.status() != AntiSpoofingResult.Status.RUNNING
-                            && !decisionScheduled);
+                            && !finalResultScheduled);
                     if (result.status() == AntiSpoofingResult.Status.LIVE
                             || result.status() == AntiSpoofingResult.Status.SPOOF) {
-                        decisionScheduled = true;
+                        finalResultScheduled = true;
                     }
                 }
             } catch (RuntimeException e) {
@@ -295,7 +295,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             recycleQueuedFrame();
             synchronized (inferenceLock) {
                 session.reset();
-                decisionScheduled = false;
+                finalResultScheduled = false;
             }
         }
     }

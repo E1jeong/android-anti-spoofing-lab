@@ -16,7 +16,7 @@ public class AntiSpoofingLabelsTest {
         }, labels);
         labels[0] = "changed";
 
-        assertEquals(12, VisionConstants.CLASS_COUNT);
+        assertEquals(12, Constants.CLASS_COUNT);
         assertEquals("LIVE", AntiSpoofingResult.classLabels()[0]);
         assertEquals("DENTAL_BLACK", AntiSpoofingResult.classLabels()[11]);
     }

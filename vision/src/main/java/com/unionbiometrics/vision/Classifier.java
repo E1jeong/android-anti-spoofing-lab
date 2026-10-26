@@ -36,8 +36,8 @@ final class Classifier {
     private final Object[] inputs;
     private final DataType outputDataType;
     private final Tensor.QuantizationParams outputQuantization;
-    private final float[][] outputFloat = new float[1][VisionConstants.CLASS_COUNT];
-    private final byte[][] outputInt8 = new byte[1][VisionConstants.CLASS_COUNT];
+    private final float[][] outputFloat = new float[1][Constants.CLASS_COUNT];
+    private final byte[][] outputInt8 = new byte[1][Constants.CLASS_COUNT];
     private final Map<Integer, Object> outputs = new HashMap<>();
 
     Classifier(Context context, String modelName, String specName) throws Exception {
@@ -46,13 +46,13 @@ final class Classifier {
         InputMapping mapping = null;
         InputBuffer cropRgb = null;
         InputBuffer cropIr = null;
-        Object[] liveInputs;
-        DataType liveOutputType;
-        Tensor.QuantizationParams liveOutputQuantization;
+        Object[] preparedInputs;
+        DataType preparedOutputType;
+        Tensor.QuantizationParams preparedOutputQuantization;
         try {
             int inputTensorCount = interpreter.getInputTensorCount();
-            if ((inputTensorCount != VisionConstants.IR_INPUT_COUNT
-                    && inputTensorCount != VisionConstants.DUAL_INPUT_COUNT)
+            if ((inputTensorCount != Constants.IR_INPUT_COUNT
+                    && inputTensorCount != Constants.DUAL_INPUT_COUNT)
                     || interpreter.getOutputTensorCount() != 1) {
                 throw new IllegalArgumentException("Model must have exactly one or two inputs and one output");
             }
@@ -61,39 +61,39 @@ final class Classifier {
             mapping = getInputMapping();
             if (mapping.cropRgbIndex >= 0) {
                 Tensor cropRgbTensor = interpreter.getInputTensor(mapping.cropRgbIndex);
-                validateInput(cropRgbTensor, "cropRgb", VisionConstants.RGB_CHANNELS);
+                validateInput(cropRgbTensor, "cropRgb", Constants.RGB_CHANNELS);
                 cropRgb = new InputBuffer(cropRgbTensor, InputType.RGB);
             }
             if (mapping.cropIrIndex >= 0) {
                 Tensor cropIrTensor = interpreter.getInputTensor(mapping.cropIrIndex);
-                validateInput(cropIrTensor, "cropIr", VisionConstants.IR_CHANNELS);
+                validateInput(cropIrTensor, "cropIr", Constants.IR_CHANNELS);
                 cropIr = new InputBuffer(cropIrTensor, InputType.IR);
             }
-            liveInputs = new Object[interpreter.getInputTensorCount()];
+            preparedInputs = new Object[interpreter.getInputTensorCount()];
 
             Tensor outputTensor = interpreter.getOutputTensor(0);
-            liveOutputType = outputTensor.dataType();
-            liveOutputQuantization = outputTensor.quantizationParams();
+            preparedOutputType = outputTensor.dataType();
+            preparedOutputQuantization = outputTensor.quantizationParams();
             int[] outputShape = outputTensor.shape();
-            if ((liveOutputType != DataType.FLOAT32 && liveOutputType != DataType.INT8)
+            if ((preparedOutputType != DataType.FLOAT32 && preparedOutputType != DataType.INT8)
                     || outputShape.length != 2 || outputShape[0] != 1
-                    || outputShape[1] != VisionConstants.CLASS_COUNT) {
+                    || outputShape[1] != Constants.CLASS_COUNT) {
                 throw new IllegalArgumentException("Output must be FLOAT32/INT8 [1,"
-                        + VisionConstants.CLASS_COUNT + "], actual="
-                        + liveOutputType + " " + Arrays.toString(outputShape));
+                        + Constants.CLASS_COUNT + "], actual="
+                        + preparedOutputType + " " + Arrays.toString(outputShape));
             }
-            if (liveOutputType == DataType.INT8 && liveOutputQuantization.getScale() <= 0f) {
+            if (preparedOutputType == DataType.INT8 && preparedOutputQuantization.getScale() <= 0f) {
                 throw new IllegalArgumentException("INT8 output must have a positive quantization scale");
             }
-            outputs.put(0, liveOutputType == DataType.FLOAT32 ? outputFloat : outputInt8);
+            outputs.put(0, preparedOutputType == DataType.FLOAT32 ? outputFloat : outputInt8);
 
             long warmupStart = SystemClock.elapsedRealtime();
-            if (cropRgb != null) liveInputs[mapping.cropRgbIndex] = cropRgb.zeroFill();
-            if (cropIr != null) liveInputs[mapping.cropIrIndex] = cropIr.zeroFill();
-            interpreter.runForMultipleInputsOutputs(liveInputs, outputs);
+            if (cropRgb != null) preparedInputs[mapping.cropRgbIndex] = cropRgb.zeroFill();
+            if (cropIr != null) preparedInputs[mapping.cropIrIndex] = cropIr.zeroFill();
+            interpreter.runForMultipleInputsOutputs(preparedInputs, outputs);
             Log.i(TAG, "Model warmup completed in "
                     + (SystemClock.elapsedRealtime() - warmupStart)
-                    + " ms using " + VisionConstants.BACKEND_NNAPI);
+                    + " ms using " + Constants.BACKEND_NNAPI);
         } catch (IllegalArgumentException e) {
             releasePartial(interpreter, cropRgb, cropIr);
             throw e;
@@ -105,9 +105,9 @@ final class Classifier {
         inputMapping = mapping;
         cropRgbInput = cropRgb;
         cropIrInput = cropIr;
-        inputs = liveInputs;
-        outputDataType = liveOutputType;
-        outputQuantization = liveOutputQuantization;
+        inputs = preparedInputs;
+        outputDataType = preparedOutputType;
+        outputQuantization = preparedOutputQuantization;
     }
 
     float cropMarginRatio() {
@@ -149,22 +149,22 @@ final class Classifier {
     }
 
     private InputMapping getInputMapping() {
-        if (interpreter.getInputTensorCount() == VisionConstants.IR_INPUT_COUNT) {
+        if (interpreter.getInputTensorCount() == Constants.IR_INPUT_COUNT) {
             InputMapping mapping = new InputMapping();
-            if (!VisionConstants.INPUT_KIND_IR.equals(spec.inputKind)) {
-                throw new IllegalArgumentException("1-input model requires inputKind=ir in model_spec.json");
+            if (!Constants.INPUT_TYPE_IR.equals(spec.singleInputType)) {
+                throw new IllegalArgumentException("1-input model requires input_type=ir in model_spec.json");
             }
             mapping.cropIrIndex = 0;
             Log.i(TAG, "Resolved 1-input mapping ir=0");
             return mapping;
         }
-        if (interpreter.getInputTensorCount() == VisionConstants.DUAL_INPUT_COUNT) {
+        if (interpreter.getInputTensorCount() == Constants.DUAL_INPUT_COUNT) {
             InputMapping mapping = new InputMapping();
             if (spec.rgbInputIndex < 0 || spec.irInputIndex < 0
                     || spec.rgbInputIndex == spec.irInputIndex
-                    || spec.rgbInputIndex >= VisionConstants.DUAL_INPUT_COUNT
-                    || spec.irInputIndex >= VisionConstants.DUAL_INPUT_COUNT) {
-                throw new IllegalArgumentException("2-input model requires rgbInputIndex and irInputIndex in model_spec.json");
+                    || spec.rgbInputIndex >= Constants.DUAL_INPUT_COUNT
+                    || spec.irInputIndex >= Constants.DUAL_INPUT_COUNT) {
+                throw new IllegalArgumentException("2-input model requires RGB and IR inputs[].input_type at distinct inputs[].index values 0 and 1 in model_spec.json");
             }
             mapping.cropRgbIndex = spec.rgbInputIndex;
             mapping.cropIrIndex = spec.irInputIndex;
@@ -177,14 +177,14 @@ final class Classifier {
 
     private void validateInput(Tensor tensor, String name, int requiredChannels) {
         int[] shape = tensor.shape();
-        boolean validSize = shape.length == 4 && shape[1] == VisionConstants.INPUT_SIZE
-                && shape[2] == VisionConstants.INPUT_SIZE;
+        boolean validSize = shape.length == 4 && shape[1] == Constants.INPUT_SIZE
+                && shape[2] == Constants.INPUT_SIZE;
         boolean validChannels = shape.length == 4 && shape[3] == requiredChannels;
         if (shape.length != 4 || shape[0] != 1 || !validSize || !validChannels
                 || (tensor.dataType() != DataType.FLOAT32 && tensor.dataType() != DataType.UINT8
                 && tensor.dataType() != DataType.INT8)) {
             throw new IllegalArgumentException(name + " input must be NHWC "
-                    + VisionConstants.INPUT_SIZE + "x" + VisionConstants.INPUT_SIZE
+                    + Constants.INPUT_SIZE + "x" + Constants.INPUT_SIZE
                     + "x" + requiredChannels + " FLOAT32/UINT8/INT8, actual="
                     + tensor.dataType() + " " + Arrays.toString(shape));
         }
@@ -336,7 +336,7 @@ final class Classifier {
             float[][] lut = new float[channels][256];
             for (int channel = 0; channel < channels; channel++) {
                 for (int value = 0; value < 256; value++) {
-                    lut[channel][value] = normalizeImage(value, channel);
+                    lut[channel][value] = normalizeChannelValue(value, channel);
                 }
             }
             return lut;
@@ -347,7 +347,7 @@ final class Classifier {
             for (int channel = 0; channel < channels; channel++) {
                 for (int value = 0; value < 256; value++) {
                     lut[channel][value] = dataType == DataType.INT8
-                            ? quantize(normalizeImage(value, channel))
+                            ? quantize(normalizeChannelValue(value, channel))
                             : (byte) value;
                 }
             }
@@ -438,7 +438,7 @@ final class Classifier {
             }
         }
 
-        private float normalizeImage(int value, int channel) {
+        private float normalizeChannelValue(int value, int channel) {
             if (inputType == InputType.IR) {
                 return normalizeWithMeanStd(value / 255.0f, spec.irMean, spec.irStd, channel);
             }

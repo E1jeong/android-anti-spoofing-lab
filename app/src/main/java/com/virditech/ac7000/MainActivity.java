@@ -693,8 +693,8 @@ public final class MainActivity extends Activity {
     private void loadAntiSpoofingEngines() {
         SparseArray<AntiSpoofingEngine> loaded = new SparseArray<>();
         try {
-            int slotCount = AntiSpoofingEngine.slotCount(getApplicationContext());
-            for (int slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+            int modelCount = AntiSpoofingEngine.modelCount(getApplicationContext());
+            for (int slotIndex = 0; slotIndex < modelCount; slotIndex++) {
                 try {
                     loaded.put(slotIndex,
                             AntiSpoofingEngine.create(getApplicationContext(), slotIndex, 10, 3));

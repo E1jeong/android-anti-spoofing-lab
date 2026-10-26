@@ -3,35 +3,35 @@ package com.unionbiometrics.vision;
 import java.util.Arrays;
 
 final class SessionController {
-    private final int irSettleFrameCount;
-    private final int requiredSamplingCount;
-    private final float[] sums = new float[VisionConstants.CLASS_COUNT];
-    private int samplingCount;
+    private final int settleFrames;
+    private final int sampleCount;
+    private final float[] probabilitySums = new float[Constants.CLASS_COUNT];
+    private int usedFrameCount;
     private boolean sessionActive;
     private boolean closed;
     private int settleFramesRemaining;
-    private AntiSpoofingResult decision;
+    private AntiSpoofingResult finalResult;
 
-    SessionController(int irSettleFrameCount, int samplingCount) {
-        if (irSettleFrameCount < 0) {
-            throw new IllegalArgumentException("irSettleFrameCount must be >= 0");
+    SessionController(int settleFrames, int sampleCount) {
+        if (settleFrames < 0) {
+            throw new IllegalArgumentException("settleFrames must be >= 0");
         }
-        if (samplingCount <= 0) throw new IllegalArgumentException("sampleCount must be > 0");
-        this.irSettleFrameCount = irSettleFrameCount;
-        this.requiredSamplingCount = samplingCount;
+        if (sampleCount <= 0) throw new IllegalArgumentException("sampleCount must be > 0");
+        this.settleFrames = settleFrames;
+        this.sampleCount = sampleCount;
     }
 
     private void start() {
         clearState();
         sessionActive = true;
-        settleFramesRemaining = irSettleFrameCount;
+        settleFramesRemaining = settleFrames;
     }
 
     /** Returns null only when the caller may run inference and add a sample. */
     AntiSpoofingResult prepare() {
         if (closed) return AntiSpoofingResult.sessionError("Vision engine is closed");
         if (!sessionActive) start();
-        if (decision != null) return decision;
+        if (finalResult != null) return finalResult;
         if (settleFramesRemaining > 0) {
             settleFramesRemaining--;
             return AntiSpoofingResult.sessionRunning(null, null, settleFramesRemaining, 0);
@@ -39,26 +39,26 @@ final class SessionController {
         return null;
     }
 
-    AntiSpoofingResult add(float[] classification, long inferenceMs) {
-        if (classification == null) return fail("Vision slot produced no primary result");
-        if (samplingCount >= requiredSamplingCount) {
+    AntiSpoofingResult add(float[] probabilities, long inferenceMs) {
+        if (probabilities == null) return fail("Vision slot produced no primary result");
+        if (usedFrameCount >= sampleCount) {
             throw new IllegalStateException("Vision session is already complete");
         }
-        if (classification.length != sums.length) {
-            throw new IllegalArgumentException("Probabilities must have length " + sums.length);
+        if (probabilities.length != probabilitySums.length) {
+            throw new IllegalArgumentException("Probabilities must have length " + probabilitySums.length);
         }
-        for (int i = 0; i < sums.length; i++) sums[i] += classification[i];
-        samplingCount++;
-        float[] average = new float[sums.length];
-        for (int i = 0; i < sums.length; i++) average[i] = sums[i] / samplingCount;
-        AntiSpoofingResult result = samplingCount < requiredSamplingCount
-                ? AntiSpoofingResult.sessionRunning(average, inferenceMs,
-                        settleFramesRemaining, samplingCount)
-                : AntiSpoofingResult.sessionComplete(average, inferenceMs,
-                        settleFramesRemaining, samplingCount);
+        for (int i = 0; i < probabilitySums.length; i++) probabilitySums[i] += probabilities[i];
+        usedFrameCount++;
+        float[] averageProbabilities = new float[probabilitySums.length];
+        for (int i = 0; i < probabilitySums.length; i++) averageProbabilities[i] = probabilitySums[i] / usedFrameCount;
+        AntiSpoofingResult result = usedFrameCount < sampleCount
+                ? AntiSpoofingResult.sessionRunning(averageProbabilities, inferenceMs,
+                        settleFramesRemaining, usedFrameCount)
+                : AntiSpoofingResult.sessionComplete(averageProbabilities, inferenceMs,
+                        settleFramesRemaining, usedFrameCount);
         if (result.status() == AntiSpoofingResult.Status.LIVE
                 || result.status() == AntiSpoofingResult.Status.SPOOF) {
-            decision = result;
+            finalResult = result;
         }
         return result;
     }
@@ -82,9 +82,9 @@ final class SessionController {
     private void clearState() {
         sessionActive = false;
         settleFramesRemaining = 0;
-        decision = null;
-        Arrays.fill(sums, 0f);
-        samplingCount = 0;
+        finalResult = null;
+        Arrays.fill(probabilitySums, 0f);
+        usedFrameCount = 0;
     }
 
 }
