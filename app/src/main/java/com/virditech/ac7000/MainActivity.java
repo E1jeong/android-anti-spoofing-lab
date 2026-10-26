@@ -97,7 +97,7 @@ public final class MainActivity extends Activity {
     private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
     private static final long IR_LED_OFF_DELAY_MS = 1_000L;
     private static final long CAMERA_CLOSE_WARNING_MS = 1_500L;
-    private static final String[] VISION_LABELS = AntiSpoofingResult.classLabels();
+    private static final String[] VISION_LABELS = AntiSpoofingResult.getClassLabels();
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -199,7 +199,6 @@ public final class MainActivity extends Activity {
     private volatile long detectionMs;
     private volatile long inferenceMs;
     private volatile long recognitionInferenceMs = -1L;
-    private final LatencyWindow preprocessLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
     private final LatencyWindow invokeLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
     private final LatencyWindow inferenceQueueLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
     private final LatencyWindow inferenceEndToEndLatency = new LatencyWindow(LATENCY_WINDOW_SIZE);
@@ -1397,15 +1396,15 @@ public final class MainActivity extends Activity {
         AntiSpoofingResult result = task.engine.inferFrame(
                 task.pair.rgb.bitmap, task.rgbFace,
                 task.pair.ir.bitmap, task.irFace);
-        if (result.status() == AntiSpoofingResult.Status.ERROR) {
-            throw new IllegalStateException(result.errorMessage());
+        if (result.getStatus() == AntiSpoofingResult.Status.ERROR) {
+            throw new IllegalStateException(result.getErrorMessage());
         }
         long endToEndMs = (SystemClock.elapsedRealtimeNanos() - task.receivedNs) / 1_000_000L;
         if (isExclusiveEvaluationMode() || authVerdictShowing || testMenuShowing
                 || !isPipelineCurrent(task.generation)
                 || task.motionGeneration != inferenceMotionGeneration.get()) return;
-        inferenceMs = result.inferenceMs();
-        recordInferenceMetrics(result.preprocessMs(), result.inferenceMs(), queueMs, endToEndMs);
+        inferenceMs = result.getInferenceMs();
+        recordInferenceMetrics(result.getInferenceMs(), queueMs, endToEndMs);
         updateInferenceFps();
 
         maybeSaveAttackLiveCapture(task, result);
@@ -1413,14 +1412,14 @@ public final class MainActivity extends Activity {
             if (isExclusiveEvaluationMode() || authVerdictShowing || !isPipelineCurrent(task.generation)
                     || task.motionGeneration != inferenceMotionGeneration.get()) return;
             if (authMode) {
-                float[] probabilities = result.probabilities();
+                float[] probabilities = result.getProbabilities();
                 if (probabilities != null && probabilities.length > 0) {
                     AuthFrameAccumulator.Verdict verdict = authFrames.add(
                             probabilities, task.receivedNs,
                             SystemClock.elapsedRealtimeNanos());
                     if (verdict != null) {
                         String topSpoofLabel = verdict.topSpoofIndex < VISION_LABELS.length
-                                ? AntiSpoofingResult.classDisplayLabel(verdict.topSpoofIndex)
+                                ? MainScreenView.classDisplayLabel(verdict.topSpoofIndex)
                                 : "UNKNOWN";
                         showAuthVerdict(verdict.live, verdict.averageLiveScore,
                                 topSpoofLabel, verdict.elapsedMs);
@@ -2010,7 +2009,7 @@ public final class MainActivity extends Activity {
 
     private void maybeSaveAttackLiveCapture(InferenceTask task, AntiSpoofingResult result) {
         if (task.captureLandmarks == null) return;
-        float[] probabilities = result.probabilities();
+        float[] probabilities = result.getProbabilities();
         if (probabilities == null || !AttackLiveCaptureGate.shouldSave(probabilities)) {
             return;
         }
@@ -2121,19 +2120,17 @@ public final class MainActivity extends Activity {
                 detectionMs, trackingFps, inferenceMs, inferenceFps, recognitionText);
     }
 
-    private void recordInferenceMetrics(long preprocess, long invoke, long queue, long endToEnd) {
-        preprocessLatency.add(preprocess);
+    private void recordInferenceMetrics(long invoke, long queue, long endToEnd) {
         long sampleCount = invokeLatency.add(invoke);
         inferenceQueueLatency.add(queue);
         inferenceEndToEndLatency.add(endToEnd);
         if (sampleCount % 30L == 0L) {
-            LatencyWindow.Snapshot preprocessStats = preprocessLatency.snapshot();
             LatencyWindow.Snapshot invokeStats = invokeLatency.snapshot();
             LatencyWindow.Snapshot queueStats = inferenceQueueLatency.snapshot();
             LatencyWindow.Snapshot endToEndStats = inferenceEndToEndLatency.snapshot();
             android.util.Log.i(TAG, String.format(Locale.US,
-                    "Latency samples=%d P50/P95 ms preprocess=%d/%d invoke=%d/%d queue=%d/%d endToEnd=%d/%d",
-                    invokeStats.count, preprocessStats.p50Ms, preprocessStats.p95Ms,
+                    "Latency samples=%d P50/P95 ms invoke=%d/%d queue=%d/%d endToEnd=%d/%d",
+                    invokeStats.count,
                     invokeStats.p50Ms, invokeStats.p95Ms, queueStats.p50Ms, queueStats.p95Ms,
                     endToEndStats.p50Ms, endToEndStats.p95Ms));
         }
@@ -2159,9 +2156,9 @@ public final class MainActivity extends Activity {
         if (title != null) sb.append(title).append("\n");
         for (int i = 0; i < VISION_LABELS.length; i++) {
             if (i > 0) sb.append("\n");
-            float probability = result != null ? result.probability(i) * 100f : 0f;
+            float probability = result != null ? result.getProbability(i) * 100f : 0f;
             sb.append(String.format(Locale.US, "%s %.1f%%",
-                    AntiSpoofingResult.classDisplayLabel(i), probability));
+                    MainScreenView.classDisplayLabel(i), probability));
         }
     }
 
@@ -2170,7 +2167,7 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < VISION_LABELS.length; i++) {
             if (i > 0) sb.append("\n");
             sb.append(String.format(Locale.US, "%s 0.0%%",
-                    AntiSpoofingResult.classDisplayLabel(i)));
+                    MainScreenView.classDisplayLabel(i)));
         }
         screen.resultsLabel.setText(sb.toString());
     }

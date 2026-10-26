@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.util.concurrent.ExecutorService;
@@ -26,6 +27,8 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private Bitmap queuedIrCopy;
     private AntiSpoofingCallback queuedCallback;
     private long queuedGeneration;
+    private Long sessionStartNanos;
+    private long queuedSubmittedNanos;
     private volatile long generation;
     private long nextSubmissionId;
     private long latestQueuedSubmissionId;
@@ -119,6 +122,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     /** Submits a frame for async session inference, copying crops before returning. Delivers results on the main looper. */
     public void inferSession(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
                              AntiSpoofingCallback callback) {
+        long submittedNanos = SystemClock.elapsedRealtimeNanos();
         if (callback == null) throw new IllegalArgumentException("callback must not be null");
         if (ir == null || irFace == null || irFace.isEmpty()) {
             throw new IllegalArgumentException("IR bitmap and nonempty face box are required");
@@ -152,6 +156,8 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                 return;
             }
             latestQueuedSubmissionId = submissionId;
+            if (sessionStartNanos == null) sessionStartNanos = submittedNanos;
+            queuedSubmittedNanos = submittedNanos;
             recycleQueuedFrame();
             queuedRgbCopy = rgbCopy;
             queuedIrCopy = irCopy;
@@ -170,6 +176,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             Bitmap irCopy;
             AntiSpoofingCallback callback;
             long frameGeneration;
+            long sessionStartedNanos;
             synchronized (queueLock) {
                 if (closed || queuedIrCopy == null) {
                     processingFrames = false;
@@ -179,6 +186,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                 irCopy = queuedIrCopy;
                 callback = queuedCallback;
                 frameGeneration = queuedGeneration;
+                sessionStartedNanos = sessionStartNanos;
                 queuedRgbCopy = null;
                 queuedIrCopy = null;
                 queuedCallback = null;
@@ -189,11 +197,11 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                 synchronized (inferenceLock) {
                     if (closed || generation != frameGeneration) continue;
                     result = processSessionFrame(rgbCopy, irCopy);
-                    notifyResult = result.status() == AntiSpoofingResult.Status.ERROR
-                            || (result.status() != AntiSpoofingResult.Status.RUNNING
+                    notifyResult = result.getStatus() == AntiSpoofingResult.Status.ERROR
+                            || (result.getStatus() != AntiSpoofingResult.Status.RUNNING
                             && !finalResultScheduled);
-                    if (result.status() == AntiSpoofingResult.Status.LIVE
-                            || result.status() == AntiSpoofingResult.Status.SPOOF) {
+                    if (result.getStatus() == AntiSpoofingResult.Status.LIVE
+                            || result.getStatus() == AntiSpoofingResult.Status.SPOOF) {
                         finalResultScheduled = true;
                     }
                 }
@@ -205,13 +213,23 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                 irCopy.recycle();
             }
             if (!notifyResult) continue;
+            if (result.getStatus() == AntiSpoofingResult.Status.ERROR) {
+                synchronized (queueLock) {
+                    if (generation == frameGeneration) {
+                        sessionStartNanos = queuedIrCopy != null ? Long.valueOf(queuedSubmittedNanos) : null;
+                    }
+                }
+            }
             AntiSpoofingResult delivered = result;
             mainHandler.post(() -> {
                 synchronized (queueLock) {
                     if (closed || generation != frameGeneration) return;
                 }
                 try {
-                    callback.onResult(delivered);
+                    long durationMs = (SystemClock.elapsedRealtimeNanos() - sessionStartedNanos) / 1_000_000L;
+                    callback.onResult(new AntiSpoofingResult(delivered.getStatus(),
+                            delivered.getProbabilities(), delivered.getTopIndex(),
+                            delivered.getInferenceMs(), delivered.getErrorMessage(), durationMs));
                 } catch (RuntimeException e) {
                     Log.e("AntiSpoofingEngine", "Callback failed", e);
                 }
@@ -227,10 +245,10 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             AntiSpoofingResult frameResult = runInference(inputRgb,
                     new Rect(0, 0, inputRgb.getWidth(), inputRgb.getHeight()),
                     ir, new Rect(0, 0, ir.getWidth(), ir.getHeight()), true);
-            if (frameResult.status() == AntiSpoofingResult.Status.ERROR) {
-                return session.fail(frameResult.errorMessage());
+            if (frameResult.getStatus() == AntiSpoofingResult.Status.ERROR) {
+                return session.fail(frameResult.getErrorMessage());
             }
-            return session.add(frameResult.probabilities(), frameResult.inferenceMs());
+            return session.add(frameResult.getProbabilities(), frameResult.getInferenceMs());
         } catch (RuntimeException e) {
             return session.fail("Vision inference failed: " + e.getMessage());
         }
@@ -293,6 +311,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             if (closed) return;
             generation++;
             recycleQueuedFrame();
+            sessionStartNanos = null;
             synchronized (inferenceLock) {
                 session.reset();
                 finalResultScheduled = false;
@@ -306,6 +325,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             closed = true;
             generation++;
             recycleQueuedFrame();
+            sessionStartNanos = null;
             sessionExecutor.shutdown();
             synchronized (inferenceLock) {
                 session.close();

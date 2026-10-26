@@ -119,19 +119,17 @@ final class Classifier {
     }
 
     AntiSpoofingResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
-        long preprocessStart = SystemClock.elapsedRealtimeNanos();
         if (cropRgbInput != null)
             inputs[inputMapping.cropRgbIndex] = cropRgbInput.fillImage(rgb, rgbBox);
         if (cropIrInput != null)
             inputs[inputMapping.cropIrIndex] = cropIrInput.fillImage(ir, irBox);
-        long preprocessMs = (SystemClock.elapsedRealtimeNanos() - preprocessStart) / 1_000_000L;
         long start = SystemClock.elapsedRealtimeNanos();
         interpreter.runForMultipleInputsOutputs(inputs, outputs);
         long inferenceMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         float[] modelOutput = readModelOutput();
         float[] probabilities = softmax(modelOutput);
 
-        return AntiSpoofingResult.frameResult(probabilities, preprocessMs, inferenceMs);
+        return AntiSpoofingResult.frameResult(probabilities, inferenceMs);
     }
 
     private void logModelIo() {

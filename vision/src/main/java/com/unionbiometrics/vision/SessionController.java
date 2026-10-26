@@ -34,7 +34,7 @@ final class SessionController {
         if (finalResult != null) return finalResult;
         if (settleFramesRemaining > 0) {
             settleFramesRemaining--;
-            return AntiSpoofingResult.sessionRunning(null, null, settleFramesRemaining, 0);
+            return AntiSpoofingResult.sessionRunning(null, null);
         }
         return null;
     }
@@ -52,12 +52,10 @@ final class SessionController {
         float[] averageProbabilities = new float[probabilitySums.length];
         for (int i = 0; i < probabilitySums.length; i++) averageProbabilities[i] = probabilitySums[i] / usedFrameCount;
         AntiSpoofingResult result = usedFrameCount < sampleCount
-                ? AntiSpoofingResult.sessionRunning(averageProbabilities, inferenceMs,
-                        settleFramesRemaining, usedFrameCount)
-                : AntiSpoofingResult.sessionComplete(averageProbabilities, inferenceMs,
-                        settleFramesRemaining, usedFrameCount);
-        if (result.status() == AntiSpoofingResult.Status.LIVE
-                || result.status() == AntiSpoofingResult.Status.SPOOF) {
+                ? AntiSpoofingResult.sessionRunning(averageProbabilities, inferenceMs)
+                : AntiSpoofingResult.sessionComplete(averageProbabilities, inferenceMs);
+        if (result.getStatus() == AntiSpoofingResult.Status.LIVE
+                || result.getStatus() == AntiSpoofingResult.Status.SPOOF) {
             finalResult = result;
         }
         return result;

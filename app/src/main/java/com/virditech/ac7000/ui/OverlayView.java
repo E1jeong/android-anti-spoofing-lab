@@ -169,7 +169,7 @@ public final class OverlayView extends View {
             color = Color.CYAN;
         } else {
             color = result == null ? Color.YELLOW
-                    : result.isAccepted()
+                    : result.getStatus() == AntiSpoofingResult.Status.LIVE
                     ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         }
         boxPaint.setColor(color);
@@ -207,8 +207,8 @@ public final class OverlayView extends View {
 
     private static String formatResult(AntiSpoofingResult result) {
         return String.format(Locale.US, "%s %.1f%%",
-                AntiSpoofingResult.classDisplayLabel(result.topIndex()),
-                result.probability(result.topIndex()) * 100f);
+                MainScreenView.classDisplayLabel(result.getTopIndex()),
+                result.getProbability(result.getTopIndex()) * 100f);
     }
 
     private void drawCollectionGuide(Canvas canvas) {
