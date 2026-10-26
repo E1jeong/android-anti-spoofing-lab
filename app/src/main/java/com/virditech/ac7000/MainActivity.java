@@ -23,6 +23,7 @@ import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
+import android.text.style.RelativeSizeSpan;
 import android.util.SparseArray;
 import android.view.View;
 import android.view.WindowManager;
@@ -1810,6 +1811,8 @@ public final class MainActivity extends Activity {
         text.setSpan(new ForegroundColorSpan(countColor), progress.stepCountStart,
                 progress.stepCountEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         text.setSpan(new ForegroundColorSpan(countColor), progress.totalCountStart,
+                progress.totalCountEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new RelativeSizeSpan(1.5f), progress.stepCountStart,
                 progress.totalCountEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;
     }

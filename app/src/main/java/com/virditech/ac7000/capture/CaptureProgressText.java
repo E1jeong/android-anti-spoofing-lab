@@ -24,11 +24,6 @@ public final class CaptureProgressText {
         String header = config != null ? config.toSummaryLabel() : "UNKNOWN";
         StringBuilder sb = new StringBuilder();
         sb.append(header)
-                .append("\n")
-                .append("Sector ")
-                .append(step.sector)
-                .append(" ")
-                .append(step.name)
                 .append("\n");
         int stepCountStart = sb.length();
         sb.append(stepCount)
