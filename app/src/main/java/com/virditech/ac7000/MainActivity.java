@@ -59,9 +59,9 @@ import com.virditech.ac7000.device.LightingExperimentLogger;
 import com.virditech.ac7000.device.IrCameraExposureController;
 import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
-import com.unionbiometrics.vision.AntiSpoofingEngine;
-import com.unionbiometrics.vision.AntiSpoofingResult;
-import com.unionbiometrics.vision.ModelInfo;
+import com.unionbiometrics.vision.VisionEngine;
+import com.unionbiometrics.vision.VisionLivenessResult;
+import com.unionbiometrics.vision.VisionModelInfo;
 import com.virditech.ac7000.model.AuthFrameAccumulator;
 import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.performance.LatencyWindow;
@@ -119,7 +119,7 @@ public final class MainActivity extends Activity {
             InferenceTask::recycle, (task, error) -> {
                 android.util.Log.e(TAG, "Inference failed", error);
                 if (isPipelineCurrent(task.generation)) showTransientStatus("Inference failed");
-            }, this::closeAntiSpoofingEnginesIfShutDown);
+            }, this::closeVisionEnginesIfShutDown);
     private final RecognitionWorkCoordinator recognitionCoordinator = new RecognitionWorkCoordinator();
     private final AtomicBoolean recognitionFaceVisible = new AtomicBoolean();
     private final AtomicLong inferenceMotionGeneration = new AtomicLong();
@@ -136,7 +136,7 @@ public final class MainActivity extends Activity {
     private final Object engineLock = new Object();
     private final StringBuilder engineErrors = new StringBuilder();
     private final AtomicInteger pendingEngineLoads = new AtomicInteger(2);
-    private SparseArray<AntiSpoofingEngine> antiSpoofingEngines = new SparseArray<>();
+    private SparseArray<VisionEngine> visionEngines = new SparseArray<>();
     private int activeEngineIndex;
     private volatile boolean enginesShutDown;
     // NNAPI compilation of the NPU model monopolizes the VSI NPU driver, which FaceMe
@@ -153,7 +153,7 @@ public final class MainActivity extends Activity {
     private volatile YuNetFaceDetectorAdapter yuNetInt8FaceDetector;
     private volatile YuNetFaceDetectorAdapter yuNetFloatFaceDetector;
     private volatile FaceDetectionEngine activeFaceDetector;
-    private volatile AntiSpoofingEngine antiSpoofingEngine;
+    private volatile VisionEngine visionEngine;
     private volatile Calibration calibration;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
     private final CaptureSession collectionSession = new CaptureSession();
@@ -669,7 +669,7 @@ public final class MainActivity extends Activity {
                 onEngineLoadFinished();
             }
         });
-        modelInitExecutor.execute(this::loadAntiSpoofingEngines);
+        modelInitExecutor.execute(this::loadVisionEngines);
     }
 
     private void loadYuNetFaceDetector(YuNetFaceDetector.Mode mode) {
@@ -692,10 +692,10 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void loadAntiSpoofingEngines() {
-        SparseArray<AntiSpoofingEngine> loaded = new SparseArray<>();
+    private void loadVisionEngines() {
+        SparseArray<VisionEngine> loaded = new SparseArray<>();
         try {
-            ModelInfo modelInfo = AntiSpoofingEngine.getModelInfo(getApplicationContext());
+            VisionModelInfo modelInfo = VisionEngine.getModelInfo(getApplicationContext());
             visionLabels = modelInfo.classLabels;
             runOnUiThread(() -> {
                 if (!enginesShutDown) resetResultsLabelToZero();
@@ -704,7 +704,7 @@ public final class MainActivity extends Activity {
             for (int slotIndex = 0; slotIndex < modelCount; slotIndex++) {
                 try {
                     loaded.put(slotIndex,
-                            AntiSpoofingEngine.create(getApplicationContext(), slotIndex, 10, 3));
+                            VisionEngine.create(getApplicationContext(), slotIndex, 10, 3));
                 } catch (Exception e) {
                     reportEngineError("MODEL " + (slotIndex + 1) + " FAILED: " + e.getMessage());
                 }
@@ -746,21 +746,21 @@ public final class MainActivity extends Activity {
                 }
                 return;
             }
-            antiSpoofingEngines = loaded;
+            visionEngines = loaded;
             activeEngineIndex = 0;
-            antiSpoofingEngine = loaded.size() == 0 ? null : loaded.valueAt(0);
+            visionEngine = loaded.size() == 0 ? null : loaded.valueAt(0);
         }
         runOnUiThread(() -> {
             synchronized (engineLock) {
-                screen.modelSwitchButton.setEnabled(antiSpoofingEngines.size() > 1);
-                if (antiSpoofingEngines.size() > 0) {
+                screen.modelSwitchButton.setEnabled(visionEngines.size() > 1);
+                if (visionEngines.size() > 0) {
                     screen.modelSwitchButton.setText(getString(R.string.model_label,
-                            antiSpoofingEngines.keyAt(activeEngineIndex) + 1));
+                            visionEngines.keyAt(activeEngineIndex) + 1));
                 }
             }
-            if (antiSpoofingEngine != null && cameras != null) cameras.setIrFramesEnabled(true);
+            if (visionEngine != null && cameras != null) cameras.setIrFramesEnabled(true);
         });
-        if (antiSpoofingEngine == null) reportEngineError("No model slots loaded");
+        if (visionEngine == null) reportEngineError("No model slots loaded");
         updateEngineStatus();
         onEngineLoadFinished();
     }
@@ -789,7 +789,7 @@ public final class MainActivity extends Activity {
         synchronized (engineErrors) {
             errors = engineErrors.toString();
         }
-        AntiSpoofingEngine activeEngine = antiSpoofingEngine;
+        VisionEngine activeEngine = visionEngine;
         String message = errors.isEmpty()
                 ? (activeEngine != null ? "" : "Loading model...")
                 : errors;
@@ -1095,9 +1095,9 @@ public final class MainActivity extends Activity {
 
         Rect rgbCrop = null;
         Rect irCrop = null;
-        AntiSpoofingEngine activeEngine;
+        VisionEngine activeEngine;
         synchronized (engineLock) {
-            activeEngine = antiSpoofingEngine;
+            activeEngine = visionEngine;
         }
         if (activeEngine != null) {
             float margin = activeEngine.getModelInfo().cropMarginRatio;
@@ -1415,10 +1415,10 @@ public final class MainActivity extends Activity {
                 || !isPipelineCurrent(task.generation) || task.engine == null) return;
         long startNs = SystemClock.elapsedRealtimeNanos();
         long queueMs = (startNs - task.enqueuedNs) / 1_000_000L;
-        AntiSpoofingResult result = task.engine.inferFrame(
+        VisionLivenessResult result = task.engine.inferFrame(
                 task.pair.rgb.bitmap, task.rgbFace,
                 task.pair.ir.bitmap, task.irFace);
-        if (result.getStatus() == AntiSpoofingResult.Status.ERROR) {
+        if (result.getStatus() == VisionLivenessResult.Status.ERROR) {
             throw new IllegalStateException(result.getErrorMessage());
         }
         long endToEndMs = (SystemClock.elapsedRealtimeNanos() - task.receivedNs) / 1_000_000L;
@@ -2032,7 +2032,7 @@ public final class MainActivity extends Activity {
         showTransientStatus("Attack Live capture stopped: " + attackCaptureCount + " saved");
     }
 
-    private void maybeSaveAttackLiveCapture(InferenceTask task, AntiSpoofingResult result) {
+    private void maybeSaveAttackLiveCapture(InferenceTask task, VisionLivenessResult result) {
         if (task.captureLandmarks == null) return;
         float[] probabilities = result.getProbabilities();
         if (probabilities == null || !AttackLiveCaptureGate.shouldSave(probabilities)) {
@@ -2171,13 +2171,13 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private CharSequence formatClassificationResults(AntiSpoofingResult result) {
+    private CharSequence formatClassificationResults(VisionLivenessResult result) {
         StringBuilder sb = new StringBuilder();
         appendClassificationResult(sb, null, result);
         return sb.toString();
     }
 
-    private void appendClassificationResult(StringBuilder sb, String title, AntiSpoofingResult result) {
+    private void appendClassificationResult(StringBuilder sb, String title, VisionLivenessResult result) {
         if (title != null) sb.append(title).append("\n");
         float[] probabilities = result == null ? null : result.getProbabilities();
         for (int i = 0; i < visionLabels.size(); i++) {
@@ -2200,11 +2200,11 @@ public final class MainActivity extends Activity {
 
     private void toggleModel() {
         synchronized (engineLock) {
-            if (antiSpoofingEngines.size() == 0) return;
-            activeEngineIndex = (activeEngineIndex + 1) % antiSpoofingEngines.size();
-            antiSpoofingEngine = antiSpoofingEngines.valueAt(activeEngineIndex);
+            if (visionEngines.size() == 0) return;
+            activeEngineIndex = (activeEngineIndex + 1) % visionEngines.size();
+            visionEngine = visionEngines.valueAt(activeEngineIndex);
             final String btnText = getString(R.string.model_label,
-                    antiSpoofingEngines.keyAt(activeEngineIndex) + 1);
+                    visionEngines.keyAt(activeEngineIndex) + 1);
             normalStatusMessage = "";
 
             runOnUiThread(() -> {
@@ -2392,7 +2392,7 @@ public final class MainActivity extends Activity {
             awaitExecutorTermination(ioExecutor);
             awaitExecutorTermination(attackCaptureExecutor);
             awaitExecutorTermination(modelInitExecutor);
-            if (inferenceTerminated) closeAntiSpoofingEngines();
+            if (inferenceTerminated) closeVisionEngines();
             if (recognitionTerminated) closeFaceRecognitionManager();
             if (trackingTerminated) closeFaceDetectors();
         }, "main-runtime-cleanup");
@@ -2469,13 +2469,13 @@ public final class MainActivity extends Activity {
         final PointF[] landmarks;
         final LandmarkMetadata captureLandmarks;
         final int generation;
-        final AntiSpoofingEngine engine;
+        final VisionEngine engine;
         final long receivedNs;
         final long enqueuedNs;
         final long motionGeneration;
 
         InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, PointF[] landmarks,
-                      int generation, AntiSpoofingEngine engine,
+                      int generation, VisionEngine engine,
                       long receivedNs, long motionGeneration, LandmarkMetadata captureLandmarks) {
             this.pair = pair;
             this.rgbFace = rgbFace;
@@ -2605,18 +2605,18 @@ public final class MainActivity extends Activity {
         builder.append(message);
     }
 
-    private void closeAntiSpoofingEngines() {
+    private void closeVisionEngines() {
         synchronized (engineLock) {
-            for (int i = 0; i < antiSpoofingEngines.size(); i++) {
-                try { antiSpoofingEngines.valueAt(i).close(); } catch (Exception ignored) {}
+            for (int i = 0; i < visionEngines.size(); i++) {
+                try { visionEngines.valueAt(i).close(); } catch (Exception ignored) {}
             }
-            antiSpoofingEngine = null;
-            antiSpoofingEngines.clear();
+            visionEngine = null;
+            visionEngines.clear();
         }
     }
 
-    private void closeAntiSpoofingEnginesIfShutDown() {
-        if (enginesShutDown) closeAntiSpoofingEngines();
+    private void closeVisionEnginesIfShutDown() {
+        if (enginesShutDown) closeVisionEngines();
     }
 
     private synchronized void closeFaceRecognitionManager() {

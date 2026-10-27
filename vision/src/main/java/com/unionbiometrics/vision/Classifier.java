@@ -118,7 +118,7 @@ final class Classifier {
         return interpreter.getInputTensorCount();
     }
 
-    AntiSpoofingResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
+    VisionLivenessResult classify(Bitmap rgb, Rect rgbBox, Bitmap ir, Rect irBox) {
         if (cropRgbInput != null)
             inputs[inputMapping.cropRgbIndex] = cropRgbInput.fillImage(rgb, rgbBox);
         if (cropIrInput != null)
@@ -129,7 +129,7 @@ final class Classifier {
         float[] modelOutput = readModelOutput();
         float[] probabilities = softmax(modelOutput);
 
-        return AntiSpoofingResult.frameResult(probabilities, inferenceMs);
+        return VisionLivenessResult.frameResult(probabilities, inferenceMs);
     }
 
     private void logModelIo() {

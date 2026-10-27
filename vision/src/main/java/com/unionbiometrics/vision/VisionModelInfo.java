@@ -5,7 +5,7 @@ import java.util.Collections;
 import java.util.List;
 
 /** Immutable model information. Engine-independent queries provide count and shared class labels. */
-public final class ModelInfo {
+public final class VisionModelInfo {
     /** Total registered manifest entries, including slots that may fail to load. */
     public final int modelCount;
     /** Loaded input layout, or null for an engine-independent count query. */
@@ -16,7 +16,7 @@ public final class ModelInfo {
     /** Loaded crop margin, or NaN for an engine-independent count query. */
     public final float cropMarginRatio;
 
-    ModelInfo(int modelCount, int inputTensorCount, float cropMarginRatio) {
+    VisionModelInfo(int modelCount, int inputTensorCount, float cropMarginRatio) {
         if (modelCount <= 0) throw new IllegalArgumentException("modelCount must be > 0");
         if (inputTensorCount == Constants.IR_INPUT_COUNT) {
             inputType = Constants.SINGLE_1_INPUT;
@@ -29,7 +29,7 @@ public final class ModelInfo {
         this.cropMarginRatio = cropMarginRatio;
     }
 
-    ModelInfo(int modelCount) {
+    VisionModelInfo(int modelCount) {
         if (modelCount <= 0) throw new IllegalArgumentException("modelCount must be > 0");
         this.modelCount = modelCount;
         inputType = null;

@@ -14,7 +14,7 @@
 
 | Module | Responsibility | First entry point | Module guide |
 | --- | --- | --- | --- |
-| `vision/` | Anti-spoofing SDK: host contract, crop, preprocess, NNAPI inference, `[1,12]` output | `vision/src/main/java/com/unionbiometrics/vision/AntiSpoofingEngine.java` | `vision/AGENTS.md` |
+| `vision/` | Anti-spoofing SDK: host contract, crop, preprocess, NNAPI inference, `[1,12]` output | `vision/src/main/java/com/unionbiometrics/vision/VisionEngine.java` | `vision/AGENTS.md` |
 | `face-detection/` | Standalone RGB face detection: TFLite, decode/NMS, source boxes/confidence and optional five-point landmarks | `face-detection/src/main/java/com/unionbiometrics/facedetection/YuNetFaceDetector.java` | `face-detection/AGENTS.md` |
 | `app/` | Android evaluation runtime, capture, recognition, and WebRTC terminal PoC | `app/src/main/java/com/virditech/ac7000/MainActivity.java` | `app/AGENTS.md` |
 

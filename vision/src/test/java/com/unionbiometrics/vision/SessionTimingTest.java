@@ -10,29 +10,29 @@ public class SessionTimingTest {
     @Test
     public void sessionDurationKeepsDecisionAndLastInferenceTime() {
         SessionController controller = new SessionController(1, 2);
-        assertEquals(AntiSpoofingResult.Status.RUNNING, controller.prepare().getStatus());
+        assertEquals(VisionLivenessResult.Status.RUNNING, controller.prepare().getStatus());
 
         assertNull(controller.prepare());
-        assertEquals(AntiSpoofingResult.Status.RUNNING, controller.add(live(), 4L).getStatus());
+        assertEquals(VisionLivenessResult.Status.RUNNING, controller.add(live(), 4L).getStatus());
 
         assertNull(controller.prepare());
-        AntiSpoofingResult decision = controller.add(live(), 5L);
-        AntiSpoofingResult delivered = new AntiSpoofingResult(decision.getStatus(),
+        VisionLivenessResult decision = controller.add(live(), 5L);
+        VisionLivenessResult delivered = new VisionLivenessResult(decision.getStatus(),
                 decision.getProbabilities(), decision.getTopIndex(), decision.getInferenceMs(),
                 decision.getErrorMessage(), 300L);
 
         assertEquals(Long.valueOf(300L), delivered.getSessionDurationMs());
         assertEquals(Long.valueOf(5L), delivered.getInferenceMs());
-        assertEquals(AntiSpoofingResult.Status.LIVE, delivered.getStatus());
+        assertEquals(VisionLivenessResult.Status.LIVE, delivered.getStatus());
         assertArrayEquals(live(), delivered.getProbabilities(), 0f);
         assertNull(decision.getSessionDurationMs());
     }
 
     @Test
     public void failedSessionKeepsDurationAndErrorDetails() {
-        AntiSpoofingResult error = new AntiSpoofingResult(AntiSpoofingResult.Status.ERROR,
+        VisionLivenessResult error = new VisionLivenessResult(VisionLivenessResult.Status.ERROR,
                 null, -1, null, "bad frame", 50L);
-        assertEquals(AntiSpoofingResult.Status.ERROR, error.getStatus());
+        assertEquals(VisionLivenessResult.Status.ERROR, error.getStatus());
         assertEquals("bad frame", error.getErrorMessage());
         assertNull(error.getProbabilities());
         assertEquals(Long.valueOf(50L), error.getSessionDurationMs());
@@ -40,13 +40,13 @@ public class SessionTimingTest {
 
     @Test
     public void rawFrameAndRawFrameErrorHaveNoSessionDuration() {
-        assertNull(AntiSpoofingResult.frameResult(live(), 4L).getSessionDurationMs());
-        assertNull(AntiSpoofingResult.frameError("bad crop").getSessionDurationMs());
+        assertNull(VisionLivenessResult.frameResult(live(), 4L).getSessionDurationMs());
+        assertNull(VisionLivenessResult.frameError("bad crop").getSessionDurationMs());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNegativeSessionDuration() {
-        new AntiSpoofingResult(AntiSpoofingResult.Status.ERROR, null, -1, null, "bad frame", -1L);
+        new VisionLivenessResult(VisionLivenessResult.Status.ERROR, null, -1, null, "bad frame", -1L);
     }
 
     private static float[] live() {

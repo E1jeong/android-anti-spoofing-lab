@@ -3,7 +3,7 @@ package com.unionbiometrics.vision;
 import java.util.Arrays;
 
 /** One raw frame result or one callback session state. */
-public final class AntiSpoofingResult {
+public final class VisionLivenessResult {
     private static final float MIN_SESSION_LIVE_SCORE = 0.4f;
 
     public enum Status { RUNNING, LIVE, SPOOF, ERROR }
@@ -14,38 +14,38 @@ public final class AntiSpoofingResult {
     private final String errorMessage;
     private final Long sessionDurationMs;
 
-    static AntiSpoofingResult frameResult(float[] probabilities, long inferenceMs) {
+    static VisionLivenessResult frameResult(float[] probabilities, long inferenceMs) {
         if (probabilities == null) throw new IllegalArgumentException("Success requires a result");
         int topIndex = topIndexOf(probabilities);
-        return new AntiSpoofingResult(isLiveClass(topIndex) ? Status.LIVE : Status.SPOOF,
+        return new VisionLivenessResult(isLiveClass(topIndex) ? Status.LIVE : Status.SPOOF,
                 probabilities, topIndex, inferenceMs, null, null);
     }
 
-    static AntiSpoofingResult frameError(String message) {
-        return new AntiSpoofingResult(Status.ERROR, null, -1, 0L,
+    static VisionLivenessResult frameError(String message) {
+        return new VisionLivenessResult(Status.ERROR, null, -1, 0L,
                 message == null ? "Unknown Vision inference error" : message, null);
     }
 
-    static AntiSpoofingResult sessionRunning(float[] probabilities, Long inferenceMs) {
-        return new AntiSpoofingResult(Status.RUNNING, probabilities,
+    static VisionLivenessResult sessionRunning(float[] probabilities, Long inferenceMs) {
+        return new VisionLivenessResult(Status.RUNNING, probabilities,
                 probabilities == null ? -1 : topIndexOf(probabilities),
                 inferenceMs, null, null);
     }
 
-    static AntiSpoofingResult sessionComplete(float[] probabilities, long inferenceMs) {
+    static VisionLivenessResult sessionComplete(float[] probabilities, long inferenceMs) {
         int topIndex = topIndexOf(probabilities);
         boolean accepted = isLiveClass(topIndex) && probabilities[topIndex] >= MIN_SESSION_LIVE_SCORE;
-        return new AntiSpoofingResult(accepted ? Status.LIVE : Status.SPOOF,
+        return new VisionLivenessResult(accepted ? Status.LIVE : Status.SPOOF,
                 probabilities, topIndex, inferenceMs, null, null);
     }
 
-    static AntiSpoofingResult sessionError(String message) {
-        return new AntiSpoofingResult(Status.ERROR, null, -1, null,
+    static VisionLivenessResult sessionError(String message) {
+        return new VisionLivenessResult(Status.ERROR, null, -1, null,
                 message == null ? "Unknown Vision error" : message, null);
     }
 
-    AntiSpoofingResult(Status status, float[] probabilities, int topIndex,
-                       Long inferenceMs, String errorMessage, Long sessionDurationMs) {
+    VisionLivenessResult(Status status, float[] probabilities, int topIndex,
+                         Long inferenceMs, String errorMessage, Long sessionDurationMs) {
         if (sessionDurationMs != null && sessionDurationMs < 0) {
             throw new IllegalArgumentException("sessionDurationMs must be >= 0");
         }
@@ -58,7 +58,7 @@ public final class AntiSpoofingResult {
     }
 
     public Status getStatus() { return status; }
-    /** Returns a copy in ModelInfo.classLabels order, or null on error/settling. */
+    /** Returns a copy in VisionModelInfo.classLabels order, or null on error/settling. */
     public float[] getProbabilities() { return probabilities == null ? null : probabilities.clone(); }
     public int getTopIndex() { return topIndex; }
     public float getScore() { return topIndex < 0 ? 0f : probabilities[topIndex]; }

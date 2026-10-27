@@ -14,18 +14,18 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** One model slot and one anti-spoofing session. */
-public final class AntiSpoofingEngine implements AutoCloseable {
+public final class VisionEngine implements AutoCloseable {
     private final Classifier classifier;
     private final SessionController session;
     private final boolean requiresRgb;
-    private final ModelInfo info;
+    private final VisionModelInfo info;
     private final ExecutorService sessionExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Object queueLock = new Object();
     private final Object inferenceLock = new Object();
     private Bitmap queuedRgbCopy;
     private Bitmap queuedIrCopy;
-    private AntiSpoofingCallback queuedCallback;
+    private VisionCallback queuedCallback;
     private long queuedGeneration;
     private Long sessionStartNanos;
     private long queuedSubmittedNanos;
@@ -36,20 +36,20 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private boolean finalResultScheduled;
     private volatile boolean closed;
 
-    private AntiSpoofingEngine(Classifier classifier, int modelCount, int settleFrames, int sampleCount) {
+    private VisionEngine(Classifier classifier, int modelCount, int settleFrames, int sampleCount) {
         this.classifier = classifier;
         session = new SessionController(settleFrames, sampleCount);
         requiresRgb = classifier.inputTensorCount() == Constants.DUAL_INPUT_COUNT;
-        info = new ModelInfo(modelCount, classifier.inputTensorCount(), classifier.cropMarginRatio());
+        info = new VisionModelInfo(modelCount, classifier.inputTensorCount(), classifier.cropMarginRatio());
     }
 
     /** Returns the loaded model's immutable information without requiring an inference result. */
-    public ModelInfo getModelInfo() {
+    public VisionModelInfo getModelInfo() {
         return info;
     }
 
     /** Synchronously infers one frame without advancing the session. Call off the main thread. */
-    public AntiSpoofingResult inferFrame(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace) {
+    public VisionLivenessResult inferFrame(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace) {
         if (ir == null || irFace == null) {
             throw new IllegalArgumentException("IR bitmap and face box are required");
         }
@@ -72,8 +72,8 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     }
 
     /** Loads and warms a zero-based manifest slot. Call from a background thread. */
-    public static AntiSpoofingEngine create(Context context, int slotIndex,
-                                            int settleFrames, int sampleCount) {
+    public static VisionEngine create(Context context, int slotIndex,
+                                      int settleFrames, int sampleCount) {
         if (slotIndex < 0) throw new IllegalArgumentException("slotIndex must be >= 0");
         if (settleFrames < 0) throw new IllegalArgumentException("settleFrames must be >= 0");
         if (sampleCount <= 0) throw new IllegalArgumentException("sampleCount must be > 0");
@@ -85,7 +85,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                     application == null ? context : application, slotIndex);
             boolean created = false;
             try {
-                AntiSpoofingEngine engine = new AntiSpoofingEngine(
+                VisionEngine engine = new VisionEngine(
                         loaded, modelCount, settleFrames, sampleCount);
                 created = true;
                 return engine;
@@ -101,11 +101,11 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     }
 
     /** Reads registered count and shared class labels before creation, without loading model slots. */
-    public static ModelInfo getModelInfo(Context context) {
+    public static VisionModelInfo getModelInfo(Context context) {
         if (context == null) throw new IllegalArgumentException("context must not be null");
         Context application = context.getApplicationContext();
         try {
-            return new ModelInfo(ModelLoader.modelCount(application == null ? context : application));
+            return new VisionModelInfo(ModelLoader.modelCount(application == null ? context : application));
         } catch (Exception e) {
             throw new IllegalStateException("Model information failed to load: " + e.getMessage(), e);
         }
@@ -128,7 +128,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
 
     /** Submits a frame for async session inference, copying crops before returning. Delivers results on the main looper. */
     public void inferSession(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
-                             AntiSpoofingCallback callback) {
+                             VisionCallback callback) {
         long submittedNanos = SystemClock.elapsedRealtimeNanos();
         if (callback == null) throw new IllegalArgumentException("callback must not be null");
         if (ir == null || irFace == null || irFace.isEmpty()) {
@@ -181,7 +181,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         while (true) {
             Bitmap rgbCopy;
             Bitmap irCopy;
-            AntiSpoofingCallback callback;
+            VisionCallback callback;
             long frameGeneration;
             long sessionStartedNanos;
             synchronized (queueLock) {
@@ -198,61 +198,61 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                 queuedIrCopy = null;
                 queuedCallback = null;
             }
-            AntiSpoofingResult result;
+            VisionLivenessResult result;
             boolean notifyResult;
             try {
                 synchronized (inferenceLock) {
                     if (closed || generation != frameGeneration) continue;
                     result = processSessionFrame(rgbCopy, irCopy);
-                    notifyResult = result.getStatus() == AntiSpoofingResult.Status.ERROR
-                            || (result.getStatus() != AntiSpoofingResult.Status.RUNNING
+                    notifyResult = result.getStatus() == VisionLivenessResult.Status.ERROR
+                            || (result.getStatus() != VisionLivenessResult.Status.RUNNING
                             && !finalResultScheduled);
-                    if (result.getStatus() == AntiSpoofingResult.Status.LIVE
-                            || result.getStatus() == AntiSpoofingResult.Status.SPOOF) {
+                    if (result.getStatus() == VisionLivenessResult.Status.LIVE
+                            || result.getStatus() == VisionLivenessResult.Status.SPOOF) {
                         finalResultScheduled = true;
                     }
                 }
             } catch (RuntimeException e) {
-                result = AntiSpoofingResult.sessionError("Vision inference failed: " + e.getMessage());
+                result = VisionLivenessResult.sessionError("Vision inference failed: " + e.getMessage());
                 notifyResult = true;
             } finally {
                 if (rgbCopy != null) rgbCopy.recycle();
                 irCopy.recycle();
             }
             if (!notifyResult) continue;
-            if (result.getStatus() == AntiSpoofingResult.Status.ERROR) {
+            if (result.getStatus() == VisionLivenessResult.Status.ERROR) {
                 synchronized (queueLock) {
                     if (generation == frameGeneration) {
                         sessionStartNanos = queuedIrCopy != null ? Long.valueOf(queuedSubmittedNanos) : null;
                     }
                 }
             }
-            AntiSpoofingResult delivered = result;
+            VisionLivenessResult delivered = result;
             mainHandler.post(() -> {
                 synchronized (queueLock) {
                     if (closed || generation != frameGeneration) return;
                 }
                 try {
                     long durationMs = (SystemClock.elapsedRealtimeNanos() - sessionStartedNanos) / 1_000_000L;
-                    callback.onResult(new AntiSpoofingResult(delivered.getStatus(),
+                    callback.onResult(new VisionLivenessResult(delivered.getStatus(),
                             delivered.getProbabilities(), delivered.getTopIndex(),
                             delivered.getInferenceMs(), delivered.getErrorMessage(), durationMs));
                 } catch (RuntimeException e) {
-                    Log.e("AntiSpoofingEngine", "Callback failed", e);
+                    Log.e("VisionEngine", "Callback failed", e);
                 }
             });
         }
     }
 
-    private AntiSpoofingResult processSessionFrame(Bitmap rgb, Bitmap ir) {
-        AntiSpoofingResult state = session.prepare();
+    private VisionLivenessResult processSessionFrame(Bitmap rgb, Bitmap ir) {
+        VisionLivenessResult state = session.prepare();
         if (state != null) return state;
         try {
             Bitmap inputRgb = rgb == null ? ir : rgb;
-            AntiSpoofingResult frameResult = runInference(inputRgb,
+            VisionLivenessResult frameResult = runInference(inputRgb,
                     new Rect(0, 0, inputRgb.getWidth(), inputRgb.getHeight()),
                     ir, new Rect(0, 0, ir.getWidth(), ir.getHeight()), true);
-            if (frameResult.getStatus() == AntiSpoofingResult.Status.ERROR) {
+            if (frameResult.getStatus() == VisionLivenessResult.Status.ERROR) {
                 return session.fail(frameResult.getErrorMessage());
             }
             return session.add(frameResult.getProbabilities(), frameResult.getInferenceMs());
@@ -261,8 +261,8 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         }
     }
 
-    private AntiSpoofingResult runInference(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
-                                           boolean isExpanded) {
+    private VisionLivenessResult runInference(Bitmap rgb, Rect rgbFace, Bitmap ir, Rect irFace,
+                                              boolean isExpanded) {
         try {
             Rect rgbCrop = isExpanded ? rgbFace : expandFace(
                     rgbFace, info.cropMarginRatio, rgb.getWidth(), rgb.getHeight());
@@ -270,7 +270,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                     irFace, info.cropMarginRatio, ir.getWidth(), ir.getHeight());
             return classifier.classify(rgb, rgbCrop, ir, irCrop);
         } catch (RuntimeException e) {
-            return AntiSpoofingResult.frameError("Vision inference failed: " + e.getMessage());
+            return VisionLivenessResult.frameError("Vision inference failed: " + e.getMessage());
         }
     }
 

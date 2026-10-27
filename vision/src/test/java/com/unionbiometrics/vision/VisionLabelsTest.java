@@ -8,10 +8,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertThrows;
 
-public class AntiSpoofingLabelsTest {
+public class VisionLabelsTest {
     @Test
     public void modelInfoProvidesImmutableClassOrderBeforeLoading() {
-        List<String> labels = new ModelInfo(1).classLabels;
+        List<String> labels = new VisionModelInfo(1).classLabels;
         assertArrayEquals(new String[]{
                 "LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK",
                 "CURVED_PRINT", "CURVED_MASK", "CURVED_PICTURE", "CURVED_PMASK",
@@ -20,15 +20,15 @@ public class AntiSpoofingLabelsTest {
         assertThrows(UnsupportedOperationException.class, () -> labels.set(0, "changed"));
 
         assertEquals(12, Constants.CLASS_COUNT);
-        assertEquals("LIVE", new ModelInfo(1).classLabels.get(0));
-        assertEquals("DENTAL_BLACK", new ModelInfo(1).classLabels.get(11));
+        assertEquals("LIVE", new VisionModelInfo(1).classLabels.get(0));
+        assertEquals("DENTAL_BLACK", new VisionModelInfo(1).classLabels.get(11));
     }
 
     @Test
     public void dentalMaskClassesAreAccepted() {
-        assertEquals(true, AntiSpoofingResult.isLiveClass(0));
-        assertEquals(true, AntiSpoofingResult.isLiveClass(10));
-        assertEquals(true, AntiSpoofingResult.isLiveClass(11));
-        assertEquals(false, AntiSpoofingResult.isLiveClass(1));
+        assertEquals(true, VisionLivenessResult.isLiveClass(0));
+        assertEquals(true, VisionLivenessResult.isLiveClass(10));
+        assertEquals(true, VisionLivenessResult.isLiveClass(11));
+        assertEquals(false, VisionLivenessResult.isLiveClass(1));
     }
 }

@@ -24,7 +24,7 @@ import com.virditech.ac7000.databinding.ViewMainScreenBinding;
 import com.virditech.ac7000.capture.CaptureConfig;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.unionbiometrics.vision.AntiSpoofingResult;
+import com.unionbiometrics.vision.VisionLivenessResult;
 
 import java.util.Locale;
 
@@ -366,12 +366,12 @@ public final class MainScreenView {
         if (show) root.bringChildToFront(cleanModeSnapshotButton);
     }
 
-    public void showCleanModeResult(AntiSpoofingResult result, String classLabel) {
+    public void showCleanModeResult(VisionLivenessResult result, String classLabel) {
         if (result == null || result.getProbabilities() == null) {
             clearCleanModeResult();
             return;
         }
-        int color = result.getStatus() == AntiSpoofingResult.Status.LIVE
+        int color = result.getStatus() == VisionLivenessResult.Status.LIVE
             ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         String text = formatResult(result, classLabel);
         SpannableString spannable = new SpannableString(text);
@@ -400,7 +400,7 @@ public final class MainScreenView {
                 ? "C " + label.substring("CURVED_".length()) : label;
     }
 
-    private static String formatResult(AntiSpoofingResult result, String classLabel) {
+    private static String formatResult(VisionLivenessResult result, String classLabel) {
         return String.format(Locale.US, "%s %.1f%%",
                 classDisplayLabel(classLabel),
                 result.getScore() * 100f);

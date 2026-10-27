@@ -1,5 +1,5 @@
 package com.unionbiometrics.vision;
 
-public interface AntiSpoofingCallback {
-    void onResult(AntiSpoofingResult result);
+public interface VisionCallback {
+    void onResult(VisionLivenessResult result);
 }

@@ -11,7 +11,7 @@ import android.view.View;
 import com.virditech.ac7000.camera.PreviewTransform;
 import com.virditech.ac7000.device.DualLightingDetector;
 import com.virditech.ac7000.device.ForegroundEntryDetector;
-import com.unionbiometrics.vision.AntiSpoofingResult;
+import com.unionbiometrics.vision.VisionLivenessResult;
 
 import java.util.Locale;
 
@@ -26,7 +26,7 @@ public final class OverlayView extends View {
     private final Paint countdownPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Rect rgbBox;
     private Rect irBox;
-    private AntiSpoofingResult result;
+    private VisionLivenessResult result;
     private String classLabel;
     private String recognitionResult;
     private boolean recognitionMatched;
@@ -126,7 +126,7 @@ public final class OverlayView extends View {
         invalidate();
     }
 
-    public void showResult(AntiSpoofingResult result, String classLabel) {
+    public void showResult(VisionLivenessResult result, String classLabel) {
         this.result = result;
         this.classLabel = classLabel;
         invalidate();
@@ -172,7 +172,7 @@ public final class OverlayView extends View {
             color = Color.CYAN;
         } else {
             color = result == null ? Color.YELLOW
-                    : result.getStatus() == AntiSpoofingResult.Status.LIVE
+                    : result.getStatus() == VisionLivenessResult.Status.LIVE
                     ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
         }
         boxPaint.setColor(color);
@@ -208,7 +208,7 @@ public final class OverlayView extends View {
         canvas.drawText(text, x, baseline, paint);
     }
 
-    private String formatResult(AntiSpoofingResult result) {
+    private String formatResult(VisionLivenessResult result) {
         return String.format(Locale.US, "%s %.1f%%",
                 MainScreenView.classDisplayLabel(classLabel),
                 result.getScore() * 100f);

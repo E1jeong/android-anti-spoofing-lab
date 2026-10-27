@@ -11,26 +11,26 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
-public class ModelInfoTest {
+public class VisionModelInfoTest {
     @Test(expected = IllegalArgumentException.class)
     public void rejectsUnsupportedInputCount() {
-        new ModelInfo(1, 3, 0.1f);
+        new VisionModelInfo(1, 3, 0.1f);
     }
 
     @Test
     public void rejectsNonPositiveModelCount() {
-        assertThrows(IllegalArgumentException.class, () -> new ModelInfo(0));
-        assertThrows(IllegalArgumentException.class, () -> new ModelInfo(-1, 1, 0.1f));
+        assertThrows(IllegalArgumentException.class, () -> new VisionModelInfo(0));
+        assertThrows(IllegalArgumentException.class, () -> new VisionModelInfo(-1, 1, 0.1f));
     }
 
     @Test(expected = UnsupportedOperationException.class)
     public void classLabelsCannotBeChanged() {
-        new ModelInfo(1, 1, 0.1f).classLabels.set(0, "changed");
+        new VisionModelInfo(1, 1, 0.1f).classLabels.set(0, "changed");
     }
 
     @Test
     public void irInfoIsAvailableWithoutInferenceResult() {
-        ModelInfo info = new ModelInfo(4, 1, 0.1f);
+        VisionModelInfo info = new VisionModelInfo(4, 1, 0.1f);
 
         assertEquals(4, info.modelCount);
         assertEquals("single_1_input", info.inputType);
@@ -43,8 +43,8 @@ public class ModelInfoTest {
 
     @Test
     public void dualInfoKeepsItsOwnInputTypeAndMargin() {
-        ModelInfo ir = new ModelInfo(4, 1, 0.1f);
-        ModelInfo dual = new ModelInfo(4, 2, 0.2f);
+        VisionModelInfo ir = new VisionModelInfo(4, 1, 0.1f);
+        VisionModelInfo dual = new VisionModelInfo(4, 2, 0.2f);
 
         assertEquals(4, dual.modelCount);
         assertEquals("dual_2_input", dual.inputType);
@@ -55,35 +55,35 @@ public class ModelInfoTest {
 
     @Test
     public void infoQueriesReturnOneObject() throws Exception {
-        assertEquals(ModelInfo.class, AntiSpoofingEngine.class.getMethod("getModelInfo").getReturnType());
-        assertEquals(ModelInfo.class, AntiSpoofingEngine.class.getMethod("getModelInfo", Context.class).getReturnType());
+        assertEquals(VisionModelInfo.class, VisionEngine.class.getMethod("getModelInfo").getReturnType());
+        assertEquals(VisionModelInfo.class, VisionEngine.class.getMethod("getModelInfo", Context.class).getReturnType());
     }
 
     @Test(expected = NoSuchMethodException.class)
     public void separateModelCountIsNotPublic() throws Exception {
-        AntiSpoofingEngine.class.getMethod("modelCount", Context.class);
+        VisionEngine.class.getMethod("modelCount", Context.class);
     }
 
     @Test
     public void resultDoesNotExposeModelLabelsOrIndexedProbability() {
         assertThrows(NoSuchMethodException.class,
-                () -> AntiSpoofingResult.class.getMethod("getClassLabels"));
+                () -> VisionLivenessResult.class.getMethod("getClassLabels"));
         assertThrows(NoSuchMethodException.class,
-                () -> AntiSpoofingResult.class.getMethod("getProbability", int.class));
+                () -> VisionLivenessResult.class.getMethod("getProbability", int.class));
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void infoRejectsMissingContext() {
-        AntiSpoofingEngine.getModelInfo(null);
+        VisionEngine.getModelInfo(null);
     }
 
     @Test
     public void catalogInfoProvidesCountAndLabelsWithoutSelectingAModel() {
-        ModelInfo info = new ModelInfo(4);
+        VisionModelInfo info = new VisionModelInfo(4);
 
         assertEquals(4, info.modelCount);
         assertNull(info.inputType);
-        assertEquals(new ModelInfo(4, 1, 0.1f).classLabels, info.classLabels);
+        assertEquals(new VisionModelInfo(4, 1, 0.1f).classLabels, info.classLabels);
         assertTrue(Float.isNaN(info.cropMarginRatio));
     }
 }

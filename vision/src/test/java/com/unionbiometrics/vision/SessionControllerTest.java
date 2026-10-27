@@ -12,21 +12,21 @@ public class SessionControllerTest {
         SessionController controller = new SessionController(10, 3);
 
         for (int i = 0; i < 10; i++) {
-            AntiSpoofingResult waiting = controller.prepare();
-            assertEquals(AntiSpoofingResult.Status.RUNNING, waiting.getStatus());
+            VisionLivenessResult waiting = controller.prepare();
+            assertEquals(VisionLivenessResult.Status.RUNNING, waiting.getStatus());
             assertNull(waiting.getProbabilities());
             assertNull(waiting.getInferenceMs());
         }
         assertNull(controller.prepare());
-        AntiSpoofingResult firstSample = controller.add(classificationAt(0), 11L);
-        assertEquals(AntiSpoofingResult.Status.RUNNING, firstSample.getStatus());
+        VisionLivenessResult firstSample = controller.add(classificationAt(0), 11L);
+        assertEquals(VisionLivenessResult.Status.RUNNING, firstSample.getStatus());
         assertEquals(Long.valueOf(11L), firstSample.getInferenceMs());
-        assertEquals(AntiSpoofingResult.Status.RUNNING,
+        assertEquals(VisionLivenessResult.Status.RUNNING,
                 controller.add(classificationAt(0), 12L).getStatus());
-        AntiSpoofingResult decision = controller.add(classificationAt(0), 13L);
-        assertEquals(AntiSpoofingResult.Status.LIVE, decision.getStatus());
+        VisionLivenessResult decision = controller.add(classificationAt(0), 13L);
+        assertEquals(VisionLivenessResult.Status.LIVE, decision.getStatus());
         assertEquals(Long.valueOf(13L), decision.getInferenceMs());
-        assertEquals(AntiSpoofingResult.Status.LIVE, controller.prepare().getStatus());
+        assertEquals(VisionLivenessResult.Status.LIVE, controller.prepare().getStatus());
     }
 
     @Test
@@ -35,15 +35,15 @@ public class SessionControllerTest {
         assertNull(controller.prepare());
         controller.add(classificationAt(0), 1L);
 
-        AntiSpoofingResult error = controller.fail("bad frame");
-        assertEquals(AntiSpoofingResult.Status.ERROR, error.getStatus());
+        VisionLivenessResult error = controller.fail("bad frame");
+        assertEquals(VisionLivenessResult.Status.ERROR, error.getStatus());
         assertNull(error.getProbabilities());
         assertNull(controller.prepare());
-        AntiSpoofingResult restarted = controller.add(classificationAt(0), 1L);
-        assertEquals(AntiSpoofingResult.Status.RUNNING, restarted.getStatus());
-        assertEquals(AntiSpoofingResult.Status.RUNNING,
+        VisionLivenessResult restarted = controller.add(classificationAt(0), 1L);
+        assertEquals(VisionLivenessResult.Status.RUNNING, restarted.getStatus());
+        assertEquals(VisionLivenessResult.Status.RUNNING,
                 controller.add(classificationAt(0), 2L).getStatus());
-        assertEquals(AntiSpoofingResult.Status.LIVE,
+        assertEquals(VisionLivenessResult.Status.LIVE,
                 controller.add(classificationAt(0), 3L).getStatus());
     }
 
@@ -54,7 +54,7 @@ public class SessionControllerTest {
         controller.prepare();
         controller.close();
 
-        assertEquals(AntiSpoofingResult.Status.ERROR, controller.prepare().getStatus());
+        assertEquals(VisionLivenessResult.Status.ERROR, controller.prepare().getStatus());
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -73,10 +73,10 @@ public class SessionControllerTest {
         assertNull(controller.prepare());
         controller.add(classificationAt(10), 1L);
         controller.add(classificationAt(10), 2L);
-        AntiSpoofingResult decision = controller.add(classificationAt(10), 3L);
-        assertEquals(AntiSpoofingResult.Status.LIVE, decision.getStatus());
+        VisionLivenessResult decision = controller.add(classificationAt(10), 3L);
+        assertEquals(VisionLivenessResult.Status.LIVE, decision.getStatus());
         assertEquals(1f, decision.getProbabilities()[10], 0f);
-        assertEquals("DENTAL_WHITE", new ModelInfo(1, 1, 0.1f).classLabels.get(10));
+        assertEquals("DENTAL_WHITE", new VisionModelInfo(1, 1, 0.1f).classLabels.get(10));
     }
 
     @Test
@@ -86,7 +86,7 @@ public class SessionControllerTest {
         controller.add(classificationAt(0), 1L);
         controller.reset();
         assertNull(controller.prepare());
-        AntiSpoofingResult result = controller.add(classificationAt(1), 2L);
+        VisionLivenessResult result = controller.add(classificationAt(1), 2L);
         assertArrayEquals(classificationAt(1), result.getProbabilities(), 0f);
     }
 
@@ -96,8 +96,8 @@ public class SessionControllerTest {
         assertNull(controller.prepare());
         controller.add(classificationAt(0), 1L);
         controller.add(classificationAt(1), 2L);
-        AntiSpoofingResult decision = controller.add(classificationAt(0), 3L);
-        assertEquals(AntiSpoofingResult.Status.LIVE, decision.getStatus());
+        VisionLivenessResult decision = controller.add(classificationAt(0), 3L);
+        assertEquals(VisionLivenessResult.Status.LIVE, decision.getStatus());
         assertEquals(2f / 3f, decision.getProbabilities()[0], 0.0001f);
         assertEquals(1f / 3f, decision.getProbabilities()[1], 0.0001f);
     }
@@ -108,13 +108,13 @@ public class SessionControllerTest {
             SessionController controller = new SessionController(0, 1);
             assertNull(controller.prepare());
             float[] probabilities = probabilitiesWithTop(liveIndex, 0.3999f);
-            AntiSpoofingResult decision = controller.add(probabilities, 3L);
+            VisionLivenessResult decision = controller.add(probabilities, 3L);
 
-            assertEquals(AntiSpoofingResult.Status.SPOOF, decision.getStatus());
+            assertEquals(VisionLivenessResult.Status.SPOOF, decision.getStatus());
             assertEquals(liveIndex, decision.getTopIndex());
             assertEquals(0.3999f, decision.getScore(), 0f);
             assertArrayEquals(probabilities, decision.getProbabilities(), 0f);
-            assertEquals(AntiSpoofingResult.Status.SPOOF, controller.prepare().getStatus());
+            assertEquals(VisionLivenessResult.Status.SPOOF, controller.prepare().getStatus());
         }
     }
 
@@ -124,9 +124,9 @@ public class SessionControllerTest {
             for (float score : new float[]{0.4f, 0.4001f}) {
                 SessionController controller = new SessionController(0, 1);
                 assertNull(controller.prepare());
-                AntiSpoofingResult decision = controller.add(probabilitiesWithTop(liveIndex, score), 3L);
+                VisionLivenessResult decision = controller.add(probabilitiesWithTop(liveIndex, score), 3L);
 
-                assertEquals(AntiSpoofingResult.Status.LIVE, decision.getStatus());
+                assertEquals(VisionLivenessResult.Status.LIVE, decision.getStatus());
             }
         }
     }
@@ -135,11 +135,11 @@ public class SessionControllerTest {
     public void appliesMinimumScoreToSessionAverage() {
         SessionController controller = new SessionController(0, 2);
         assertNull(controller.prepare());
-        assertEquals(AntiSpoofingResult.Status.RUNNING,
+        assertEquals(VisionLivenessResult.Status.RUNNING,
                 controller.add(probabilitiesWithTop(0, 0.6f), 1L).getStatus());
-        AntiSpoofingResult decision = controller.add(probabilitiesWithTop(0, 0.1f), 2L);
+        VisionLivenessResult decision = controller.add(probabilitiesWithTop(0, 0.1f), 2L);
 
-        assertEquals(AntiSpoofingResult.Status.SPOOF, decision.getStatus());
+        assertEquals(VisionLivenessResult.Status.SPOOF, decision.getStatus());
         assertEquals(0, decision.getTopIndex());
         assertEquals(0.35f, decision.getScore(), 0.0001f);
 
@@ -147,7 +147,7 @@ public class SessionControllerTest {
         assertNull(controller.prepare());
         controller.add(probabilitiesWithTop(0, 0.2f), 1L);
         decision = controller.add(probabilitiesWithTop(0, 0.6f), 2L);
-        assertEquals(AntiSpoofingResult.Status.LIVE, decision.getStatus());
+        assertEquals(VisionLivenessResult.Status.LIVE, decision.getStatus());
         assertEquals(0.4f, decision.getScore(), 0f);
     }
 
@@ -155,22 +155,22 @@ public class SessionControllerTest {
     public void rejectsSpoofClassAboveMinimumScore() {
         SessionController controller = new SessionController(0, 1);
         assertNull(controller.prepare());
-        AntiSpoofingResult decision = controller.add(probabilitiesWithTop(1, 0.9f), 1L);
+        VisionLivenessResult decision = controller.add(probabilitiesWithTop(1, 0.9f), 1L);
 
-        assertEquals(AntiSpoofingResult.Status.SPOOF, decision.getStatus());
+        assertEquals(VisionLivenessResult.Status.SPOOF, decision.getStatus());
     }
 
     @Test
     public void rawFrameDoesNotApplySessionMinimumScore() {
-        AntiSpoofingResult frame = AntiSpoofingResult.frameResult(
+        VisionLivenessResult frame = VisionLivenessResult.frameResult(
                 probabilitiesWithTop(0, 0.3999f), 2L);
 
-        assertEquals(AntiSpoofingResult.Status.LIVE, frame.getStatus());
+        assertEquals(VisionLivenessResult.Status.LIVE, frame.getStatus());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNonContractProbabilityCount() {
-        AntiSpoofingResult.sessionComplete(new float[]{1f}, 1L);
+        VisionLivenessResult.sessionComplete(new float[]{1f}, 1L);
     }
 
     private static float[] classificationAt(int index) {
