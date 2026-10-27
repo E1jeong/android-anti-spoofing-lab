@@ -64,18 +64,26 @@ public class ModelInfoTest {
         AntiSpoofingEngine.class.getMethod("modelCount", Context.class);
     }
 
+    @Test
+    public void resultDoesNotExposeModelLabelsOrIndexedProbability() {
+        assertThrows(NoSuchMethodException.class,
+                () -> AntiSpoofingResult.class.getMethod("getClassLabels"));
+        assertThrows(NoSuchMethodException.class,
+                () -> AntiSpoofingResult.class.getMethod("getProbability", int.class));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void infoRejectsMissingContext() {
         AntiSpoofingEngine.getModelInfo(null);
     }
 
     @Test
-    public void countQueryDoesNotPretendToSelectOrLoadAModel() {
+    public void catalogInfoProvidesCountAndLabelsWithoutSelectingAModel() {
         ModelInfo info = new ModelInfo(4);
 
         assertEquals(4, info.modelCount);
         assertNull(info.inputType);
-        assertTrue(info.classLabels.isEmpty());
+        assertEquals(new ModelInfo(4, 1, 0.1f).classLabels, info.classLabels);
         assertTrue(Float.isNaN(info.cropMarginRatio));
     }
 }

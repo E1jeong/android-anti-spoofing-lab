@@ -44,7 +44,7 @@ public final class FacadeContractTest {
         AntiSpoofingResult result = AntiSpoofingResult.sessionRunning(probabilities, 4L);
 
         assertEquals(AntiSpoofingResult.Status.RUNNING, result.getStatus());
-        assertEquals(0.8f, result.getProbability(0), 0f);
+        assertEquals(0.8f, result.getProbabilities()[0], 0f);
         assertEquals(Long.valueOf(4L), result.getInferenceMs());
     }
 
@@ -66,7 +66,7 @@ public final class FacadeContractTest {
         probabilities[10] = 1f;
         AntiSpoofingResult result = AntiSpoofingResult.sessionComplete(probabilities, 4L);
         assertEquals(AntiSpoofingResult.Status.LIVE, result.getStatus());
-        assertEquals("DENTAL_WHITE", AntiSpoofingResult.getClassLabels()[result.getTopIndex()]);
+        assertEquals("DENTAL_WHITE", new ModelInfo(1, 1, 0.1f).classLabels.get(result.getTopIndex()));
     }
 
     @Test
@@ -76,10 +76,10 @@ public final class FacadeContractTest {
         AntiSpoofingResult result = AntiSpoofingResult.frameResult(probabilities, 4L);
         probabilities[0] = 0f;
         assertEquals(AntiSpoofingResult.Status.LIVE, result.getStatus());
-        assertEquals(0.9f, result.getProbability(0), 0f);
+        assertEquals(0.9f, result.getProbabilities()[0], 0f);
         assertEquals(Long.valueOf(4L), result.getInferenceMs());
         result.getProbabilities()[0] = 0f;
-        assertEquals(0.9f, result.getProbability(0), 0f);
+        assertEquals(0.9f, result.getProbabilities()[0], 0f);
     }
 
     @Test

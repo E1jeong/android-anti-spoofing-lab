@@ -100,7 +100,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         }
     }
 
-    /** Reads only the registered count before engine creation, without loading model slots. */
+    /** Reads registered count and shared class labels before creation, without loading model slots. */
     public static ModelInfo getModelInfo(Context context) {
         if (context == null) throw new IllegalArgumentException("context must not be null");
         Context application = context.getApplicationContext();
@@ -111,8 +111,8 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         }
     }
 
-    /** Expands a face box for host previews or capture. */
-    public static Rect expandFace(Rect face, float marginRatio, int width, int height) {
+    /** Expands a face box for internal model crops. */
+    private static Rect expandFace(Rect face, float marginRatio, int width, int height) {
         int marginX = Math.round(face.width() * marginRatio);
         int marginY = Math.round(face.height() * marginRatio);
         Rect expanded = new Rect(

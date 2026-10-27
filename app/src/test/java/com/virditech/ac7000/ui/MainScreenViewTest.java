@@ -6,13 +6,9 @@ import static org.junit.Assert.assertEquals;
 
 public class MainScreenViewTest {
     @Test
-    public void displayLabelsPreserveClassOrderAndShortenCurvedNames() {
-        String[] expected = {
-                "LIVE", "PRINT", "PICTURE", "MASK", "DISPLAY", "PMASK",
-                "C PRINT", "C MASK", "C PICTURE", "C PMASK", "DENTAL_WHITE", "DENTAL_BLACK"
-        };
-        for (int i = 0; i < expected.length; i++) {
-            assertEquals(expected[i], MainScreenView.classDisplayLabel(i));
-        }
+    public void displayLabelsPreserveNamesAndShortenOnlyCurvedPrefix() {
+        assertEquals("LIVE", MainScreenView.classDisplayLabel("LIVE"));
+        assertEquals("DENTAL_WHITE", MainScreenView.classDisplayLabel("DENTAL_WHITE"));
+        assertEquals("C PRINT", MainScreenView.classDisplayLabel("CURVED_PRINT"));
     }
 }

@@ -29,8 +29,6 @@ import com.unionbiometrics.vision.AntiSpoofingResult;
 import java.util.Locale;
 
 public final class MainScreenView {
-    private static final String[] VISION_LABELS = AntiSpoofingResult.getClassLabels();
-
     public final FrameLayout root;
     public final FrameLayout uiContainer;
     public final TextureView rgbView;
@@ -368,14 +366,14 @@ public final class MainScreenView {
         if (show) root.bringChildToFront(cleanModeSnapshotButton);
     }
 
-    public void showCleanModeResult(AntiSpoofingResult result) {
+    public void showCleanModeResult(AntiSpoofingResult result, String classLabel) {
         if (result == null || result.getProbabilities() == null) {
             clearCleanModeResult();
             return;
         }
         int color = result.getStatus() == AntiSpoofingResult.Status.LIVE
             ? Color.rgb(0, 230, 118) : Color.rgb(255, 82, 82);
-        String text = formatResult(result);
+        String text = formatResult(result, classLabel);
         SpannableString spannable = new SpannableString(text);
         spannable.setSpan(new ForegroundColorSpan(color), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         currentCleanResultText = spannable;
@@ -397,16 +395,15 @@ public final class MainScreenView {
         if (showClean) root.bringChildToFront(cleanModeResultView);
     }
 
-    public static String classDisplayLabel(int index) {
-        String label = VISION_LABELS[index];
+    public static String classDisplayLabel(String label) {
         return label.startsWith("CURVED_")
                 ? "C " + label.substring("CURVED_".length()) : label;
     }
 
-    private static String formatResult(AntiSpoofingResult result) {
+    private static String formatResult(AntiSpoofingResult result, String classLabel) {
         return String.format(Locale.US, "%s %.1f%%",
-                classDisplayLabel(result.getTopIndex()),
-                result.getProbability(result.getTopIndex()) * 100f);
+                classDisplayLabel(classLabel),
+                result.getScore() * 100f);
     }
 
     public void showAuthResult(CharSequence text) {

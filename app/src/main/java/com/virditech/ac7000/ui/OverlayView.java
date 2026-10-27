@@ -27,6 +27,7 @@ public final class OverlayView extends View {
     private Rect rgbBox;
     private Rect irBox;
     private AntiSpoofingResult result;
+    private String classLabel;
     private String recognitionResult;
     private boolean recognitionMatched;
     private boolean showIr;
@@ -125,8 +126,9 @@ public final class OverlayView extends View {
         invalidate();
     }
 
-    public void showResult(AntiSpoofingResult result) {
+    public void showResult(AntiSpoofingResult result, String classLabel) {
         this.result = result;
+        this.classLabel = classLabel;
         invalidate();
     }
 
@@ -138,6 +140,7 @@ public final class OverlayView extends View {
 
     public void clearClassificationResult() {
         result = null;
+        classLabel = null;
         invalidate();
     }
 
@@ -205,10 +208,10 @@ public final class OverlayView extends View {
         canvas.drawText(text, x, baseline, paint);
     }
 
-    private static String formatResult(AntiSpoofingResult result) {
+    private String formatResult(AntiSpoofingResult result) {
         return String.format(Locale.US, "%s %.1f%%",
-                MainScreenView.classDisplayLabel(result.getTopIndex()),
-                result.getProbability(result.getTopIndex()) * 100f);
+                MainScreenView.classDisplayLabel(classLabel),
+                result.getScore() * 100f);
     }
 
     private void drawCollectionGuide(Canvas canvas) {

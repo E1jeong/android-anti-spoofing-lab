@@ -75,8 +75,8 @@ public class SessionControllerTest {
         controller.add(classificationAt(10), 2L);
         AntiSpoofingResult decision = controller.add(classificationAt(10), 3L);
         assertEquals(AntiSpoofingResult.Status.LIVE, decision.getStatus());
-        assertEquals(1f, decision.getProbability(10), 0f);
-        assertEquals("DENTAL_WHITE", AntiSpoofingResult.getClassLabels()[10]);
+        assertEquals(1f, decision.getProbabilities()[10], 0f);
+        assertEquals("DENTAL_WHITE", new ModelInfo(1, 1, 0.1f).classLabels.get(10));
     }
 
     @Test
@@ -98,8 +98,8 @@ public class SessionControllerTest {
         controller.add(classificationAt(1), 2L);
         AntiSpoofingResult decision = controller.add(classificationAt(0), 3L);
         assertEquals(AntiSpoofingResult.Status.LIVE, decision.getStatus());
-        assertEquals(2f / 3f, decision.getProbability(0), 0.0001f);
-        assertEquals(1f / 3f, decision.getProbability(1), 0.0001f);
+        assertEquals(2f / 3f, decision.getProbabilities()[0], 0.0001f);
+        assertEquals(1f / 3f, decision.getProbabilities()[1], 0.0001f);
     }
 
     @Test

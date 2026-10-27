@@ -4,14 +4,15 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-/** Immutable model information. Engine-independent queries contain the registered count only. */
+/** Immutable model information. Engine-independent queries provide count and shared class labels. */
 public final class ModelInfo {
     /** Total registered manifest entries, including slots that may fail to load. */
     public final int modelCount;
     /** Loaded input layout, or null for an engine-independent count query. */
     public final String inputType;
     /** Class names in probability-vector order. This list cannot be modified. */
-    public final List<String> classLabels;
+    public final List<String> classLabels =
+            Collections.unmodifiableList(Arrays.asList(Constants.CLASS_LABELS.clone()));
     /** Loaded crop margin, or NaN for an engine-independent count query. */
     public final float cropMarginRatio;
 
@@ -24,7 +25,6 @@ public final class ModelInfo {
         } else {
             throw new IllegalArgumentException("Model must have exactly one or two inputs");
         }
-        classLabels = Collections.unmodifiableList(Arrays.asList(Constants.CLASS_LABELS.clone()));
         this.modelCount = modelCount;
         this.cropMarginRatio = cropMarginRatio;
     }
@@ -33,7 +33,6 @@ public final class ModelInfo {
         if (modelCount <= 0) throw new IllegalArgumentException("modelCount must be > 0");
         this.modelCount = modelCount;
         inputType = null;
-        classLabels = Collections.emptyList();
         cropMarginRatio = Float.NaN;
     }
 }

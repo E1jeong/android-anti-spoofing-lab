@@ -61,6 +61,7 @@ import com.virditech.ac7000.device.AppWatchdog;
 import com.virditech.ac7000.device.UbimDaemonClient;
 import com.unionbiometrics.vision.AntiSpoofingEngine;
 import com.unionbiometrics.vision.AntiSpoofingResult;
+import com.unionbiometrics.vision.ModelInfo;
 import com.virditech.ac7000.model.AuthFrameAccumulator;
 import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.performance.LatencyWindow;
@@ -77,6 +78,7 @@ import com.virditech.ac7000.recognition.RecognitionResult;
 import com.virditech.ac7000.recognition.RecognitionWorkCoordinator;
 import com.virditech.ac7000.ui.MainScreenView;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -98,7 +100,7 @@ public final class MainActivity extends Activity {
     private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
     private static final long IR_LED_OFF_DELAY_MS = 1_000L;
     private static final long CAMERA_CLOSE_WARNING_MS = 1_500L;
-    private static final String[] VISION_LABELS = AntiSpoofingResult.getClassLabels();
+    private volatile List<String> visionLabels = Collections.emptyList();
 
     private final ExecutorService trackingExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
@@ -693,7 +695,12 @@ public final class MainActivity extends Activity {
     private void loadAntiSpoofingEngines() {
         SparseArray<AntiSpoofingEngine> loaded = new SparseArray<>();
         try {
-            int modelCount = AntiSpoofingEngine.getModelInfo(getApplicationContext()).modelCount;
+            ModelInfo modelInfo = AntiSpoofingEngine.getModelInfo(getApplicationContext());
+            visionLabels = modelInfo.classLabels;
+            runOnUiThread(() -> {
+                if (!enginesShutDown) resetResultsLabelToZero();
+            });
+            int modelCount = modelInfo.modelCount;
             for (int slotIndex = 0; slotIndex < modelCount; slotIndex++) {
                 try {
                     loaded.put(slotIndex,
@@ -1094,9 +1101,9 @@ public final class MainActivity extends Activity {
         }
         if (activeEngine != null) {
             float margin = activeEngine.getModelInfo().cropMarginRatio;
-            rgbCrop = AntiSpoofingEngine.expandFace(
+            rgbCrop = expandFace(
                     detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-            irCrop = AntiSpoofingEngine.expandFace(irDetected, margin, irWidth, irHeight);
+            irCrop = expandFace(irDetected, margin, irWidth, irHeight);
         }
 
         Bitmap previewFace = null;
@@ -1194,9 +1201,9 @@ public final class MainActivity extends Activity {
                 final String subjectDirName = savePermit.className + "_" + savePermit.subjectId;
                 float margin = activeEngine != null
                         ? activeEngine.getModelInfo().cropMarginRatio : 0.10f;
-                Rect rgbR = AntiSpoofingEngine.expandFace(detected, margin,
+                Rect rgbR = expandFace(detected, margin,
                         frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
-                Rect irR = AntiSpoofingEngine.expandFace(irDetected, margin,
+                Rect irR = expandFace(irDetected, margin,
                         frame.ir.bitmap.getWidth(), frame.ir.bitmap.getHeight());
                 final int minQualityLevel = shouldCheckCollectionQuality()
                         ? saveCandidate.minQualityLevel : -1;
@@ -1321,6 +1328,20 @@ public final class MainActivity extends Activity {
                 frame.rgb.timestampNs, className);
     }
 
+    private static Rect expandFace(Rect face, float marginRatio, int width, int height) {
+        int marginX = Math.round(face.width() * marginRatio);
+        int marginY = Math.round(face.height() * marginRatio);
+        Rect expanded = new Rect(
+                Math.max(0, face.left - marginX),
+                Math.max(0, face.top - marginY),
+                Math.min(width, face.right + marginX),
+                Math.min(height, face.bottom + marginY));
+        if (expanded.width() <= 0 || expanded.height() <= 0) {
+            throw new IllegalArgumentException("Face crop is empty");
+        }
+        return expanded;
+    }
+
     private static Bitmap createCropPreviewBitmap(Bitmap source, Rect crop) {
         if (source == null || crop == null || source.isRecycled()) return null;
         int left = Math.max(0, crop.left);
@@ -1419,8 +1440,8 @@ public final class MainActivity extends Activity {
                             probabilities, task.receivedNs,
                             SystemClock.elapsedRealtimeNanos());
                     if (verdict != null) {
-                        String topSpoofLabel = verdict.topSpoofIndex < VISION_LABELS.length
-                                ? MainScreenView.classDisplayLabel(verdict.topSpoofIndex)
+                        String topSpoofLabel = verdict.topSpoofIndex < visionLabels.size()
+                                ? MainScreenView.classDisplayLabel(visionLabels.get(verdict.topSpoofIndex))
                                 : "UNKNOWN";
                         showAuthVerdict(verdict.live, verdict.averageLiveScore,
                                 topSpoofLabel, verdict.elapsedMs);
@@ -1428,9 +1449,10 @@ public final class MainActivity extends Activity {
                 }
                 return;
             }
-            screen.overlay.showResult(result);
+            String classLabel = task.engine.getModelInfo().classLabels.get(result.getTopIndex());
+            screen.overlay.showResult(result, classLabel);
             screen.resultsLabel.setText(formatClassificationResults(result));
-            if (screen != null) screen.showCleanModeResult(result);
+            if (screen != null) screen.showCleanModeResult(result, classLabel);
             
             long now = SystemClock.elapsedRealtime();
             if (now - lastUiUpdateTimeMs >= 150L) {
@@ -2157,20 +2179,21 @@ public final class MainActivity extends Activity {
 
     private void appendClassificationResult(StringBuilder sb, String title, AntiSpoofingResult result) {
         if (title != null) sb.append(title).append("\n");
-        for (int i = 0; i < VISION_LABELS.length; i++) {
+        float[] probabilities = result == null ? null : result.getProbabilities();
+        for (int i = 0; i < visionLabels.size(); i++) {
             if (i > 0) sb.append("\n");
-            float probability = result != null ? result.getProbability(i) * 100f : 0f;
+            float probability = probabilities != null ? probabilities[i] * 100f : 0f;
             sb.append(String.format(Locale.US, "%s %.1f%%",
-                    MainScreenView.classDisplayLabel(i), probability));
+                    MainScreenView.classDisplayLabel(visionLabels.get(i)), probability));
         }
     }
 
     private void resetResultsLabelToZero() {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < VISION_LABELS.length; i++) {
+        for (int i = 0; i < visionLabels.size(); i++) {
             if (i > 0) sb.append("\n");
             sb.append(String.format(Locale.US, "%s 0.0%%",
-                    MainScreenView.classDisplayLabel(i)));
+                    MainScreenView.classDisplayLabel(visionLabels.get(i))));
         }
         screen.resultsLabel.setText(sb.toString());
     }

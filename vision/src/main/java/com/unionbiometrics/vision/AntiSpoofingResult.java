@@ -58,12 +58,10 @@ public final class AntiSpoofingResult {
     }
 
     public Status getStatus() { return status; }
-    /** Returns a copy of the probabilities in {@link #getClassLabels()} order, or null on error/settling. */
+    /** Returns a copy in ModelInfo.classLabels order, or null on error/settling. */
     public float[] getProbabilities() { return probabilities == null ? null : probabilities.clone(); }
     public int getTopIndex() { return topIndex; }
     public float getScore() { return topIndex < 0 ? 0f : probabilities[topIndex]; }
-    public float getProbability(int index) { return probabilities[index]; }
-    public static String[] getClassLabels() { return Constants.CLASS_LABELS.clone(); }
     /** Model invocation time for a raw frame; the last sampled frame's time for a session. */
     public Long getInferenceMs() { return inferenceMs; }
     public String getErrorMessage() { return errorMessage; }
