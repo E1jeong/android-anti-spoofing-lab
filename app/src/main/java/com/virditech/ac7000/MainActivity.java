@@ -693,7 +693,7 @@ public final class MainActivity extends Activity {
     private void loadAntiSpoofingEngines() {
         SparseArray<AntiSpoofingEngine> loaded = new SparseArray<>();
         try {
-            int modelCount = AntiSpoofingEngine.modelCount(getApplicationContext());
+            int modelCount = AntiSpoofingEngine.getModelInfo(getApplicationContext()).modelCount;
             for (int slotIndex = 0; slotIndex < modelCount; slotIndex++) {
                 try {
                     loaded.put(slotIndex,
@@ -1093,7 +1093,7 @@ public final class MainActivity extends Activity {
             activeEngine = antiSpoofingEngine;
         }
         if (activeEngine != null) {
-            float margin = activeEngine.cropMarginRatio;
+            float margin = activeEngine.getModelInfo().cropMarginRatio;
             rgbCrop = AntiSpoofingEngine.expandFace(
                     detected, margin, frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
             irCrop = AntiSpoofingEngine.expandFace(irDetected, margin, irWidth, irHeight);
@@ -1193,7 +1193,7 @@ public final class MainActivity extends Activity {
                 final int currentCount = savePermit.sampleIndex;
                 final String subjectDirName = savePermit.className + "_" + savePermit.subjectId;
                 float margin = activeEngine != null
-                        ? activeEngine.cropMarginRatio : 0.10f;
+                        ? activeEngine.getModelInfo().cropMarginRatio : 0.10f;
                 Rect rgbR = AntiSpoofingEngine.expandFace(detected, margin,
                         frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight());
                 Rect irR = AntiSpoofingEngine.expandFace(irDetected, margin,
@@ -2032,7 +2032,7 @@ public final class MainActivity extends Activity {
         final String metadataJson = CaptureStorage.buildSampleMetadataJson(
                 pair.rgb.bitmap.getWidth(), pair.rgb.bitmap.getHeight(), task.rgbFace, task.rgbCrop,
                 pair.ir.bitmap.getWidth(), pair.ir.bitmap.getHeight(), task.irFace, task.irCrop,
-                task.engine.cropMarginRatio, "attack_live", null, null, -1, -1, 0f);
+                task.engine.getModelInfo().cropMarginRatio, "attack_live", null, null, -1, -1, 0f);
         OwnedFrameTask saveTask = new OwnedFrameTask(pair, () -> {
             boolean saved = false;
             try {

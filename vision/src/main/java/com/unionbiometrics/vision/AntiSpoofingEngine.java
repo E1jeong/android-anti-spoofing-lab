@@ -18,7 +18,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private final Classifier classifier;
     private final SessionController session;
     private final boolean requiresRgb;
-    public final float cropMarginRatio;
+    private final ModelInfo info;
     private final ExecutorService sessionExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Object queueLock = new Object();
@@ -36,11 +36,16 @@ public final class AntiSpoofingEngine implements AutoCloseable {
     private boolean finalResultScheduled;
     private volatile boolean closed;
 
-    private AntiSpoofingEngine(Classifier classifier, int settleFrames, int sampleCount) {
+    private AntiSpoofingEngine(Classifier classifier, int modelCount, int settleFrames, int sampleCount) {
         this.classifier = classifier;
         session = new SessionController(settleFrames, sampleCount);
         requiresRgb = classifier.inputTensorCount() == Constants.DUAL_INPUT_COUNT;
-        cropMarginRatio = classifier.cropMarginRatio();
+        info = new ModelInfo(modelCount, classifier.inputTensorCount(), classifier.cropMarginRatio());
+    }
+
+    /** Returns the loaded model's immutable information without requiring an inference result. */
+    public ModelInfo getModelInfo() {
+        return info;
     }
 
     /** Synchronously infers one frame without advancing the session. Call off the main thread. */
@@ -75,12 +80,13 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         if (context == null) throw new IllegalArgumentException("context must not be null");
         Context application = context.getApplicationContext();
         try {
+            int modelCount = ModelLoader.modelCount(application == null ? context : application);
             Classifier loaded = ModelLoader.loadModel(
                     application == null ? context : application, slotIndex);
             boolean created = false;
             try {
                 AntiSpoofingEngine engine = new AntiSpoofingEngine(
-                        loaded, settleFrames, sampleCount);
+                        loaded, modelCount, settleFrames, sampleCount);
                 created = true;
                 return engine;
             } finally {
@@ -94,13 +100,14 @@ public final class AntiSpoofingEngine implements AutoCloseable {
         }
     }
 
-    /** Number of model entries in the bundled manifest. */
-    public static int modelCount(Context context) {
+    /** Reads only the registered count before engine creation, without loading model slots. */
+    public static ModelInfo getModelInfo(Context context) {
         if (context == null) throw new IllegalArgumentException("context must not be null");
+        Context application = context.getApplicationContext();
         try {
-            return ModelLoader.modelCount(context);
+            return new ModelInfo(ModelLoader.modelCount(application == null ? context : application));
         } catch (Exception e) {
-            throw new IllegalStateException("Model manifest failed to load: " + e.getMessage(), e);
+            throw new IllegalStateException("Model information failed to load: " + e.getMessage(), e);
         }
     }
 
@@ -139,7 +146,7 @@ public final class AntiSpoofingEngine implements AutoCloseable {
             submittedGeneration = generation;
             submissionId = ++nextSubmissionId;
         }
-        float margin = cropMarginRatio;
+        float margin = info.cropMarginRatio;
         Bitmap irCopy = copyExpandedCrop(ir, irFace, margin);
         Bitmap rgbCopy = null;
         try {
@@ -258,9 +265,9 @@ public final class AntiSpoofingEngine implements AutoCloseable {
                                            boolean isExpanded) {
         try {
             Rect rgbCrop = isExpanded ? rgbFace : expandFace(
-                    rgbFace, cropMarginRatio, rgb.getWidth(), rgb.getHeight());
+                    rgbFace, info.cropMarginRatio, rgb.getWidth(), rgb.getHeight());
             Rect irCrop = isExpanded ? irFace : expandFace(
-                    irFace, cropMarginRatio, ir.getWidth(), ir.getHeight());
+                    irFace, info.cropMarginRatio, ir.getWidth(), ir.getHeight());
             return classifier.classify(rgb, rgbCrop, ir, irCrop);
         } catch (RuntimeException e) {
             return AntiSpoofingResult.frameError("Vision inference failed: " + e.getMessage());
