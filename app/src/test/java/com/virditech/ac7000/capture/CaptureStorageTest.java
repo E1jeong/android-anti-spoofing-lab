@@ -109,34 +109,39 @@ public final class CaptureStorageTest {
         }
     }
 
-    @Test public void landmarkProvenanceHashesActualSavedBytes() throws Exception {
+    @Test public void integratedMetadataHashesSavedRgbWithoutWritingSidecar() throws Exception {
         File sampleDir = Files.createTempDirectory("capture-landmarks").toFile();
         try {
             Files.write(new File(sampleDir, "RGB.bmp").toPath(), "abc".getBytes(StandardCharsets.UTF_8));
-            Files.write(new File(sampleDir, "meta.json").toPath(), "{}".getBytes(StandardCharsets.UTF_8));
-            assertTrue(CaptureStorage.saveLandmarks(missingLandmarks(), sampleDir).saved);
-            org.json.JSONObject json = new org.json.JSONObject(new String(Files.readAllBytes(
-                    new File(sampleDir, "landmarks.json").toPath()), StandardCharsets.UTF_8));
+            assertTrue(CaptureStorage.saveMetadata("{\"schemaVersion\":2}",
+                    missingLandmarks(), sampleDir).saved);
+            org.json.JSONObject metadata = new org.json.JSONObject(new String(Files.readAllBytes(
+                    new File(sampleDir, "meta.json").toPath()), StandardCharsets.UTF_8));
+            assertEquals(2, metadata.getInt("schemaVersion"));
+            org.json.JSONObject json = metadata.getJSONObject("landmarks");
             assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
                     json.getString("imageSha256"));
-            assertEquals("44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-                    json.getString("metaSha256"));
+            assertEquals(64, json.getString("captureSha256").length());
             assertEquals("not_detected", json.getString("status"));
+            assertEquals(5, json.getJSONObject("points").length());
+            assertFalse(new File(sampleDir, "landmarks.json").exists());
         } finally {
             deleteRecursively(sampleDir);
         }
     }
 
-    @Test public void missingSourceOrUnwritableLandmarksRejectsSave() throws Exception {
+    @Test public void missingRgbInvalidCaptureOrUnwritableMetadataRejectsSave() throws Exception {
         File sampleDir = Files.createTempDirectory("capture-landmark-failure").toFile();
         try {
-            assertFalse(CaptureStorage.saveLandmarks(missingLandmarks(), sampleDir).saved);
-            assertFalse(new File(sampleDir, "landmarks.json").exists());
+            assertFalse(CaptureStorage.saveMetadata("{\"schemaVersion\":2}",
+                    missingLandmarks(), sampleDir).saved);
+            assertFalse(new File(sampleDir, "meta.json").exists());
             Files.write(new File(sampleDir, "RGB.bmp").toPath(), new byte[] {1});
-            assertFalse(CaptureStorage.saveLandmarks(missingLandmarks(), sampleDir).saved);
-            Files.write(new File(sampleDir, "meta.json").toPath(), new byte[] {2});
-            assertTrue(new File(sampleDir, "landmarks.json").mkdir());
-            assertFalse(CaptureStorage.saveLandmarks(missingLandmarks(), sampleDir).saved);
+            assertFalse(CaptureStorage.saveMetadata("{}", missingLandmarks(), sampleDir).saved);
+            assertFalse(new File(sampleDir, "meta.json").exists());
+            assertTrue(new File(sampleDir, "meta.json").mkdir());
+            assertFalse(CaptureStorage.saveMetadata("{\"schemaVersion\":2}",
+                    missingLandmarks(), sampleDir).saved);
         } finally {
             deleteRecursively(sampleDir);
         }
@@ -148,6 +153,25 @@ public final class CaptureStorageTest {
             assertFalse(CaptureStorage.saveCompleteSample(null, null, null, null,
                     "{}", null, sampleDir).saved);
             assertEquals(0, sampleDir.list().length);
+        } finally {
+            deleteRecursively(sampleDir);
+        }
+    }
+
+    @Test public void splitLandmarkFileRejectsSaveWithoutChangingExistingFiles() throws Exception {
+        File sampleDir = Files.createTempDirectory("capture-split-format").toFile();
+        try {
+            File sidecar = new File(sampleDir, "landmarks.json");
+            File metadata = new File(sampleDir, "meta.json");
+            Files.write(sidecar.toPath(), "original-landmarks".getBytes(StandardCharsets.UTF_8));
+            Files.write(metadata.toPath(), "original-metadata".getBytes(StandardCharsets.UTF_8));
+            CaptureStorage.SaveResult result = CaptureStorage.saveCompleteSample(
+                    null, null, null, null, "{\"schemaVersion\":2}", missingLandmarks(), sampleDir);
+            assertFalse(result.saved);
+            assertTrue(result.errorMessage.contains("unsupported"));
+            assertEquals("original-landmarks", new String(Files.readAllBytes(sidecar.toPath()), StandardCharsets.UTF_8));
+            assertEquals("original-metadata", new String(Files.readAllBytes(metadata.toPath()), StandardCharsets.UTF_8));
+            assertFalse(new File(sampleDir, "RGB.bmp").exists());
         } finally {
             deleteRecursively(sampleDir);
         }

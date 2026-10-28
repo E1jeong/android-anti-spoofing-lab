@@ -38,7 +38,7 @@ public final class LandmarkMetadata {
         }
     }
 
-    public String build(String imageSha256, String metaSha256) {
+    public String build(String imageSha256) {
         try {
             JSONObject root = new JSONObject();
             root.put("schemaVersion", 1);
@@ -47,7 +47,6 @@ public final class LandmarkMetadata {
             root.put("imageWidth", width);
             root.put("imageHeight", height);
             root.put("imageSha256", imageSha256);
-            root.put("metaSha256", metaSha256);
             root.put("rgbTimestampNs", timestampNs);
             JSONObject provenance = new JSONObject();
             provenance.put("name", extractor);
@@ -88,7 +87,7 @@ public final class LandmarkMetadata {
                 records.put(NAMES[i], record);
             }
             root.put("status", extracted ? "extracted" : "not_detected");
-            root.put("landmarks", records);
+            root.put("points", records);
             return root.toString(2);
         } catch (JSONException e) {
             throw new IllegalStateException("Unable to build landmark metadata", e);

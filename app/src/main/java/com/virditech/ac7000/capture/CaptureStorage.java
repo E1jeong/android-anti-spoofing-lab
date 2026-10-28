@@ -148,8 +148,12 @@ public final class CaptureStorage {
             return SaveResult.failure("unable to create " + sampleDir.getAbsolutePath());
         }
         File landmarkFile = new File(sampleDir, "landmarks.json");
-        if (landmarkFile.exists() && (!landmarkFile.isFile() || !landmarkFile.delete())) {
-            return SaveResult.failure("unable to replace " + landmarkFile.getAbsolutePath());
+        if (landmarkFile.exists()) {
+            return SaveResult.failure("Separate landmarks.json is unsupported: " + landmarkFile.getAbsolutePath());
+        }
+        File metadataFile = new File(sampleDir, "meta.json");
+        if (metadataFile.exists() && (!metadataFile.isFile() || !metadataFile.delete())) {
+            return SaveResult.failure("unable to replace " + metadataFile.getAbsolutePath());
         }
         SaveResult result = saveBitmapAsBmp(rgb, new File(sampleDir, "RGB.bmp"));
         if (!result.saved) return result;
@@ -159,16 +163,15 @@ public final class CaptureStorage {
         if (!result.saved) return result;
         result = saveBitmapRegionAsBmp(ir, irCrop, new File(sampleDir, "cropIR.bmp"));
         if (!result.saved) return result;
-        result = saveTextFile(metadataJson, new File(sampleDir, "meta.json"));
-        if (!result.saved) return result;
-        return saveLandmarks(landmarks, sampleDir);
+        return saveMetadata(metadataJson, landmarks, sampleDir);
     }
 
-    static SaveResult saveLandmarks(LandmarkMetadata landmarks, File sampleDir) {
+    static SaveResult saveMetadata(String metadataJson, LandmarkMetadata landmarks, File sampleDir) {
         try {
-            return saveTextFile(landmarks.build(sha256(new File(sampleDir, "RGB.bmp")),
-                    sha256(new File(sampleDir, "meta.json"))), new File(sampleDir, "landmarks.json"));
-        } catch (IOException | SecurityException e) {
+            String merged = SampleMetadata.withLandmarks(metadataJson, landmarks,
+                    sha256(new File(sampleDir, "RGB.bmp")));
+            return saveTextFile(merged, new File(sampleDir, "meta.json"));
+        } catch (IOException | SecurityException | IllegalArgumentException | IllegalStateException e) {
             Log.e(TAG, "Unable to save capture landmark provenance", e);
             return SaveResult.failure(e.getMessage());
         }
