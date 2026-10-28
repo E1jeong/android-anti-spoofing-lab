@@ -65,6 +65,24 @@ public final class LandmarkMetadataTest {
                 .getBoolean("useForTraining"));
     }
 
+    @Test public void noFaceSnapshotProducesFiveExplicitDisabledRecords() throws Exception {
+        JSONObject root = new JSONObject(LandmarkMetadata.notDetected(432, 768, 789L).build("rgb"));
+
+        assertEquals("NO_FACE_CAPTURE", root.getJSONObject("extractor").getString("name"));
+        assertEquals(789L, root.getLong("rgbTimestampNs"));
+        assertEquals("not_detected", root.getString("status"));
+        JSONObject points = root.getJSONObject("points");
+        assertEquals(5, points.length());
+        for (String name : new String[] {"eyeImageLeft", "eyeImageRight", "noseTip",
+                "mouthImageLeft", "mouthImageRight"}) {
+            JSONObject point = points.getJSONObject(name);
+            assertFalse(point.getBoolean("useForTraining"));
+            assertEquals("missing", point.getString("reason"));
+            assertTrue(point.isNull("x"));
+            assertTrue(point.isNull("y"));
+        }
+    }
+
     @Test public void finitePointOutsideExpandedFaceIsRetainedButExcluded() throws Exception {
         JSONObject nose = new JSONObject(new LandmarkMetadata(100, 120,
                 new RectValue(30, 30, 70, 90), new float[][] {null, null, {5, 50}},

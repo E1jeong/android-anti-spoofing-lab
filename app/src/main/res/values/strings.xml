@@ -12,6 +12,14 @@
     <string name="face_template_delete">DELETE</string>
     <string name="face_templates_empty">등록된 얼굴 데이터가 없습니다.</string>
     <string name="capture_class">Class</string>
+    <string name="capture_mode">Capture Mode</string>
+    <string name="capture_mode_face">FACE</string>
+    <string name="capture_mode_no_face">NO FACE</string>
+    <string name="capture_mode_attack">ATTACK</string>
+    <string name="capture_mode_face_description">Acquire anti-spoofing face data.</string>
+    <string name="capture_mode_no_face_description">Acquire 20 RGB background frames without a face.</string>
+    <string name="capture_mode_attack_description">Automatically acquire False-LIVE attack frames.</string>
+    <string name="capture_scene">Scene</string>
     <string name="capture_environment">Environment</string>
     <string name="capture_live_quality">Live Quality</string>
     <string name="capture_indoor">INDOOR</string>
@@ -24,7 +32,6 @@
     <string name="capture_cancel_description">Cancel capture</string>
     <string name="attack_stop_description">Stop attack Live capture</string>
     <string name="capture_start">START CAPTURE</string>
-    <string name="attack_start">ATTACK</string>
     <string name="preview_show_ir">SHOW IR</string>
     <string name="model_initial">MODEL 1</string>
     <string name="model_label">MODEL %1$d</string>

@@ -2,8 +2,11 @@ package com.virditech.ac7000.capture;
 
 import java.io.File;
 
-/** Owns the mutable state and transitions of one 100-sample collection session. */
+/** Owns the mutable state and transitions of one collection session. */
 public final class CaptureSession {
+    private static final CaptureStep NO_FACE_STEP =
+            new CaptureStep(0, "NO FACE", CaptureConfig.NO_FACE_TARGET_COUNT);
+
     private boolean active;
     private boolean ioBusy;
     private boolean paused;
@@ -37,7 +40,7 @@ public final class CaptureSession {
         stepIndex = 0;
         stepCount = 0;
         paused = false;
-        countdownEndMs = nowMs + CaptureSchedule.STEP_COUNTDOWN_MS;
+        countdownEndMs = nowMs + config.countdownMs();
         pausedCountdownMs = 0L;
         ioBusy = false;
         active = true;
@@ -78,13 +81,13 @@ public final class CaptureSession {
     }
 
     public synchronized SaveCandidate snapshotForSave() {
-        if (!active || paused || ioBusy || count >= CaptureSchedule.TARGET_COUNT) return null;
+        if (!active || paused || ioBusy || count >= config.targetCount()) return null;
         return new SaveCandidate(sessionId, config, className, environment, qualityMode, subjectId, rawRoot,
                 minQualityLevel);
     }
 
     public synchronized SavePermit beginSave(SaveCandidate candidate) {
-        if (!isCurrent(candidate) || paused || ioBusy || count >= CaptureSchedule.TARGET_COUNT) {
+        if (!isCurrent(candidate) || paused || ioBusy || count >= config.targetCount()) {
             return null;
         }
         ioBusy = true;
@@ -94,15 +97,20 @@ public final class CaptureSession {
     public synchronized SaveCommit commitSave(SavePermit permit, long nowMs) {
         if (!isActive(permit)) return SaveCommit.NOT_COMMITTED;
         count = permit.sampleIndex;
+        if (config.isNoFace()) {
+            stepCount = count;
+            boolean completed = count == config.targetCount();
+            return new SaveCommit(true, completed, completed);
+        }
         CaptureStep step = CaptureSchedule.currentStep(stepIndex);
         stepCount++;
         boolean sectorCompleted = stepCount >= step.targetCount;
-        if (sectorCompleted && count < CaptureSchedule.TARGET_COUNT) {
+        if (sectorCompleted && count < config.targetCount()) {
             stepIndex = Math.min(stepIndex + 1, CaptureSchedule.DEFAULT_STEPS.length - 1);
             stepCount = 0;
             countdownEndMs = nowMs + CaptureSchedule.STEP_COUNTDOWN_MS;
         }
-        return new SaveCommit(true, sectorCompleted, count == CaptureSchedule.TARGET_COUNT);
+        return new SaveCommit(true, sectorCompleted, count == config.targetCount());
     }
 
     public synchronized void releaseSave(SavePermit permit) {
@@ -124,11 +132,14 @@ public final class CaptureSession {
     public synchronized boolean isIoBusy() { return ioBusy; }
     public synchronized int getCount() { return count; }
     public synchronized int getStepCount() { return stepCount; }
+    public synchronized int getTargetCount() { return config.targetCount(); }
     public synchronized CaptureConfig getConfig() { return config; }
     public synchronized String getClassName() { return className; }
     public synchronized String getEnvironment() { return environment; }
     public synchronized String getQualityMode() { return qualityMode; }
-    public synchronized CaptureStep currentStep() { return CaptureSchedule.currentStep(stepIndex); }
+    public synchronized CaptureStep currentStep() {
+        return config.isNoFace() ? NO_FACE_STEP : CaptureSchedule.currentStep(stepIndex);
+    }
 
     public synchronized int countdownSeconds(long nowMs) {
         if (paused) return CaptureSchedule.countdownSeconds(pausedCountdownMs, 0L);

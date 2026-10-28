@@ -20,6 +20,15 @@ import java.util.function.Consumer;
 import static com.virditech.ac7000.ui.MainScreenView.CLASS_OPTIONS;
 
 public final class CaptureConfigDialog {
+    private static final String[][] SCENE_OPTIONS = {
+            {"Background", "background"},
+            {"Hand", "hand"},
+            {"Ceiling", "ceiling"},
+            {"Clock", "clock"},
+            {"Object", "object"},
+            {"Mixed", "mixed"}
+    };
+
     private final Activity activity;
     private AlertDialog captureConfigDialog;
 
@@ -27,7 +36,7 @@ public final class CaptureConfigDialog {
         this.activity = activity;
     }
 
-    public void show(Consumer<CaptureConfig> onStart) {
+    public void show(Consumer<CaptureConfig> onStart, Runnable onAttackStart) {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("Capture Configuration");
 
@@ -49,10 +58,34 @@ public final class CaptureConfigDialog {
                 R.layout.item_capture_class_selected, displayNames);
         adapter.setDropDownViewResource(R.layout.item_capture_class_option);
         classSpinner.setAdapter(adapter);
+        String[] sceneNames = new String[SCENE_OPTIONS.length];
+        for (int i = 0; i < SCENE_OPTIONS.length; i++) {
+            sceneNames[i] = SCENE_OPTIONS[i][0];
+        }
+        ArrayAdapter<String> sceneAdapter = new ArrayAdapter<>(activity,
+                R.layout.item_capture_class_selected, sceneNames);
+        sceneAdapter.setDropDownViewResource(R.layout.item_capture_class_option);
+        binding.sceneSpinner.setAdapter(sceneAdapter);
         builder.setView(binding.getRoot());
 
-        // Dynamic State synchronization
         Runnable updateState = () -> {
+            boolean noFace = binding.modeNoFace.isChecked();
+            boolean attack = binding.modeAttack.isChecked();
+            binding.captureModeDescription.setText(attack
+                    ? R.string.capture_mode_attack_description
+                    : noFace ? R.string.capture_mode_no_face_description
+                    : R.string.capture_mode_face_description);
+            binding.classLabel.setVisibility(!noFace && !attack ? View.VISIBLE : View.GONE);
+            binding.classPanel.setVisibility(!noFace && !attack ? View.VISIBLE : View.GONE);
+            binding.sceneLabel.setVisibility(noFace ? View.VISIBLE : View.GONE);
+            binding.scenePanel.setVisibility(noFace ? View.VISIBLE : View.GONE);
+            binding.environmentLabel.setVisibility(attack ? View.GONE : View.VISIBLE);
+            envRadioGroup.setVisibility(attack ? View.GONE : View.VISIBLE);
+            if (noFace || attack) {
+                qualityContainer.setVisibility(View.GONE);
+                return;
+            }
+
             int selectedIdx = classSpinner.getSelectedItemPosition();
             if (selectedIdx < 0 || selectedIdx >= CLASS_OPTIONS.length) return;
             String className = CLASS_OPTIONS[selectedIdx][1];
@@ -89,27 +122,38 @@ public final class CaptureConfigDialog {
         });
 
         envRadioGroup.setOnCheckedChangeListener((group, checkedId) -> updateState.run());
+        binding.captureModeGroup.setOnCheckedChangeListener((group, checkedId) -> updateState.run());
 
         updateState.run();
 
         builder.setPositiveButton("START", (dialog, which) -> {
-            int selectedIdx = classSpinner.getSelectedItemPosition();
-            if (selectedIdx < 0 || selectedIdx >= CLASS_OPTIONS.length) return;
-            String className = CLASS_OPTIONS[selectedIdx][1];
-            String env = outdoorRadio.isChecked() ? CaptureConfig.ENV_OUTDOOR : CaptureConfig.ENV_INDOOR;
-            String quality = null;
-            if ("live".equals(className)) {
-                if (outdoorRadio.isChecked()) {
-                    quality = CaptureConfig.QUALITY_OFF;
-                } else if (highRadio.isChecked()) {
-                    quality = CaptureConfig.QUALITY_HIGH;
-                } else {
-                    quality = CaptureConfig.QUALITY_MEDIUM;
-                }
+            if (binding.modeAttack.isChecked()) {
+                onAttackStart.run();
+                return;
             }
+            String env = outdoorRadio.isChecked() ? CaptureConfig.ENV_OUTDOOR : CaptureConfig.ENV_INDOOR;
             CaptureConfig config;
             try {
-                config = CaptureConfig.create(className, env, quality);
+                if (binding.modeNoFace.isChecked()) {
+                    int sceneIdx = binding.sceneSpinner.getSelectedItemPosition();
+                    if (sceneIdx < 0 || sceneIdx >= SCENE_OPTIONS.length) return;
+                    config = CaptureConfig.createNoFace(env, SCENE_OPTIONS[sceneIdx][1]);
+                } else {
+                    int selectedIdx = classSpinner.getSelectedItemPosition();
+                    if (selectedIdx < 0 || selectedIdx >= CLASS_OPTIONS.length) return;
+                    String className = CLASS_OPTIONS[selectedIdx][1];
+                    String quality = null;
+                    if ("live".equals(className)) {
+                        if (outdoorRadio.isChecked()) {
+                            quality = CaptureConfig.QUALITY_OFF;
+                        } else if (highRadio.isChecked()) {
+                            quality = CaptureConfig.QUALITY_HIGH;
+                        } else {
+                            quality = CaptureConfig.QUALITY_MEDIUM;
+                        }
+                    }
+                    config = CaptureConfig.create(className, env, quality);
+                }
             } catch (RuntimeException e) {
                 android.util.Log.e("MainScreenView", "Invalid capture config", e);
                 return;

@@ -95,7 +95,7 @@ public final class MainActivity extends Activity {
     private static final int CAMERA_PERMISSION_REQUEST = 10;
     private static final int FACE_MANAGEMENT_REQUEST = 11;
     private static final long MAX_PAIR_DELTA_NS = 150_000_000L;
-    private static final int COLLECTION_TARGET_COUNT = CaptureSchedule.TARGET_COUNT;
+    private static final long NO_FACE_CAPTURE_INTERVAL_MS = 500L;
     private static final int LATENCY_WINDOW_SIZE = 120;
     private static final long MOTION_DIAGNOSTIC_LOG_INTERVAL_MS = 250L;
     private static final long IR_LED_OFF_DELAY_MS = 1_000L;
@@ -156,7 +156,9 @@ public final class MainActivity extends Activity {
     private volatile VisionEngine visionEngine;
     private volatile Calibration calibration;
     private final AppWatchdog appWatchdog = AppWatchdog.getInstance();
+    private final Object collectionModeLock = new Object();
     private final CaptureSession collectionSession = new CaptureSession();
+    private volatile long lastNoFaceCaptureMs;
     private volatile boolean isAttackLiveCapturing;
     private volatile boolean attackCaptureSaveBusy;
     private volatile FaceDetector.FaceQualityCheckResult lastCollectionQuality;
@@ -934,8 +936,90 @@ public final class MainActivity extends Activity {
                 SystemClock.elapsedRealtimeNanos()));
     }
 
+    private void processNoFaceCollection(TrackingFrame frame) {
+        long nowMs = SystemClock.elapsedRealtime();
+        runOnUiThread(() -> {
+            if (isPipelineCurrent(frame.generation) && collectionSession.isActive()) {
+                updateCollectionUi(SystemClock.elapsedRealtime());
+            }
+        });
+        if (collectionSession.isPaused() || getCollectionCountdownSeconds(nowMs) > 0) return;
+        if (lastNoFaceCaptureMs != 0L
+                && nowMs - lastNoFaceCaptureMs < NO_FACE_CAPTURE_INTERVAL_MS) return;
+
+        CaptureSession.SaveCandidate saveCandidate = collectionSession.snapshotForSave();
+        CaptureSession.SavePermit savePermit = collectionSession.beginSave(saveCandidate);
+        if (savePermit == null) return;
+        lastNoFaceCaptureMs = nowMs;
+        final int currentCount = savePermit.sampleIndex;
+        final CaptureConfig config = savePermit.config;
+        final String subjectDirName = savePermit.className + "_" + savePermit.subjectId;
+        final File sampleDir = CaptureStorage.sampleDir(saveCandidate.rawRoot, config,
+                subjectDirName, currentCount);
+        final String displayDir = sampleDir.getAbsolutePath();
+        final String metadataJson = CaptureStorage.buildNoFaceMetadataJson(
+                frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(),
+                config.environment, config.sceneType);
+        final LandmarkMetadata landmarkMetadata = LandmarkMetadata.notDetected(
+                frame.rgb.bitmap.getWidth(), frame.rgb.bitmap.getHeight(), frame.rgb.timestampNs);
+        final FramePair capturePair = frame.detachPair();
+        OwnedFrameTask saveTask = new OwnedFrameTask(capturePair, () -> {
+            boolean saved = false;
+            boolean collectionCompleted = false;
+            long saveStartNs = 0L;
+            try {
+                if (!isPipelineCurrent(frame.generation)
+                        || !collectionSession.isActive(savePermit)) return;
+                saveStartNs = SystemClock.elapsedRealtimeNanos();
+                CaptureStorage.SaveResult writeResult = CaptureStorage.saveNoFaceSample(
+                        capturePair.rgb.bitmap, metadataJson, landmarkMetadata, sampleDir);
+                if (!writeResult.saved) {
+                    showTransientStatus("Save failed: " + writeResult.errorMessage);
+                }
+                if (writeResult.saved && isPipelineCurrent(frame.generation)
+                        && collectionSession.isActive(savePermit)) {
+                    CaptureSession.SaveCommit commit = collectionSession.commitSave(
+                            savePermit, SystemClock.elapsedRealtime());
+                    saved = commit.committed;
+                    collectionCompleted = commit.collectionCompleted;
+                    if (saved) android.util.Log.i(TAG, "Saved no-face sample: " + displayDir);
+                }
+            } finally {
+                if (saveStartNs != 0L) {
+                    recordCaptureSaveLatency((SystemClock.elapsedRealtimeNanos() - saveStartNs)
+                            / 1_000_000L);
+                }
+                collectionSession.releaseSave(savePermit);
+            }
+            final boolean savedSample = saved;
+            final boolean completedCollection = collectionCompleted;
+            runOnUiThread(() -> {
+                if (!collectionSession.isActive()) return;
+                if (isPipelineCurrent(frame.generation)) {
+                    updateCollectionUi(SystemClock.elapsedRealtime());
+                    if (savedSample) {
+                        if (completedCollection) playCollectionFinishedTone();
+                        else playCaptureSavedTone();
+                    }
+                }
+                if (savedSample && completedCollection) finishDataCollection();
+            });
+        });
+        try {
+            ioExecutor.execute(saveTask);
+        } catch (RejectedExecutionException e) {
+            saveTask.discard();
+            collectionSession.releaseSave(savePermit);
+            android.util.Log.w(TAG, "No-face capture save rejected during shutdown", e);
+        }
+    }
+
     private void processTracking(TrackingFrame frame) {
         if (!isPipelineCurrent(frame.generation)) return;
+        if (collectionSession.isActive() && collectionSession.getConfig().isNoFace()) {
+            processNoFaceCollection(frame);
+            return;
+        }
         FaceDetectionEngine activeDetector = activeFaceDetector;
         if (activeDetector == null || calibration == null) return;
         if (enginesWarmedUp && !qualityWarmedUp && !bundledQualityWarmupAttempted
@@ -965,6 +1049,10 @@ public final class MainActivity extends Activity {
                         : activeDetector.detectLargest(frame.rgb.bitmap);
         PointF[] currentLandmarks = activeDetector.getLastDetectedLandmarks();
         if (!isPipelineCurrent(frame.generation)) return;
+        if (collectionSession.isActive() && collectionSession.getConfig().isNoFace()) {
+            processNoFaceCollection(frame);
+            return;
+        }
         detectionMs = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
         updateTrackingFps();
         ForegroundEntryDetector.Result foregroundEntryResult = foregroundEntryTestEnabled
@@ -1030,8 +1118,14 @@ public final class MainActivity extends Activity {
             });
             return;
         } else {
-            lastFaceDetectedMs = SystemClock.elapsedRealtime();
-            HardwareControls.setIrLed(true);
+            synchronized (collectionModeLock) {
+                if (collectionSession.isActive() && collectionSession.getConfig().isNoFace()) {
+                    HardwareControls.setIrLed(false);
+                } else {
+                    lastFaceDetectedMs = SystemClock.elapsedRealtime();
+                    HardwareControls.setIrLed(true);
+                }
+            }
         }
         if (prepareQualityWarmup) {
             FaceDetector.FaceQualityCheckResult warmup =
@@ -1172,6 +1266,10 @@ public final class MainActivity extends Activity {
 
         CaptureSession.SaveCandidate saveCandidate = frame.ir != null
                 ? collectionSession.snapshotForSave() : null;
+        if (saveCandidate != null && saveCandidate.config.isNoFace()) {
+            processNoFaceCollection(frame);
+            return;
+        }
         if (saveCandidate != null) {
             final String className = saveCandidate.className;
             long nowMs = SystemClock.elapsedRealtime();
@@ -1265,12 +1363,14 @@ public final class MainActivity extends Activity {
                     final boolean completedSector = sectorCompleted;
                     final boolean completedCollection = collectionCompleted;
                     runOnUiThread(() -> {
-                        if (!isPipelineCurrent(frame.generation) || !collectionSession.isActive()) return;
-                        updateCollectionUi(SystemClock.elapsedRealtime());
-                        if (savedSample && completedSector) {
-                            playCollectionFinishedTone();
-                        } else if (savedSample) {
-                            playCaptureSavedTone();
+                        if (!collectionSession.isActive()) return;
+                        if (isPipelineCurrent(frame.generation)) {
+                            updateCollectionUi(SystemClock.elapsedRealtime());
+                            if (savedSample && completedSector) {
+                                playCollectionFinishedTone();
+                            } else if (savedSample) {
+                                playCaptureSavedTone();
+                            }
                         }
                         if (savedSample && completedCollection) {
                             finishDataCollection();
@@ -1819,15 +1919,18 @@ public final class MainActivity extends Activity {
     private void updateCollectionUi(long nowMs) {
         CaptureStep step = currentCollectionStep();
         int countdownSeconds = getCollectionCountdownSeconds(nowMs);
-        screen.overlay.setCollectionGuide(step.sector, countdownSeconds);
-        screen.collectionProgress.setText(formatCollectionProgress(step));
+        screen.overlay.setCollectionGuide(step.sector,
+                collectionSession.getConfig().isNoFace() ? 0 : countdownSeconds);
+        screen.collectionProgress.setText(formatCollectionProgress(step, countdownSeconds));
     }
 
-    private SpannableString formatCollectionProgress(CaptureStep step) {
-        String qualityLine = shouldCheckCollectionQuality() ? formatCollectionQualityLine() : null;
+    private SpannableString formatCollectionProgress(CaptureStep step, int countdownSeconds) {
+        String statusLine = shouldCheckCollectionQuality() ? formatCollectionQualityLine()
+                : collectionSession.getConfig().isNoFace() && countdownSeconds > 0
+                        ? "START IN " + countdownSeconds : null;
         CaptureProgressText progress = CaptureProgressText.format(collectionSession.getConfig(), step,
                 collectionSession.getStepCount(), collectionSession.getCount(),
-                COLLECTION_TARGET_COUNT, qualityLine);
+                collectionSession.getTargetCount(), statusLine);
         SpannableString text = new SpannableString(progress.text);
         int countColor = Color.rgb(255, 214, 0);
         text.setSpan(new ForegroundColorSpan(countColor), progress.stepCountStart,
@@ -1869,7 +1972,6 @@ public final class MainActivity extends Activity {
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
         screen.startCollectionButton.setEnabled(true);
-        screen.attackLiveCaptureButton.setEnabled(true);
         screen.switchButton.setEnabled(true);
         screen.startCollectionButton.setText("START CAPTURE");
         screen.collectionProgress.setVisibility(View.GONE);
@@ -1884,7 +1986,6 @@ public final class MainActivity extends Activity {
         screen.setCollectionPaused(false);
         setCollectionChromeVisible(true);
         screen.startCollectionButton.setEnabled(false);
-        screen.attackLiveCaptureButton.setEnabled(false);
         screen.switchButton.setEnabled(true);
         screen.startCollectionButton.setText("START CAPTURE");
         screen.collectionProgress.setVisibility(View.GONE);
@@ -1895,9 +1996,7 @@ public final class MainActivity extends Activity {
             deleteCollectionSubject(cancelled.config, cancelled.subjectDirName);
             runOnUiThread(() -> {
                 if (!collectionSession.isActive()) {
-                    FaceDetectionEngine detector = activeFaceDetector;
-                    screen.startCollectionButton.setEnabled(detector != null);
-                    screen.attackLiveCaptureButton.setEnabled(detector != null);
+                    screen.startCollectionButton.setEnabled(true);
                 }
             });
         });
@@ -1932,7 +2031,7 @@ public final class MainActivity extends Activity {
         if (collectionSession.isActive() || isAttackLiveCapturing) return;
         FaceDetectionEngine activeDetector = activeFaceDetector;
         FaceDetector qualityDetector = faceDetector;
-        if (activeDetector == null) {
+        if (!config.isNoFace() && activeDetector == null) {
             showTransientStatus("Face detector unavailable");
             screen.startCollectionButton.setText("START CAPTURE");
             return;
@@ -1966,7 +2065,6 @@ public final class MainActivity extends Activity {
         }
         android.util.Log.i(TAG, "Collection raw root: " + collectionRawRoot.getAbsolutePath());
         screen.startCollectionButton.setEnabled(false);
-        screen.attackLiveCaptureButton.setEnabled(false);
         screen.switchButton.setEnabled(false);
         screen.startCollectionButton.setText("COLLECTING...");
         screen.collectionProgress.setVisibility(View.VISIBLE);
@@ -1975,7 +2073,11 @@ public final class MainActivity extends Activity {
         screen.cancelCollectionButton.setVisibility(View.VISIBLE);
 
         long nowMs = SystemClock.elapsedRealtime();
-        collectionSession.start(config, subjectNum, collectionRawRoot, nowMs);
+        synchronized (collectionModeLock) {
+            collectionSession.start(config, subjectNum, collectionRawRoot, nowMs);
+            if (config.isNoFace()) HardwareControls.setIrLed(false);
+        }
+        lastNoFaceCaptureMs = 0L;
         lastCollectionQuality = null;
         screen.overlay.setCollecting(true);
         screen.setCollectionPaused(false);
@@ -1985,6 +2087,10 @@ public final class MainActivity extends Activity {
 
     private void startAttackLiveCapture() {
         if (collectionSession.isActive() || isAttackLiveCapturing) return;
+        if (activeFaceDetector == null) {
+            showTransientStatus("Face detector unavailable");
+            return;
+        }
         synchronized (attackCaptureLock) {
             if (attackCaptureSaveBusy) {
                 showTransientStatus("Previous attack Live save is still finishing");
@@ -2011,7 +2117,6 @@ public final class MainActivity extends Activity {
         isAttackLiveCapturing = true;
         screen.startCollectionButton.setEnabled(false);
         screen.startCollectionButton.setText("START CAPTURE");
-        screen.attackLiveCaptureButton.setEnabled(false);
         screen.stopAttackLiveCaptureButton.setVisibility(View.VISIBLE);
         showTransientStatus("Attack Live capture started");
         android.util.Log.i(TAG, "Attack Live capture started: "
@@ -2025,9 +2130,7 @@ public final class MainActivity extends Activity {
             isAttackLiveCapturing = false;
         }
         screen.stopAttackLiveCaptureButton.setVisibility(View.GONE);
-        FaceDetectionEngine detector = activeFaceDetector;
-        screen.startCollectionButton.setEnabled(detector != null);
-        screen.attackLiveCaptureButton.setEnabled(detector != null);
+        screen.startCollectionButton.setEnabled(true);
         screen.startCollectionButton.setText("START CAPTURE");
         showTransientStatus("Attack Live capture stopped: " + attackCaptureCount + " saved");
     }
@@ -2128,9 +2231,7 @@ public final class MainActivity extends Activity {
             screen.loadingSpinner.setVisibility(View.GONE);
             screen.irLoadingSpinner.setVisibility(View.GONE);
             if (!collectionSession.isActive() && !isAttackLiveCapturing) {
-                FaceDetectionEngine detector = activeFaceDetector;
-                screen.startCollectionButton.setEnabled(detector != null);
-                screen.attackLiveCaptureButton.setEnabled(detector != null);
+                screen.startCollectionButton.setEnabled(true);
                 screen.switchButton.setEnabled(true);
             }
         }

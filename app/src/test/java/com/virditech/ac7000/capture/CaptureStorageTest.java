@@ -252,6 +252,47 @@ public final class CaptureStorageTest {
         }
     }
 
+    @Test public void noFacePathsIncludeEnvironmentAndScene() {
+        File root = new File("raw");
+        CaptureConfig config = CaptureConfig.createNoFace("outdoor", "hand");
+
+        assertEquals(new File("raw/no_face/outdoor/hand"),
+                CaptureStorage.collectionBaseDir(root, config));
+        assertEquals(new File("raw/no_face/outdoor/hand/no_face_2/7"),
+                CaptureStorage.sampleDir(root, config, "no_face_2", 7));
+    }
+
+    @Test public void noFaceSubjectNumberingAndDeletionUseSceneDirectory() throws IOException {
+        File tempRoot = Files.createTempDirectory("capture-no-face-path").toFile();
+        try {
+            CaptureConfig config = CaptureConfig.createNoFace("indoor", "ceiling");
+            assertEquals(1, CaptureStorage.getNextSubjectNumber(tempRoot, config));
+            File first = new File(CaptureStorage.collectionBaseDir(tempRoot, config), "no_face_1");
+            assertTrue(first.mkdirs());
+            assertEquals(2, CaptureStorage.getNextSubjectNumber(tempRoot, config));
+            assertTrue(CaptureStorage.deleteSubject(tempRoot, config, "no_face_1"));
+            assertFalse(first.exists());
+        } finally {
+            deleteRecursively(tempRoot);
+        }
+    }
+
+    @Test public void saveNoFaceSampleFailsBeforeWritingWhenDirectoryCannotBeCreated() throws Exception {
+        File blocker = File.createTempFile("capture-no-face-storage", ".tmp");
+        File sampleDir = new File(blocker, "1");
+        try {
+            CaptureStorage.SaveResult result = CaptureStorage.saveNoFaceSample(
+                    null, "{}", LandmarkMetadata.notDetected(100, 120, 1L), sampleDir);
+            assertFalse(result.saved);
+            assertTrue(result.errorMessage.contains("unable to create"));
+            assertFalse(new File(sampleDir, "RGB.bmp").exists());
+            assertFalse(new File(sampleDir, "meta.json").exists());
+            assertFalse(new File(sampleDir, "IR.bmp").exists());
+        } finally {
+            assertTrue(blocker.delete() || !blocker.exists());
+        }
+    }
+
     @Test public void rejectsNullCaptureConfigInStorageOperations() {
         File root = new File("raw");
         assertInvalidStorage(() -> CaptureStorage.getNextSubjectNumber(root, (CaptureConfig) null));

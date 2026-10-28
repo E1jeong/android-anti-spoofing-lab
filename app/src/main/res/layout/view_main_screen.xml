@@ -151,14 +151,6 @@
                 android:layout_marginBottom="-2dp" />
 
             <Button
-                android:id="@+id/attack_live_capture_button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:enabled="false"
-                android:text="@string/attack_start"
-                android:layout_marginBottom="-2dp" />
-
-            <Button
                 android:id="@+id/switch_button"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

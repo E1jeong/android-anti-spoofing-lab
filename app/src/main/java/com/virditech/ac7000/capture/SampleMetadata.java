@@ -39,6 +39,26 @@ public final class SampleMetadata {
         }
     }
 
+    public static String buildNoFace(int rgbWidth, int rgbHeight, String environment, String sceneType) {
+        try {
+            JSONObject root = new JSONObject();
+            root.put("schemaVersion", 2);
+            root.put("captureType", CaptureConfig.MODE_NO_FACE);
+            root.put("environment", environment);
+            root.put("sceneType", sceneType);
+            root.put("rgb", frameMetadata(rgbWidth, rgbHeight, "faceRect", null, null));
+            root.put("ir", JSONObject.NULL);
+            root.put("cropMarginRatio", JSONObject.NULL);
+            root.put("qualityMode", JSONObject.NULL);
+            root.put("minQualityLevel", CaptureConfig.LEVEL_NONE);
+            root.put("actualQualityLevel", CaptureConfig.LEVEL_NONE);
+            root.put("qualityScore", 0.0f);
+            return root.toString(2);
+        } catch (JSONException e) {
+            throw new IllegalStateException("Unable to build no-face metadata", e);
+        }
+    }
+
     private static JSONObject frameMetadata(int width, int height, String faceRectName,
                                             RectValue faceRect, RectValue cropRect)
             throws JSONException {
@@ -130,7 +150,8 @@ public final class SampleMetadata {
         return result.append('"').toString();
     }
 
-    private static JSONArray rectToJson(RectValue rect) {
+    private static Object rectToJson(RectValue rect) {
+        if (rect == null) return JSONObject.NULL;
         JSONArray array = new JSONArray();
         array.put(rect.left);
         array.put(rect.top);

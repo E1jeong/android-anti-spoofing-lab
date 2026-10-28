@@ -99,6 +99,48 @@ public final class CaptureSessionTest {
         assertNull(beginSave(session));
     }
 
+    @Test public void noFaceCompletesAtTwentyWithSingleStepAndPauseableCountdown() {
+        CaptureSession session = new CaptureSession();
+        session.start(CaptureConfig.createNoFace("indoor", "hand"), 3, ROOT, 1_000L);
+
+        assertEquals(3, session.countdownSeconds(1_000L));
+        assertEquals(20, session.getTargetCount());
+        assertEquals(0, session.currentStep().sector);
+        assertEquals(20, session.currentStep().targetCount);
+        assertTrue(session.togglePaused(2_000L));
+        assertEquals(2, session.countdownSeconds(20_000L));
+        assertFalse(session.togglePaused(20_000L));
+        assertEquals(0, session.countdownSeconds(22_000L));
+
+        for (int index = 1; index <= 20; index++) {
+            CaptureSession.SavePermit permit = beginSave(session);
+            assertNotNull(permit);
+            CaptureSession.SaveCommit commit = session.commitSave(permit, 22_000L + index);
+            session.releaseSave(permit);
+            assertTrue(commit.committed);
+            assertEquals(index == 20, commit.sectorCompleted);
+            assertEquals(index == 20, commit.collectionCompleted);
+        }
+        assertEquals(20, session.getCount());
+        assertEquals(20, session.getStepCount());
+        assertNull(beginSave(session));
+    }
+
+    @Test public void noFaceCancelInvalidatesLateSaveFromPreviousSession() {
+        CaptureSession session = new CaptureSession();
+        session.start(CaptureConfig.createNoFace("outdoor", "clock"), 4, ROOT, 1_000L);
+        CaptureSession.SavePermit stale = beginSave(session);
+        CaptureSession.CancelledSession cancelled = session.cancel();
+        assertNotNull(cancelled);
+        assertEquals("no_face_4", cancelled.subjectDirName);
+
+        session.start(CaptureConfig.createNoFace("indoor", "background"), 5, ROOT, 10_000L);
+        assertFalse(session.commitSave(stale, 11_000L).committed);
+        session.releaseSave(stale);
+        assertEquals(0, session.getCount());
+        assertFalse(session.isIoBusy());
+    }
+
     @Test public void cancelInvalidatesLateSaveFromPreviousSession() {
         CaptureSession session = startedSession();
         CaptureSession.SavePermit stale = beginSave(session);

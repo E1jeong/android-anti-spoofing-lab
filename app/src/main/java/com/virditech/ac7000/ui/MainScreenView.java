@@ -1,11 +1,8 @@
 package com.virditech.ac7000.ui;
 
 import android.app.Activity;
-import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.StateListDrawable;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
@@ -51,7 +48,6 @@ public final class MainScreenView {
     public final Button switchButton;
     public final Button modelSwitchButton;
     public final Button startCollectionButton;
-    public final Button attackLiveCaptureButton;
     public final ImageButton pauseCollectionButton;
     public final ImageButton cancelCollectionButton;
     public final ImageButton stopAttackLiveCaptureButton;
@@ -105,7 +101,6 @@ public final class MainScreenView {
         switchButton = binding.switchButton;
         modelSwitchButton = binding.modelSwitchButton;
         startCollectionButton = binding.startCollectionButton;
-        attackLiveCaptureButton = binding.attackLiveCaptureButton;
         pauseCollectionButton = binding.pauseCollectionButton;
         cancelCollectionButton = binding.cancelCollectionButton;
         stopAttackLiveCaptureButton = binding.stopAttackLiveCaptureButton;
@@ -172,23 +167,8 @@ public final class MainScreenView {
     }
 
     private void buildControls(Listener listener, int buttonWidth) {
-        int[][] buttonStates = {{-android.R.attr.state_enabled}, {}};
-        ColorStateList captureText = startCollectionButton.getTextColors();
-        Drawable disabledBackground = startCollectionButton.getBackground().getConstantState()
-                .newDrawable(activity.getResources(), activity.getTheme()).mutate();
-        Drawable enabledBackground = attackLiveCaptureButton.getBackground().mutate();
-        enabledBackground.setTint(Color.rgb(183, 28, 28));
-        StateListDrawable attackBackground = new StateListDrawable();
-        attackBackground.addState(buttonStates[0], disabledBackground);
-        attackBackground.addState(buttonStates[1], enabledBackground);
-        attackLiveCaptureButton.setBackground(attackBackground);
-        attackLiveCaptureButton.setTextColor(new ColorStateList(buttonStates, new int[]{
-                captureText.getColorForState(buttonStates[0], captureText.getDefaultColor()),
-                Color.WHITE}));
         configureControlButton(startCollectionButton, buttonWidth,
                 v -> showCaptureConfigDialog(listener));
-        configureControlButton(attackLiveCaptureButton, buttonWidth,
-                v -> listener.onStartAttackLiveCapture());
         configureControlButton(switchButton, buttonWidth, v -> listener.onSwitchPreview());
         configureControlButton(modelSwitchButton, buttonWidth, v -> listener.onToggleModel());
     }
@@ -550,7 +530,6 @@ public final class MainScreenView {
 
     public void setCollectionActiveChrome(boolean collecting) {
         startCollectionButton.setEnabled(!collecting);
-        attackLiveCaptureButton.setEnabled(!collecting);
         switchButton.setEnabled(!collecting);
         startCollectionButton.setText(collecting ? "COLLECTING..." : "START CAPTURE");
         collectionProgress.setVisibility(collecting ? View.VISIBLE : View.GONE);
@@ -595,7 +574,7 @@ public final class MainScreenView {
     };
 
     public void showCaptureConfigDialog(Listener listener) {
-        captureConfigDialog.show(listener::onStartCollection);
+        captureConfigDialog.show(listener::onStartCollection, listener::onStartAttackLiveCapture);
     }
 
     public void dismissCaptureConfigDialog() {

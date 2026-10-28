@@ -17,10 +17,15 @@ public final class LandmarkMetadata {
     private final long timestampNs;
     private final String className;
 
+    public static LandmarkMetadata notDetected(int width, int height, long timestampNs) {
+        return new LandmarkMetadata(width, height, null, null,
+                "NO_FACE_CAPTURE", "1", timestampNs, null);
+    }
+
     public LandmarkMetadata(int width, int height, RectValue face, float[][] points,
                             String extractor, String version, long timestampNs, String className) {
-        if (width <= 0 || height <= 0 || face == null) {
-            throw new IllegalArgumentException("RGB dimensions and face are required");
+        if (width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("RGB dimensions are required");
         }
         this.width = width;
         this.height = height;
@@ -32,6 +37,7 @@ public final class LandmarkMetadata {
         if (points != null) {
             for (int i = 0; i < Math.min(5, points.length); i++) {
                 if (points[i] != null && points[i].length >= 2) {
+                    if (face == null) throw new IllegalArgumentException("Face is required with points");
                     this.points[i] = new float[] {points[i][0], points[i][1]};
                 }
             }

@@ -71,6 +71,29 @@ public final class SampleMetadataTest {
         assertEquals("35592e3bd3a554c8d8bbfb897ff4f585ed917d73d42a2edb34bc2ac987b008ee", label.getString("captureSha256"));
     }
 
+    @Test public void noFaceMetadataUsesNullFaceCropAndIrFields() throws Exception {
+        JSONObject root = new JSONObject(SampleMetadata.buildNoFace(432, 768, "indoor", "hand"));
+
+        assertEquals(2, root.getInt("schemaVersion"));
+        assertEquals("no_face", root.getString("captureType"));
+        assertEquals("indoor", root.getString("environment"));
+        assertEquals("hand", root.getString("sceneType"));
+        assertFalse(root.has("className"));
+        assertTrue(root.isNull("ir"));
+        assertTrue(root.isNull("cropMarginRatio"));
+        JSONObject rgb = root.getJSONObject("rgb");
+        assertEquals(432, rgb.getInt("width"));
+        assertEquals(768, rgb.getInt("height"));
+        assertTrue(rgb.isNull("faceRect"));
+        assertTrue(rgb.isNull("cropRect"));
+
+        JSONObject merged = new JSONObject(SampleMetadata.withLandmarks(
+                root.toString(), LandmarkMetadata.notDetected(432, 768, 123L), "rgb-hash"));
+        assertEquals("not_detected", merged.getJSONObject("landmarks").getString("status"));
+        assertEquals("rgb-hash", merged.getJSONObject("landmarks").getString("imageSha256"));
+        assertEquals(64, merged.getJSONObject("landmarks").getString("captureSha256").length());
+    }
+
     @Test public void rejectsNonV2CaptureOrAlreadyEmbeddedLandmarks() {
         LandmarkMetadata landmarks = new LandmarkMetadata(100, 120, new RectValue(10, 10, 90, 110),
                 null, "FACEME", "7.8.2", 123L, "live");

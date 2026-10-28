@@ -32,7 +32,10 @@ public final class CaptureStorage {
     }
 
     public static int getNextSubjectNumber(File rawRoot, String className, String environment, String qualityMode) {
-        File baseDir = collectionBaseDir(rawRoot, className, environment, qualityMode);
+        return getNextSubjectNumberInBase(collectionBaseDir(rawRoot, className, environment, qualityMode), className);
+    }
+
+    private static int getNextSubjectNumberInBase(File baseDir, String className) {
         if (!baseDir.exists()) {
             return 1;
         }
@@ -61,6 +64,9 @@ public final class CaptureStorage {
 
     public static int getNextSubjectNumber(File rawRoot, CaptureConfig config) {
         if (config == null) throw new IllegalArgumentException("config must not be null");
+        if (config.isNoFace()) {
+            return getNextSubjectNumberInBase(collectionBaseDir(rawRoot, config), config.className);
+        }
         return getNextSubjectNumber(rawRoot, config.className, config.environment, config.qualityMode);
     }
 
@@ -89,7 +95,10 @@ public final class CaptureStorage {
 
     public static boolean deleteSubject(File rawRoot, String className, String environment,
                                         String qualityMode, String subjectDirName) {
-        File classDir = collectionBaseDir(rawRoot, className, environment, qualityMode);
+        return deleteSubjectInBase(collectionBaseDir(rawRoot, className, environment, qualityMode), subjectDirName);
+    }
+
+    private static boolean deleteSubjectInBase(File classDir, String subjectDirName) {
         File subjectDir = new File(classDir, subjectDirName);
         try {
             String classPath = classDir.getCanonicalPath();
@@ -107,6 +116,9 @@ public final class CaptureStorage {
 
     public static boolean deleteSubject(File rawRoot, CaptureConfig config, String subjectDirName) {
         if (config == null) throw new IllegalArgumentException("config must not be null");
+        if (config.isNoFace()) {
+            return deleteSubjectInBase(collectionBaseDir(rawRoot, config), subjectDirName);
+        }
         return deleteSubject(rawRoot, config.className, config.environment, config.qualityMode, subjectDirName);
     }
 
@@ -166,6 +178,26 @@ public final class CaptureStorage {
         return saveMetadata(metadataJson, landmarks, sampleDir);
     }
 
+    public static SaveResult saveNoFaceSample(Bitmap rgb, String metadataJson,
+                                              LandmarkMetadata landmarks, File sampleDir) {
+        if (landmarks == null) return SaveResult.failure("landmark metadata is required");
+        if (!sampleDir.isDirectory() && !sampleDir.mkdirs()) {
+            Log.e(TAG, "Unable to create no-face sample folder: " + sampleDir.getAbsolutePath());
+            return SaveResult.failure("unable to create " + sampleDir.getAbsolutePath());
+        }
+        File landmarkFile = new File(sampleDir, "landmarks.json");
+        if (landmarkFile.exists()) {
+            return SaveResult.failure("Separate landmarks.json is unsupported: " + landmarkFile.getAbsolutePath());
+        }
+        File metadataFile = new File(sampleDir, "meta.json");
+        if (metadataFile.exists() && (!metadataFile.isFile() || !metadataFile.delete())) {
+            return SaveResult.failure("unable to replace " + metadataFile.getAbsolutePath());
+        }
+        SaveResult result = saveBitmapAsBmp(rgb, new File(sampleDir, "RGB.bmp"));
+        if (!result.saved) return result;
+        return saveMetadata(metadataJson, landmarks, sampleDir);
+    }
+
     static SaveResult saveMetadata(String metadataJson, LandmarkMetadata landmarks, File sampleDir) {
         try {
             String merged = SampleMetadata.withLandmarks(metadataJson, landmarks,
@@ -207,6 +239,11 @@ public final class CaptureStorage {
                 cropMarginRatio, className, environment, qualityMode, minQualityLevel, actualQualityLevel, qualityScore);
     }
 
+    public static String buildNoFaceMetadataJson(int rgbWidth, int rgbHeight,
+                                                 String environment, String sceneType) {
+        return SampleMetadata.buildNoFace(rgbWidth, rgbHeight, environment, sceneType);
+    }
+
     public static File sampleDir(File rawRoot, String className, String environment, String qualityMode,
                                  String subjectDirName, int sampleIndex) {
         return new File(new File(collectionBaseDir(rawRoot, className, environment, qualityMode), subjectDirName),
@@ -221,7 +258,8 @@ public final class CaptureStorage {
 
     public static File sampleDir(File rawRoot, CaptureConfig config, String subjectDirName, int sampleIndex) {
         if (config == null) throw new IllegalArgumentException("config must not be null");
-        return sampleDir(rawRoot, config.className, config.environment, config.qualityMode, subjectDirName, sampleIndex);
+        return new File(new File(collectionBaseDir(rawRoot, config), subjectDirName),
+                String.valueOf(sampleIndex));
     }
 
     public static File collectionBaseDir(File rawRoot, String className, String environment, String qualityMode) {
@@ -237,6 +275,10 @@ public final class CaptureStorage {
 
     public static File collectionBaseDir(File rawRoot, CaptureConfig config) {
         if (config == null) throw new IllegalArgumentException("config must not be null");
+        if (config.isNoFace()) {
+            File environmentDir = new File(new File(rawRoot, CaptureConfig.NO_FACE_CLASS_NAME), config.environment);
+            return new File(environmentDir, config.sceneType);
+        }
         return collectionBaseDir(rawRoot, config.className, config.environment, config.qualityMode);
     }
 

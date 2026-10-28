@@ -10,7 +10,7 @@ public final class FramePair {
     }
 
     public void recycle() {
-        rgb.recycle();
-        ir.recycle();
+        if (rgb != null) rgb.recycle();
+        if (ir != null) ir.recycle();
     }
 }

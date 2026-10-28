@@ -13,6 +13,62 @@
         android:paddingBottom="20dp">
 
         <TextView
+            android:id="@+id/capture_mode_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/capture_mode"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="#34473E" />
+
+        <RadioGroup
+            android:id="@+id/capture_mode_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="16dp"
+            android:orientation="horizontal"
+            android:padding="6dp"
+            android:background="@drawable/capture_option_panel"
+            android:checkedButton="@id/mode_face">
+
+            <RadioButton
+                android:id="@+id/mode_face"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="@dimen/capture_touch_height"
+                android:textSize="16sp"
+                android:text="@string/capture_mode_face" />
+
+            <RadioButton
+                android:id="@+id/mode_no_face"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="@dimen/capture_touch_height"
+                android:textSize="16sp"
+                android:text="@string/capture_mode_no_face" />
+
+            <RadioButton
+                android:id="@+id/mode_attack"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="@dimen/capture_touch_height"
+                android:textSize="16sp"
+                android:text="@string/capture_mode_attack" />
+        </RadioGroup>
+
+        <TextView
+            android:id="@+id/capture_mode_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:textSize="16sp"
+            android:textColor="#34473E" />
+
+        <TextView
             android:id="@+id/class_label"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -22,6 +78,7 @@
             android:textColor="#34473E" />
 
         <FrameLayout
+            android:id="@+id/class_panel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
@@ -30,6 +87,30 @@
 
             <Spinner
                 android:id="@+id/class_spinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="@dimen/capture_touch_height" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/scene_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/capture_scene"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="#34473E" />
+
+        <FrameLayout
+            android:id="@+id/scene_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/capture_option_panel">
+
+            <Spinner
+                android:id="@+id/scene_spinner"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:minHeight="@dimen/capture_touch_height" />

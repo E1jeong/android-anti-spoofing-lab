@@ -51,6 +51,10 @@ public final class FrameSynchronizerTest {
         assertEquals(java.util.Arrays.asList(first, second), disposed);
     }
 
+    @Test public void framePairRecycleAllowsMissingRgbAndIr() {
+        new FramePair(null, null).recycle();
+    }
+
     private static final class Frame {
         final long timestamp;
 

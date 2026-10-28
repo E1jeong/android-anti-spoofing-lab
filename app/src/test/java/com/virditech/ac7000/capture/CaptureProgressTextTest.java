@@ -16,6 +16,17 @@ public final class CaptureProgressTextTest {
         assertEquals("Total 11 of 100", text.text.substring(text.totalCountStart, text.totalCountEnd));
     }
 
+    @Test public void formatsNoFaceProgressWithSceneAndCountdown() {
+        CaptureStep step = new CaptureStep(0, "NO FACE", 20);
+        CaptureConfig config = CaptureConfig.createNoFace("indoor", "hand");
+        CaptureProgressText text = CaptureProgressText.format(
+                config, step, 4, 4, 20, "START IN 3");
+
+        assertEquals("NO FACE · HAND · INDOOR\n4 of 20 / Total 4 of 20\nSTART IN 3", text.text);
+        assertEquals("4 of 20", text.text.substring(text.stepCountStart, text.stepCountEnd));
+        assertEquals("Total 4 of 20", text.text.substring(text.totalCountStart, text.totalCountEnd));
+    }
+
     @Test public void formatsProgressWithCaptureConfigForLiveAndNonLive() {
         CaptureStep step = new CaptureStep(5, "CENTER", 20);
         CaptureConfig liveConfig = CaptureConfig.create("live", "indoor", "high");

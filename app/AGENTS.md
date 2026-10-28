@@ -46,8 +46,9 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - Treat identity thresholds and smoke observations as experimental; they do not establish model acceptance or a production authentication boundary. Dated measurements belong in `technical/mobilefacenet-recognition-experiment` when the wiki or snapshot is available.
 
 4. **`capture`**:
-   - Writes directly to `/sdcard/Pictures/raw/live/<qualityMode>/live_<subject>/<index>/` (live) or `/sdcard/Pictures/raw/<class>/<environment>/<class>_<subject>/<index>/` (non-live).
+   - `START CAPTURE` selects FACE, NO_FACE, or ATTACK; the standalone ATTACK start button is removed. FACE writes to `/sdcard/Pictures/raw/live/<qualityMode>/live_<subject>/<index>/` (live) or `/sdcard/Pictures/raw/<class>/<environment>/<class>_<subject>/<index>/` (non-live).
    - `live` uses HIGH, MEDIUM, or OFF quality mode. HIGH and MEDIUM apply the FaceMe quality gate; OFF and non-live classes bypass it.
+   - NO_FACE captures 20 RGB frames at 500 ms intervals without requiring detection, PAD, or IR. It writes only `RGB.bmp` and integrated v2 `meta.json` with null face/crop/IR fields to `/sdcard/Pictures/raw/no_face/<environment>/<scene>/no_face_<session>/<index>/`; increment only after both files succeed.
    - ATTACK mode captures false-live misclassifications (`LIVE >= 0.80`) to `/sdcard/Pictures/raw/attack_live/`.
    - `BmpWriter` streams 24-bit uncompressed BGR rows using reusable 16-row stripe buffers without full-frame allocations.
 

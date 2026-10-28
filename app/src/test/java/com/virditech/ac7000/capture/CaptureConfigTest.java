@@ -120,6 +120,26 @@ public final class CaptureConfigTest {
     }
 
     @Test
+    public void noFaceUsesSeparateModeSceneAndTwentySampleDefaults() {
+        CaptureConfig config = CaptureConfig.createNoFace(" OutDoor ", " HAND ");
+
+        assertTrue(config.isNoFace());
+        assertEquals(CaptureConfig.NO_FACE_CLASS_NAME, config.className);
+        assertEquals("outdoor", config.environment);
+        assertEquals("hand", config.sceneType);
+        assertEquals(CaptureConfig.MODE_NO_FACE, config.captureMode);
+        assertEquals(20, config.targetCount());
+        assertEquals(3_000L, config.countdownMs());
+        assertEquals("NO FACE · HAND · OUTDOOR", config.toSummaryLabel());
+        assertFalse(config.isQualityCheckRequired());
+        assertFalse(CaptureConfig.SUPPORTED_CLASSES.contains(CaptureConfig.NO_FACE_CLASS_NAME));
+
+        assertInvalid(() -> CaptureConfig.createNoFace("space", "hand"));
+        assertInvalid(() -> CaptureConfig.createNoFace("indoor", "person"));
+        assertInvalid(() -> CaptureConfig.createNoFace("indoor", null));
+    }
+
+    @Test
     public void matchesMainScreenViewClassOptions() {
         assertEquals(CaptureConfig.SUPPORTED_CLASSES.size(),
                 com.virditech.ac7000.ui.MainScreenView.CLASS_OPTIONS.length);
