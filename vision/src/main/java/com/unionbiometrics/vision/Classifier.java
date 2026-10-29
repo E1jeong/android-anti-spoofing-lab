@@ -174,19 +174,23 @@ final class Classifier {
     }
 
     private void validateInput(Tensor tensor, String name, int requiredChannels) {
-        int[] shape = tensor.shape();
+        validateInput(tensor.shape(), tensor.dataType(), tensor.quantizationParams().getScale(),
+                name, requiredChannels);
+    }
+
+    static void validateInput(int[] shape, DataType dataType, float scale,
+                              String name, int requiredChannels) {
         boolean validSize = shape.length == 4 && shape[1] == Constants.INPUT_SIZE
                 && shape[2] == Constants.INPUT_SIZE;
         boolean validChannels = shape.length == 4 && shape[3] == requiredChannels;
         if (shape.length != 4 || shape[0] != 1 || !validSize || !validChannels
-                || (tensor.dataType() != DataType.FLOAT32 && tensor.dataType() != DataType.UINT8
-                && tensor.dataType() != DataType.INT8)) {
+                || (dataType != DataType.FLOAT32 && dataType != DataType.INT8)) {
             throw new IllegalArgumentException(name + " input must be NHWC "
                     + Constants.INPUT_SIZE + "x" + Constants.INPUT_SIZE
-                    + "x" + requiredChannels + " FLOAT32/UINT8/INT8, actual="
-                    + tensor.dataType() + " " + Arrays.toString(shape));
+                    + "x" + requiredChannels + " FLOAT32/INT8, actual="
+                    + dataType + " " + Arrays.toString(shape));
         }
-        if (tensor.dataType() == DataType.INT8 && tensor.quantizationParams().getScale() <= 0f) {
+        if (dataType == DataType.INT8 && scale <= 0f) {
             throw new IllegalArgumentException(name + " INT8 input must have a positive quantization scale");
         }
     }
@@ -344,9 +348,7 @@ final class Classifier {
             byte[][] lut = new byte[channels][256];
             for (int channel = 0; channel < channels; channel++) {
                 for (int value = 0; value < 256; value++) {
-                    lut[channel][value] = dataType == DataType.INT8
-                            ? quantize(normalizeChannelValue(value, channel))
-                            : (byte) value;
+                    lut[channel][value] = quantize(normalizeChannelValue(value, channel));
                 }
             }
             return lut;
@@ -358,7 +360,7 @@ final class Classifier {
                 Arrays.fill(floatScratch, 0f);
                 buffer.asFloatBuffer().put(floatScratch);
             } else {
-                Arrays.fill(byteScratch, dataType == DataType.INT8 ? quantize(0f) : (byte) 0);
+                Arrays.fill(byteScratch, quantize(0f));
                 buffer.put(byteScratch);
             }
             buffer.rewind();
