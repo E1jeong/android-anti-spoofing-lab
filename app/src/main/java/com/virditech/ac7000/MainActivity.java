@@ -30,6 +30,7 @@ import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 
 import java.io.File;
+import java.util.ArrayList;
 import com.virditech.ac7000.calibration.Calibration;
 import com.virditech.ac7000.camera.DualCameraController;
 import com.virditech.ac7000.camera.FrameData;
@@ -63,6 +64,11 @@ import com.unionbiometrics.vision.VisionEngine;
 import com.unionbiometrics.vision.VisionLivenessResult;
 import com.unionbiometrics.vision.VisionModelInfo;
 import com.virditech.ac7000.model.AuthFrameAccumulator;
+import com.virditech.ac7000.evaluation.EvaluationConditions;
+import com.virditech.ac7000.evaluation.EvaluationRecorder;
+import com.virditech.ac7000.ui.EvaluationConfigDialog;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import com.virditech.ac7000.model.FaceMotionGate;
 import com.virditech.ac7000.performance.LatencyWindow;
 import com.virditech.ac7000.recognition.FaceEmbeddingModel;
@@ -118,6 +124,11 @@ public final class MainActivity extends Activity {
             inferenceExecutor, this::processInferenceIfAllowed,
             InferenceTask::recycle, (task, error) -> {
                 android.util.Log.e(TAG, "Inference failed", error);
+                EvaluationRecorder recorder = this.evaluationRecorder;
+                if (recorder != null && task.receivedNs >= this.evaluationStartedNs) {
+                    recorder.inferenceError(error.getClass().getSimpleName() + ": " + error.getMessage(),
+                            task.rgbTimestampNs, task.irTimestampNs);
+                }
                 if (isPipelineCurrent(task.generation)) showTransientStatus("Inference failed");
             }, this::closeVisionEnginesIfShutDown);
     private final RecognitionWorkCoordinator recognitionCoordinator = new RecognitionWorkCoordinator();
@@ -186,6 +197,9 @@ public final class MainActivity extends Activity {
     private FaceEmbeddingModel.DelegateType recogDelegate = FaceEmbeddingModel.DEFAULT_DELEGATE;
     private String recogModelPath = FaceEmbeddingModel.DEFAULT_MODEL_PATH;
     private volatile boolean authMode;
+    private volatile EvaluationRecorder evaluationRecorder;
+    private volatile long evaluationStartedNs;
+    private EvaluationConfigDialog evaluationConfigDialog;
     private volatile boolean motionGateEnabled = false;
     private volatile boolean lightingTestEnabled = false;
     private volatile boolean foregroundEntryTestEnabled = false;
@@ -228,6 +242,7 @@ public final class MainActivity extends Activity {
         initializeCaptureTone();
         faceTemplateRepository = new FaceTemplateRepository(getApplicationContext());
         buildUi();
+        evaluationConfigDialog = new EvaluationConfigDialog(this);
         initializeEngines();
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
@@ -310,7 +325,7 @@ public final class MainActivity extends Activity {
         testMenuShowing = true;
         inferenceQueue.clear();
         invalidateRecognitionWork();
-        authFrames.reset();
+        resetAuthFrames();
         String[] items = testMenuItems();
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
                 android.R.layout.simple_list_item_1, items);
@@ -327,7 +342,7 @@ public final class MainActivity extends Activity {
                 }));
         dialog.setOnDismissListener(d -> {
             testMenuShowing = false;
-            authFrames.reset();
+            resetAuthFrames();
         });
         dialog.show();
     }
@@ -359,6 +374,9 @@ public final class MainActivity extends Activity {
                 return "DETECTOR: " + (activeFaceDetector != null ? activeFaceDetector.label() : "UNAVAILABLE");
             case FACE_MANAGEMENT:
                 return "FACE MANAGEMENT";
+            case EVALUATION_RECORDING:
+                return "EVALUATION LOG (" + (evaluationRecorder == null ? "OFF"
+                        : evaluationRecorder.isRecording() ? "ON" : "SAVING") + ")";
             default:
                 return action.name();
         }
@@ -393,6 +411,14 @@ public final class MainActivity extends Activity {
             case FACE_MANAGEMENT:
                 dialog.dismiss();
                 openFaceManagement();
+                return;
+            case EVALUATION_RECORDING:
+                dialog.setOnDismissListener(ignored -> {
+                    testMenuShowing = false;
+                    resetAuthFrames();
+                    if (resumed) toggleEvaluationRecording();
+                });
+                dialog.dismiss();
                 return;
         }
         if (action.refreshOnSelect()) {
@@ -532,7 +558,7 @@ public final class MainActivity extends Activity {
     private final Handler authHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideAuthResultRunnable = () -> {
         authVerdictShowing = false;
-        authFrames.reset();
+        resetAuthFrames();
         screen.hideAuthResult();
     };
 
@@ -544,12 +570,69 @@ public final class MainActivity extends Activity {
         authMode = !authMode;
         authHandler.removeCallbacks(hideAuthResultRunnable);
         authVerdictShowing = false;
-        authFrames.reset();
+        resetAuthFrames();
         screen.setAuthMode(authMode);
         if (!authMode) {
             resetResultsLabelToZero();
         }
         showTransientStatus(authMode ? "AUTH MODE: ON" : "AUTH MODE: OFF");
+    }
+
+    private void toggleEvaluationRecording() {
+        EvaluationRecorder recorder = evaluationRecorder;
+        if (recorder != null) {
+            recorder.stop("operator_stop");
+            resetAuthFrames();
+            showTransientStatus("Saving evaluation log...");
+            return;
+        }
+        if (!enginesWarmedUp || visionEngine == null || collectionSession.isActive()
+                || isAttackLiveCapturing || isExclusiveEvaluationMode()) {
+            showTransientStatus("Evaluation recording requires ready models and no capture/calibration");
+            return;
+        }
+        testMenuShowing = true;
+        evaluationConfigDialog.show(visionLabels, this::startEvaluationRecording, () -> {
+            testMenuShowing = false;
+            resetAuthFrames();
+        });
+    }
+
+    private void startEvaluationRecording(EvaluationConditions conditions) {
+        resetAuthFrames();
+        inferenceQueue.clear();
+        File directory = new File(LightingExperimentLogger.getPicturesDir(),
+                "evaluations/" + java.util.UUID.randomUUID());
+        List<String> labels = new ArrayList<>(visionLabels);
+        evaluationStartedNs = SystemClock.elapsedRealtimeNanos();
+        evaluationRecorder = new EvaluationRecorder(directory, conditions,
+                () -> EvaluationRecorder.metadata(getApplicationContext(), labels),
+                new EvaluationRecorder.Listener() {
+                    @Override public void onStarted() {
+                        runOnUiThread(() -> {
+                            if (resumed && evaluationRecorder != null && evaluationRecorder.isRecording()) {
+                                showTransientStatus("Evaluation logging ON");
+                            }
+                        });
+                    }
+                    @Override public void onFinished(boolean complete, String message) {
+                        android.util.Log.i(TAG, "Evaluation log " + (complete ? "saved: " : "failed: ") + message);
+                        runOnUiThread(() -> {
+                            evaluationRecorder = null;
+                            if (resumed) showTransientStatus(complete
+                                    ? "Evaluation saved: " + message : "Evaluation logging failed: " + message);
+                        });
+                    }
+                });
+        showTransientStatus("Starting evaluation recording...");
+    }
+
+    private void resetAuthFrames() {
+        synchronized (authFrames) {
+            authFrames.reset();
+            EvaluationRecorder recorder = evaluationRecorder;
+            if (recorder != null) recorder.reset("auth_reset");
+        }
     }
 
     private void showAuthVerdict(boolean isLive, float avgLiveScore, String topSpoofLabel, long elapsedMs) {
@@ -606,7 +689,7 @@ public final class MainActivity extends Activity {
     private void suspendEvaluationForExclusiveMode() {
         authHandler.removeCallbacks(hideAuthResultRunnable);
         authVerdictShowing = false;
-        authFrames.reset();
+        resetAuthFrames();
         inferenceMotionGeneration.incrementAndGet();
         inferenceQueue.clear();
         invalidateRecognitionWork();
@@ -845,12 +928,15 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        if (evaluationConfigDialog != null) evaluationConfigDialog.dismiss();
+        EvaluationRecorder recorder = evaluationRecorder;
+        if (recorder != null) recorder.stop("activity_paused");
         if (calibrationMode) exitCalibrationMode();
         resumed = false;
         authHandler.removeCallbacks(hideAuthResultRunnable);
         authVerdictShowing = false;
         testMenuShowing = false;
-        authFrames.reset();
+        resetAuthFrames();
         if (screen != null) screen.hideAuthResult();
         pipelineGeneration.advance();
         stopCameras();
@@ -1064,7 +1150,7 @@ public final class MainActivity extends Activity {
             }
             inferenceMotionGate.reset();
             if (recognitionFaceVisible.getAndSet(false)) invalidateRecognitionWork();
-            authFrames.reset();
+            resetAuthFrames();
 
             DualLightingDetector.Result noFaceLighting = null;
             if (lightingTestEnabled) {
@@ -1411,7 +1497,8 @@ public final class MainActivity extends Activity {
                 : null;
         submitInference(new InferenceTask(frame.detachPair(), detected, irDetected, rgbCrop, irCrop, currentLandmarks,
                 frame.generation, activeEngine,
-                frame.receivedNs, inferenceMotionGeneration.get(), attackLandmarks));
+                frame.receivedNs, inferenceMotionGeneration.get(), attackLandmarks,
+                activeDetector.label(), irCenterAutoExposure ? "CENTER" : "FULL"));
     }
 
     private static LandmarkMetadata snapshotCaptureLandmarks(TrackingFrame frame, Rect face,
@@ -1465,7 +1552,7 @@ public final class MainActivity extends Activity {
 
     private void blockInferenceForMotion(int generation) {
         inferenceBlockedByMotion = true;
-        authFrames.reset();
+        resetAuthFrames();
         long motionGeneration = inferenceMotionGeneration.incrementAndGet();
         inferenceQueue.clear();
         runOnUiThread(() -> {
@@ -1529,6 +1616,13 @@ public final class MainActivity extends Activity {
         recordInferenceMetrics(result.getInferenceMs(), queueMs, endToEndMs);
         updateInferenceFps();
 
+        EvaluationRecorder recorder = evaluationRecorder;
+        if (task.receivedNs < evaluationStartedNs || recorder == null || !recorder.isRecording()) {
+            recorder = null;
+        }
+        final EvaluationRecorder frameRecorder = recorder;
+        final JSONObject evaluationFrame = recorder == null ? null
+                : snapshotEvaluationFrame(task, result, queueMs, endToEndMs, recorder);
         maybeSaveAttackLiveCapture(task, result);
         runOnUiThread(() -> {
             if (isExclusiveEvaluationMode() || authVerdictShowing || !isPipelineCurrent(task.generation)
@@ -1536,9 +1630,15 @@ public final class MainActivity extends Activity {
             if (authMode) {
                 float[] probabilities = result.getProbabilities();
                 if (probabilities != null && probabilities.length > 0) {
-                    AuthFrameAccumulator.Verdict verdict = authFrames.add(
-                            probabilities, task.receivedNs,
-                            SystemClock.elapsedRealtimeNanos());
+                    AuthFrameAccumulator.Verdict verdict;
+                    synchronized (authFrames) {
+                        long frameId = evaluationFrame == null ? -1L : evaluationFrame.optLong("frame_id");
+                        verdict = authFrames.add(probabilities, task.receivedNs,
+                                SystemClock.elapsedRealtimeNanos(), frameId);
+                        if (evaluationFrame != null && frameRecorder == evaluationRecorder) {
+                            frameRecorder.record(evaluationFrame, true, verdict, AUTH_LIVE_THRESHOLD);
+                        }
+                    }
                     if (verdict != null) {
                         String topSpoofLabel = verdict.topSpoofIndex < visionLabels.size()
                                 ? MainScreenView.classDisplayLabel(visionLabels.get(verdict.topSpoofIndex))
@@ -1548,6 +1648,9 @@ public final class MainActivity extends Activity {
                     }
                 }
                 return;
+            }
+            if (evaluationFrame != null && frameRecorder == evaluationRecorder) {
+                frameRecorder.record(evaluationFrame, false, null, AUTH_LIVE_THRESHOLD);
             }
             String classLabel = task.engine.getModelInfo().classLabels.get(result.getTopIndex());
             screen.overlay.showResult(result, classLabel);
@@ -1560,6 +1663,40 @@ public final class MainActivity extends Activity {
                 lastUiUpdateTimeMs = now;
             }
         });
+    }
+
+    private JSONObject snapshotEvaluationFrame(InferenceTask task, VisionLivenessResult result,
+                                               long queueMs, long endToEndMs, EvaluationRecorder recorder) {
+        try {
+            int slot;
+            synchronized (engineLock) {
+                int index = visionEngines.indexOfValue(task.engine);
+                slot = index < 0 ? -1 : visionEngines.keyAt(index);
+            }
+            return new JSONObject().put("frame_id", recorder.nextFrameId())
+                    .put("timestamp_ms", System.currentTimeMillis()).put("model_slot", slot)
+                    .put("detector", task.detectorLabel).put("ir_ae_profile", task.irAeProfile)
+                    .put("rgb_timestamp_ns", task.rgbTimestampNs).put("ir_timestamp_ns", task.irTimestampNs)
+                    .put("pair_delta_ms", (task.rgbTimestampNs - task.irTimestampNs) / 1_000_000.0)
+                    .put("source_rgb_id", "rgb:" + task.rgbTimestampNs)
+                    .put("source_ir_id", "ir:" + task.irTimestampNs)
+                    .put("rgb_face", rectJson(task.rgbFace)).put("ir_face", rectJson(task.irFace))
+                    .put("rgb_crop", rectJson(task.rgbCrop)).put("ir_crop", rectJson(task.irCrop))
+                    .put("rgb_crop_id", task.rgbTimestampNs + ":" + task.rgbCrop.toShortString())
+                    .put("ir_crop_id", task.irTimestampNs + ":" + task.irCrop.toShortString())
+                    .put("probabilities", new JSONArray(result.getProbabilities()))
+                    .put("top_index", result.getTopIndex()).put("top_score", result.getScore())
+                    .put("top_class", task.engine.getModelInfo().classLabels.get(result.getTopIndex()))
+                    .put("inference_ms", result.getInferenceMs())
+                    .put("queue_ms", queueMs).put("end_to_end_ms", endToEndMs);
+        } catch (Exception e) {
+            recorder.fail("frame_snapshot_failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static JSONArray rectJson(Rect rect) {
+        return new JSONArray().put(rect.left).put(rect.top).put(rect.right).put(rect.bottom);
     }
 
     private void processInferenceIfAllowed(InferenceTask task) {
@@ -2462,6 +2599,9 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        EvaluationRecorder evaluation = evaluationRecorder;
+        if (evaluation != null) evaluation.stop("activity_destroyed");
+        if (evaluationConfigDialog != null) evaluationConfigDialog.dismiss();
         synchronized (engineLock) {
             enginesShutDown = true;
         }
@@ -2522,7 +2662,8 @@ public final class MainActivity extends Activity {
         LIGHTING_TEST,
         ENTRY_DETECTOR,
         DETECTOR,
-        FACE_MANAGEMENT;
+        FACE_MANAGEMENT,
+        EVALUATION_RECORDING;
 
         boolean refreshOnSelect() {
             return this == AUTH_MODE
@@ -2574,11 +2715,20 @@ public final class MainActivity extends Activity {
         final long receivedNs;
         final long enqueuedNs;
         final long motionGeneration;
+        final long rgbTimestampNs;
+        final long irTimestampNs;
+        final String detectorLabel;
+        final String irAeProfile;
 
         InferenceTask(FramePair pair, Rect rgbFace, Rect irFace, Rect rgbCrop, Rect irCrop, PointF[] landmarks,
                       int generation, VisionEngine engine,
-                      long receivedNs, long motionGeneration, LandmarkMetadata captureLandmarks) {
+                      long receivedNs, long motionGeneration, LandmarkMetadata captureLandmarks,
+                      String detectorLabel, String irAeProfile) {
             this.pair = pair;
+            this.rgbTimestampNs = pair.rgb.timestampNs;
+            this.irTimestampNs = pair.ir.timestampNs;
+            this.detectorLabel = detectorLabel;
+            this.irAeProfile = irAeProfile;
             this.rgbFace = rgbFace;
             this.irFace = irFace;
             this.rgbCrop = rgbCrop;

@@ -45,4 +45,12 @@
     <string name="webrtc_mute">MUTE</string>
     <string name="webrtc_server_connect">SERVER CONNECT</string>
     <string name="webrtc_close">CLOSE</string>
+    <string name="evaluation_title">Evaluation recording</string>
+    <string name="evaluation_start">START RECORDING</string>
+    <string name="evaluation_ground_truth">Ground-truth class</string>
+    <string name="evaluation_subject_id">Subject ID (use a code, not a name)</string>
+    <string name="evaluation_attack_medium">Attack medium ID (required for attacks)</string>
+    <string name="evaluation_sector">Screen sector (1–9)</string>
+    <string name="evaluation_distance">Distance (cm)</string>
+    <string name="evaluation_lighting">Lighting condition</string>
 </resources>

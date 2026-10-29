@@ -15,6 +15,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
 - Camera, tracking, and calibration: `camera/DualCameraController.java`, `camera/CameraStream.java`, `camera/FrameSynchronizer.java`, `face/FaceDetector.java`, `face/MediaPipeFaceDetector.java`, `face/YuNetFaceDetectorAdapter.java`, `face/FaceDetectionEngine.java`, `calibration/Calibration.java`.
 - Evaluator models and gate: `model/FaceMotionGate.java`, `model/AuthFrameAccumulator.java`.
 - Capture and measurement: `capture/CaptureStorage.java`, `capture/BmpWriter.java`, `performance/LatencyWindow.java`.
+- Evaluation recording: `evaluation/EvaluationRecorder.java` (bounded asynchronous JSON logging), `evaluation/EvaluationLog.java` (frame/trial tables), `ui/EvaluationConfigDialog.java` (operator conditions).
 - Recognition: `recognition/FaceRecognitionManager.java`, `recognition/FixedInputRecognitionRunner.java`.
 - Calls and device UI: `call/WebRtcCallActivity.java`, `api/call/SignalingClient.java`, `api/call/CallSignaling.java`, `device/HardwareControls.java`, `ui/MainScreenView.java`, `ui/CaptureConfigDialog.java`.
 
@@ -32,6 +33,7 @@ All paths below are relative to `app/src/main/java/com/virditech/ac7000/`.
    - Read class labels from `VisionModelInfo.classLabels`; the pre-creation metadata query supplies them before model warmup. Treat `VisionLivenessResult.getProbabilities()` as the sole Lab per-frame probability vector for both supported layouts; copy it once per display operation, and use `getScore()` for the winning score. Do not recreate separate RGB/IR result UI branches.
    - Keep engines keyed by their original manifest slot number and display `MODEL 1`, `MODEL 2`, ... even when other slots fail to load. The Lab computes preview/capture rectangles locally from `engine.getModelInfo().cropMarginRatio`; SDK inference expands its crops internally. Keep pixel rounding and image-bound clipping consistent; do not duplicate model metadata in the app.
    - `FaceMotionGate` (app `model/`) halts inference when RGB face center speed exceeds 0.8 face widths/s or box touches image edge; clears results and resumes on 1st stable frame. Lab-only helper, not part of `:vision`.
+   - Evaluation recording defaults OFF and is controlled through the hidden test menu. Keep hashing/file I/O on the recorder worker, retain no bitmaps, and link Auth records to the accumulator's actual frame IDs and verdict without changing its threshold or averaging. Pause/destroy ends the recording; write failure/queue overflow must be explicit.
 
 3. **`recognition`**:
    - Isolated experimental face-recognition package; the default model is MobileNet Emore INT8, while `w600k_mbf` is a historical experiment.

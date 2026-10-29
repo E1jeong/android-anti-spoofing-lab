@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fillViewport="true">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/evaluation_ground_truth"
+            android:labelFor="@id/ground_truth" />
+        <Spinner
+            android:id="@+id/ground_truth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp" />
+        <EditText
+            android:id="@+id/subject_id"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:hint="@string/evaluation_subject_id"
+            android:inputType="textVisiblePassword"
+            android:importantForAutofill="no"
+            android:maxLength="80"
+            android:singleLine="true" />
+        <EditText
+            android:id="@+id/attack_medium_id"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:hint="@string/evaluation_attack_medium"
+            android:inputType="textVisiblePassword"
+            android:importantForAutofill="no"
+            android:maxLength="80"
+            android:singleLine="true" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/evaluation_sector"
+            android:labelFor="@id/sector" />
+        <Spinner
+            android:id="@+id/sector"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp" />
+        <EditText
+            android:id="@+id/distance_cm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:hint="@string/evaluation_distance"
+            android:inputType="numberDecimal"
+            android:importantForAutofill="no"
+            android:maxLength="12"
+            android:singleLine="true" />
+        <EditText
+            android:id="@+id/lighting"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:hint="@string/evaluation_lighting"
+            android:inputType="text"
+            android:importantForAutofill="no"
+            android:maxLength="80"
+            android:singleLine="true" />
+        <TextView
+            android:id="@+id/error"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="polite"
+            android:textColor="#B71C1C"
+            android:visibility="gone" />
+    </LinearLayout>
+</ScrollView>

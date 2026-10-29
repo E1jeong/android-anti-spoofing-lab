@@ -8,6 +8,7 @@ public final class AuthFrameAccumulator {
     private final int targetFrameCount;
     private final float liveThreshold;
     private final List<float[]> probabilities = new ArrayList<>();
+    private final List<Long> frameIds = new ArrayList<>();
     private long startNs;
 
     public AuthFrameAccumulator(int targetFrameCount, float liveThreshold) {
@@ -20,11 +21,17 @@ public final class AuthFrameAccumulator {
     }
 
     public synchronized Verdict add(float[] frameProbabilities, long receivedNs, long nowNs) {
+        return add(frameProbabilities, receivedNs, nowNs, -1L);
+    }
+
+    public synchronized Verdict add(float[] frameProbabilities, long receivedNs, long nowNs,
+                                    long frameId) {
         if (frameProbabilities == null || frameProbabilities.length < 2) {
             throw new IllegalArgumentException("At least LIVE and one spoof probability are required");
         }
         if (probabilities.isEmpty()) startNs = receivedNs;
         probabilities.add(frameProbabilities.clone());
+        frameIds.add(frameId);
         if (probabilities.size() < targetFrameCount) return null;
 
         int classCount = frameProbabilities.length;
@@ -39,13 +46,15 @@ public final class AuthFrameAccumulator {
             if (sums[i] > sums[topSpoofIndex]) topSpoofIndex = i;
         }
         Verdict verdict = new Verdict(averageLive >= liveThreshold, averageLive,
-                topSpoofIndex, (nowNs - startNs) / 1_000_000L);
+                topSpoofIndex, (nowNs - startNs) / 1_000_000L,
+                frameIds.stream().mapToLong(Long::longValue).toArray());
         reset();
         return verdict;
     }
 
     public synchronized void reset() {
         probabilities.clear();
+        frameIds.clear();
         startNs = 0L;
     }
 
@@ -54,13 +63,15 @@ public final class AuthFrameAccumulator {
         public final float averageLiveScore;
         public final int topSpoofIndex;
         public final long elapsedMs;
+        public final long[] frameIds;
 
         private Verdict(boolean live, float averageLiveScore, int topSpoofIndex,
-                        long elapsedMs) {
+                        long elapsedMs, long[] frameIds) {
             this.live = live;
             this.averageLiveScore = averageLiveScore;
             this.topSpoofIndex = topSpoofIndex;
             this.elapsedMs = elapsedMs;
+            this.frameIds = frameIds;
         }
     }
 }
